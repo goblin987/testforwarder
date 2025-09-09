@@ -34,11 +34,11 @@ TgCF Pro is an enterprise-level Telegram automation bot designed for businesses 
 
 ```env
 BOT_TOKEN=your_bot_token_from_botfather
-API_ID=your_api_id_from_my_telegram_org
-API_HASH=your_api_hash_from_my_telegram_org
-OWNER_USER_ID=your_telegram_user_id
-PASSWORD=secure_admin_password
+OWNER_USER_ID=your_telegram_user_id (optional - for access control)
+PASSWORD=secure_admin_password (optional)
 ```
+
+**Note:** Unlike other bots, TgCF Pro doesn't require API credentials in environment variables. Each user provides their own API credentials through the bot interface for maximum security and privacy.
 
 ## 📋 Features Overview
 

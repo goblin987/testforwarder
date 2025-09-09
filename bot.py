@@ -462,17 +462,38 @@ Access the full-featured web interface for advanced configuration:
                 session['step'] = 'phone_number'
                 
                 await update.message.reply_text(
-                    "✅ **Account name set!**\n\n**Step 2/3: Phone Number**\n\nPlease send me the phone number for this work account (with country code, e.g., +1234567890).",
+                    "✅ **Account name set!**\n\n**Step 2/5: Phone Number**\n\nPlease send me the phone number for this work account (with country code, e.g., +1234567890).",
                     parse_mode=ParseMode.MARKDOWN
                 )
             
             elif session['step'] == 'phone_number':
                 session['account_data']['phone_number'] = message_text
-                session['step'] = 'complete'
+                session['step'] = 'api_id'
                 
-                # Use API credentials from environment
-                session['account_data']['api_id'] = Config.API_ID
-                session['account_data']['api_hash'] = Config.API_HASH
+                await update.message.reply_text(
+                    "✅ **Phone number set!**\n\n**Step 3/5: API ID**\n\nPlease send me the API ID for this account.\n\n**Get it from:** https://my.telegram.org\n• Go to 'API development tools'\n• Create a new application\n• Copy your API ID",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            
+            elif session['step'] == 'api_id':
+                try:
+                    api_id = int(message_text)
+                    session['account_data']['api_id'] = str(api_id)
+                    session['step'] = 'api_hash'
+                    
+                    await update.message.reply_text(
+                        "✅ **API ID set!**\n\n**Step 4/5: API Hash**\n\nPlease send me the API Hash for this account.\n\n**Get it from:** https://my.telegram.org (same page as API ID)",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                except ValueError:
+                    await update.message.reply_text(
+                        "❌ **Invalid API ID!**\n\nPlease send a valid numeric API ID from https://my.telegram.org",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+            
+            elif session['step'] == 'api_hash':
+                session['account_data']['api_hash'] = message_text
+                session['step'] = 'complete'
                 
                 # Save account
                 account_id = self.db.add_telegram_account(
@@ -790,7 +811,7 @@ Access the full-featured web interface for advanced configuration:
         text = """
 ➕ **Add New Work Account**
 
-**Step 1/3: Account Name**
+**Step 1/5: Account Name**
 
 Please send me a name for this work account (e.g., "Marketing Account", "Sales Account", "Support Account").
 

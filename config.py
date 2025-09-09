@@ -25,11 +25,9 @@ load_dotenv()
 class Config:
     # Telegram Bot Configuration
     BOT_TOKEN = os.getenv('BOT_TOKEN')
-    API_ID = os.getenv('API_ID')
-    API_HASH = os.getenv('API_HASH')
     
     # Bot Owner Configuration (single user mode)
-    OWNER_USER_ID = os.getenv('OWNER_USER_ID')  # Your Telegram user ID
+    OWNER_USER_ID = os.getenv('OWNER_USER_ID')  # Your Telegram user ID (optional)
     
     # Web Interface Configuration
     PASSWORD = os.getenv('PASSWORD', 'hocus pocus qwerty utopia')
@@ -48,7 +46,7 @@ class Config:
     @classmethod
     def validate(cls):
         """Validate required configuration"""
-        required_vars = ['BOT_TOKEN', 'API_ID', 'API_HASH']
+        required_vars = ['BOT_TOKEN']
         missing_vars = [var for var in required_vars if not getattr(cls, var)]
         
         if missing_vars:
