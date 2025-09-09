@@ -7,6 +7,7 @@ from config import Config
 from database import Database
 from plugins import PluginManager
 from forwarder import MessageForwarder
+from bump_service import BumpService
 import json
 
 # Configure logging
@@ -21,6 +22,7 @@ class TgcfBot:
         self.db = Database()
         self.plugin_manager = PluginManager()
         self.forwarder = MessageForwarder()
+        self.bump_service = BumpService()
         self.user_sessions = {}  # Store user session data
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -123,6 +125,34 @@ Use the buttons below to get started!
             await self.show_settings(query)
         elif data == "help":
             await self.show_help(query)
+        elif data == "bump_service":
+            await self.show_bump_service(query)
+        elif data == "add_campaign":
+            await self.start_add_campaign(query)
+        elif data == "my_campaigns":
+            await self.show_my_campaigns(query)
+        elif data.startswith("campaign_"):
+            campaign_id = int(data.split("_")[1])
+            await self.show_campaign_details(query, campaign_id)
+        elif data.startswith("delete_campaign_"):
+            campaign_id = int(data.split("_")[2])
+            await self.delete_campaign(query, campaign_id)
+        elif data.startswith("toggle_campaign_"):
+            campaign_id = int(data.split("_")[2])
+            await self.toggle_campaign(query, campaign_id)
+        elif data.startswith("test_campaign_"):
+            campaign_id = int(data.split("_")[2])
+            await self.test_campaign(query, campaign_id)
+        elif data == "back_to_campaigns":
+            await self.show_my_campaigns(query)
+        elif data == "back_to_bump":
+            await self.show_bump_service(query)
+        elif data.startswith("schedule_"):
+            schedule_type = data.split("_")[1]
+            await self.handle_schedule_selection(query, schedule_type)
+        elif data.startswith("select_account_"):
+            account_id = int(data.split("_")[2])
+            await self.handle_account_selection(query, account_id)
         elif data.startswith("config_"):
             config_id = int(data.split("_")[1])
             await self.show_config_details(query, config_id)
@@ -459,6 +489,74 @@ Access the full-featured web interface for advanced configuration:
                     reply_markup=reply_markup
                 )
         
+        # Handle campaign creation
+        elif 'campaign_data' in session:
+            if session['step'] == 'campaign_name':
+                session['campaign_data']['campaign_name'] = message_text
+                session['step'] = 'ad_content'
+                
+                await update.message.reply_text(
+                    "✅ **Campaign name set!**\n\n**Step 2/6: Ad Content**\n\nPlease send me the advertisement content that will be posted.\n\nYou can include:\n• Text messages\n• Emojis\n• Links\n• Formatting (bold, italic, etc.)",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            
+            elif session['step'] == 'ad_content':
+                session['campaign_data']['ad_content'] = message_text
+                session['step'] = 'target_chats'
+                
+                await update.message.reply_text(
+                    "✅ **Ad content set!**\n\n**Step 3/6: Target Chats**\n\nPlease send me the target chat IDs or usernames where you want to post ads.\n\n**Format:** One per line or comma-separated\n\n**Examples:**\n@channel1\n@channel2\n-1001234567890",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            
+            elif session['step'] == 'target_chats':
+                # Parse target chats
+                chats = []
+                for line in message_text.strip().split('\n'):
+                    for chat in line.split(','):
+                        chat = chat.strip()
+                        if chat:
+                            chats.append(chat)
+                
+                session['campaign_data']['target_chats'] = chats
+                session['step'] = 'schedule_type'
+                
+                keyboard = [
+                    [InlineKeyboardButton("📅 Daily", callback_data="schedule_daily")],
+                    [InlineKeyboardButton("📊 Weekly", callback_data="schedule_weekly")],
+                    [InlineKeyboardButton("⏰ Hourly", callback_data="schedule_hourly")],
+                    [InlineKeyboardButton("🔧 Custom", callback_data="schedule_custom")],
+                    [InlineKeyboardButton("❌ Cancel", callback_data="back_to_bump")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    f"✅ **Target chats set!** ({len(chats)} chats)\n\n**Step 4/6: Schedule Type**\n\nHow often should this campaign run?",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=reply_markup
+                )
+            
+            elif session['step'] == 'schedule_time':
+                session['campaign_data']['schedule_time'] = message_text
+                session['step'] = 'account_selection'
+                
+                # Show account selection
+                accounts = self.db.get_user_accounts(user_id)
+                keyboard = []
+                for account in accounts:
+                    keyboard.append([InlineKeyboardButton(
+                        f"📱 {account['account_name']} ({account['phone_number']})", 
+                        callback_data=f"select_account_{account['id']}"
+                    )])
+                keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="back_to_bump")])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    "✅ **Schedule set!**\n\n**Step 5/6: Select Account**\n\nWhich Telegram account should be used to post these ads?",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=reply_markup
+                )
+        
         # Handle forwarding configuration creation
         elif 'config' in session:
             if session['step'] == 'source_chat':
@@ -712,6 +810,342 @@ This name will help you identify the account in the bot interface.
         await query.answer("Account deleted!", show_alert=True)
         await self.show_manage_accounts(query)
     
+    # Bump Service Methods
+    async def show_bump_service(self, query):
+        """Show bump service main menu"""
+        user_id = query.from_user.id
+        campaigns = self.bump_service.get_user_campaigns(user_id)
+        
+        text = """
+📢 **Bump Service - Auto Ads Manager**
+
+Automatically post your advertisements to multiple chats at scheduled times!
+
+**Features:**
+• Schedule ads to post daily, weekly, or custom intervals
+• Post to multiple channels/groups at once  
+• Track ad performance and statistics
+• Test ads before going live
+• Manage multiple ad campaigns
+
+**Current Status:**
+        """
+        
+        if campaigns:
+            active_campaigns = len([c for c in campaigns if c['is_active']])
+            text += f"• Active Campaigns: {active_campaigns}\n"
+            text += f"• Total Campaigns: {len(campaigns)}\n"
+        else:
+            text += "• No campaigns created yet\n"
+        
+        keyboard = [
+            [InlineKeyboardButton("📋 My Campaigns", callback_data="my_campaigns")],
+            [InlineKeyboardButton("➕ Create New Campaign", callback_data="add_campaign")],
+            [InlineKeyboardButton("📊 Campaign Statistics", callback_data="campaign_stats")],
+            [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+    
+    async def show_my_campaigns(self, query):
+        """Show user's ad campaigns"""
+        user_id = query.from_user.id
+        campaigns = self.bump_service.get_user_campaigns(user_id)
+        
+        if not campaigns:
+            keyboard = [
+                [InlineKeyboardButton("➕ Create New Campaign", callback_data="add_campaign")],
+                [InlineKeyboardButton("🔙 Back to Bump Service", callback_data="back_to_bump")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                "📋 **My Campaigns**\n\nNo ad campaigns found.\n\nCreate your first campaign to start automated advertising!",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
+            )
+            return
+        
+        text = "📋 **My Ad Campaigns**\n\n"
+        keyboard = []
+        
+        for campaign in campaigns:
+            status = "🟢 Active" if campaign['is_active'] else "🔴 Inactive"
+            text += f"**{campaign['campaign_name']}** {status}\n"
+            text += f"Schedule: {campaign['schedule_type']} at {campaign['schedule_time']}\n"
+            text += f"Targets: {len(campaign['target_chats'])} chats\n"
+            text += f"Total Sends: {campaign['total_sends']}\n\n"
+            
+            keyboard.append([
+                InlineKeyboardButton(f"⚙️ {campaign['campaign_name']}", callback_data=f"campaign_{campaign['id']}"),
+                InlineKeyboardButton("🧪", callback_data=f"test_campaign_{campaign['id']}"),
+                InlineKeyboardButton("🗑️", callback_data=f"delete_campaign_{campaign['id']}")
+            ])
+        
+        keyboard.append([InlineKeyboardButton("➕ Create New", callback_data="add_campaign")])
+        keyboard.append([InlineKeyboardButton("🔙 Back to Bump Service", callback_data="back_to_bump")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+    
+    async def show_campaign_details(self, query, campaign_id):
+        """Show detailed campaign information"""
+        user_id = query.from_user.id
+        campaign = self.bump_service.get_campaign(campaign_id)
+        
+        if not campaign or campaign['user_id'] != user_id:
+            await query.answer("Campaign not found!", show_alert=True)
+            return
+        
+        # Get performance stats
+        performance = self.bump_service.get_campaign_performance(campaign_id)
+        
+        status = "🟢 Active" if campaign['is_active'] else "🔴 Inactive"
+        text = f"⚙️ **{campaign['campaign_name']}** {status}\n\n"
+        text += f"**Account:** {campaign['account_name']}\n"
+        text += f"**Schedule:** {campaign['schedule_type']} at {campaign['schedule_time']}\n"
+        text += f"**Target Chats:** {len(campaign['target_chats'])}\n"
+        text += f"**Last Run:** {campaign['last_run'] or 'Never'}\n\n"
+        
+        text += "**Performance:**\n"
+        text += f"• Total Attempts: {performance['total_attempts']}\n"
+        text += f"• Successful: {performance['successful_sends']}\n"
+        text += f"• Failed: {performance['failed_sends']}\n"
+        text += f"• Success Rate: {performance['success_rate']:.1f}%\n\n"
+        
+        text += "**Ad Content Preview:**\n"
+        preview = campaign['ad_content'][:200] + "..." if len(campaign['ad_content']) > 200 else campaign['ad_content']
+        text += f"`{preview}`"
+        
+        keyboard = [
+            [InlineKeyboardButton("🔄 Toggle Status", callback_data=f"toggle_campaign_{campaign_id}")],
+            [InlineKeyboardButton("🧪 Test Campaign", callback_data=f"test_campaign_{campaign_id}")],
+            [InlineKeyboardButton("📊 Full Statistics", callback_data=f"stats_{campaign_id}")],
+            [InlineKeyboardButton("🔙 Back to Campaigns", callback_data="back_to_campaigns")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+    
+    async def start_add_campaign(self, query):
+        """Start the process of adding a new ad campaign"""
+        user_id = query.from_user.id
+        
+        # Check if user has any accounts
+        accounts = self.db.get_user_accounts(user_id)
+        if not accounts:
+            keyboard = [
+                [InlineKeyboardButton("➕ Add New Account", callback_data="add_account")],
+                [InlineKeyboardButton("🔙 Back to Bump Service", callback_data="back_to_bump")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                "❌ **No Accounts Found!**\n\nYou need to add at least one Telegram account before creating ad campaigns.\n\nClick 'Add New Account' to get started!",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
+            )
+            return
+        
+        self.user_sessions[user_id] = {'step': 'campaign_name', 'campaign_data': {}}
+        
+        text = """
+➕ **Create New Ad Campaign**
+
+**Step 1/6: Campaign Name**
+
+Please send me a name for this ad campaign (e.g., "Daily Product Promo", "Weekend Sale").
+
+This name will help you identify the campaign in your dashboard.
+        """
+        
+        keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="back_to_bump")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+    
+    async def delete_campaign(self, query, campaign_id):
+        """Delete an ad campaign"""
+        user_id = query.from_user.id
+        campaign = self.bump_service.get_campaign(campaign_id)
+        
+        if not campaign or campaign['user_id'] != user_id:
+            await query.answer("Campaign not found!", show_alert=True)
+            return
+        
+        self.bump_service.delete_campaign(campaign_id)
+        await query.answer("Campaign deleted!", show_alert=True)
+        await self.show_my_campaigns(query)
+    
+    async def toggle_campaign(self, query, campaign_id):
+        """Toggle campaign active status"""
+        user_id = query.from_user.id
+        campaign = self.bump_service.get_campaign(campaign_id)
+        
+        if not campaign or campaign['user_id'] != user_id:
+            await query.answer("Campaign not found!", show_alert=True)
+            return
+        
+        new_status = not campaign['is_active']
+        self.bump_service.update_campaign(campaign_id, is_active=new_status)
+        
+        status_text = "activated" if new_status else "deactivated"
+        await query.answer(f"Campaign {status_text}!", show_alert=True)
+        await self.show_campaign_details(query, campaign_id)
+    
+    async def test_campaign(self, query, campaign_id):
+        """Test an ad campaign"""
+        user_id = query.from_user.id
+        campaign = self.bump_service.get_campaign(campaign_id)
+        
+        if not campaign or campaign['user_id'] != user_id:
+            await query.answer("Campaign not found!", show_alert=True)
+            return
+        
+        # Test by sending to the user's private chat
+        test_chat = str(user_id)
+        
+        try:
+            success = await self.bump_service.test_campaign(campaign_id, test_chat)
+            if success:
+                await query.answer("✅ Test ad sent to your private chat!", show_alert=True)
+            else:
+                await query.answer("❌ Test failed! Check campaign settings.", show_alert=True)
+        except Exception as e:
+            await query.answer(f"❌ Test error: {str(e)[:50]}", show_alert=True)
+    
+    async def handle_schedule_selection(self, query, schedule_type):
+        """Handle schedule type selection"""
+        user_id = query.from_user.id
+        
+        if user_id not in self.user_sessions or 'campaign_data' not in self.user_sessions[user_id]:
+            await query.answer("Session expired! Please start again.", show_alert=True)
+            await self.show_bump_service(query)
+            return
+        
+        session = self.user_sessions[user_id]
+        session['campaign_data']['schedule_type'] = schedule_type
+        session['step'] = 'schedule_time'
+        
+        if schedule_type == 'daily':
+            text = "✅ **Daily schedule selected!**\n\n**Step 5/6: Schedule Time**\n\nPlease send me the time when ads should be posted daily.\n\n**Format:** HH:MM (24-hour format)\n**Example:** 14:30 (for 2:30 PM)"
+        elif schedule_type == 'weekly':
+            text = "✅ **Weekly schedule selected!**\n\n**Step 5/6: Schedule Time**\n\nPlease send me the day and time when ads should be posted weekly.\n\n**Format:** Day HH:MM\n**Example:** Monday 14:30"
+        elif schedule_type == 'hourly':
+            text = "✅ **Hourly schedule selected!**\n\nAds will be posted every hour automatically.\n\nProceeding to account selection..."
+            session['campaign_data']['schedule_time'] = 'every hour'
+            session['step'] = 'account_selection'
+            
+            # Show account selection
+            accounts = self.db.get_user_accounts(user_id)
+            keyboard = []
+            for account in accounts:
+                keyboard.append([InlineKeyboardButton(
+                    f"📱 {account['account_name']} ({account['phone_number']})", 
+                    callback_data=f"select_account_{account['id']}"
+                )])
+            keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="back_to_bump")])
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                "✅ **Hourly schedule set!**\n\n**Step 5/6: Select Account**\n\nWhich Telegram account should be used to post these ads?",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
+            )
+            return
+        elif schedule_type == 'custom':
+            text = "✅ **Custom schedule selected!**\n\n**Step 5/6: Custom Schedule**\n\nPlease send me your custom schedule.\n\n**Examples:**\n• every 4 hours\n• every 30 minutes\n• every 2 days"
+        
+        keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="back_to_bump")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+    
+    async def handle_account_selection(self, query, account_id):
+        """Handle account selection for campaign"""
+        user_id = query.from_user.id
+        
+        if user_id not in self.user_sessions or 'campaign_data' not in self.user_sessions[user_id]:
+            await query.answer("Session expired! Please start again.", show_alert=True)
+            await self.show_bump_service(query)
+            return
+        
+        session = self.user_sessions[user_id]
+        campaign_data = session['campaign_data']
+        
+        # Create the campaign
+        try:
+            campaign_id = self.bump_service.add_campaign(
+                user_id,
+                account_id,
+                campaign_data['campaign_name'],
+                campaign_data['ad_content'],
+                campaign_data['target_chats'],
+                campaign_data['schedule_type'],
+                campaign_data['schedule_time']
+            )
+            
+            # Clear session
+            del self.user_sessions[user_id]
+            
+            account = self.db.get_account(account_id)
+            
+            keyboard = [
+                [InlineKeyboardButton("⚙️ Configure Campaign", callback_data=f"campaign_{campaign_id}")],
+                [InlineKeyboardButton("🧪 Test Campaign", callback_data=f"test_campaign_{campaign_id}")],
+                [InlineKeyboardButton("📋 My Campaigns", callback_data="my_campaigns")],
+                [InlineKeyboardButton("🔙 Bump Service", callback_data="back_to_bump")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            success_text = f"""
+🎉 **Campaign Created Successfully!**
+
+**Name:** {campaign_data['campaign_name']}
+**Account:** {account['account_name']}
+**Schedule:** {campaign_data['schedule_type']} at {campaign_data['schedule_time']}
+**Target Chats:** {len(campaign_data['target_chats'])}
+
+Your campaign is now active and will start posting ads according to your schedule!
+
+**Next Steps:**
+• Test your campaign before it goes live
+• Monitor performance in campaign details
+• Adjust settings as needed
+            """
+            
+            await query.edit_message_text(
+                success_text,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
+            )
+            
+        except Exception as e:
+            await query.answer(f"❌ Error creating campaign: {str(e)[:50]}", show_alert=True)
+            logger.error(f"Error creating campaign for user {user_id}: {e}")
+    
     async def setup_bot_commands(self, application):
         """Setup bot commands"""
         commands = [
@@ -726,6 +1160,10 @@ This name will help you identify the account in the bot interface.
         """Run the bot"""
         # Validate configuration
         Config.validate()
+        
+        # Start bump service scheduler
+        self.bump_service.start_scheduler()
+        logger.info("Bump service scheduler started")
         
         # Create application
         application = Application.builder().token(Config.BOT_TOKEN).build()
