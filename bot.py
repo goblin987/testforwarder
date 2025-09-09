@@ -78,7 +78,7 @@ Use the buttons below to get started!
 4. **Start Forwarding** - Your messages will be forwarded automatically!
 
 **Multi-Account Features:**
-• Add multiple Telegram accounts
+• Add multiple Telegram accounts with their own API credentials
 • Each account can have separate forwarding rules
 • Forward to different or same destinations
 • Manage all accounts from one bot interface
@@ -88,10 +88,12 @@ Use the buttons below to get started!
 • For groups: Use group ID (get from @userinfobot)
 • For users: Use @username or user ID
 
-**Account Setup:**
-• Get API credentials from https://my.telegram.org
-• Each account needs its own API ID and Hash
+**Account Setup (IMPORTANT):**
+• Each user must get their own API credentials from https://my.telegram.org
+• Go to "API development tools" and create an application
+• Each account needs its own API ID and Hash (YOUR personal credentials)
 • Phone number authentication required for each account
+• Your API credentials are stored securely and only used for your accounts
         """
         
         keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="main_menu")]]
@@ -463,6 +465,20 @@ Access the full-featured web interface for advanced configuration:
             elif session['step'] == 'api_hash':
                 session['account_data']['api_hash'] = message_text
                 session['step'] = 'complete'
+                
+                # Validate API credentials format
+                try:
+                    api_id = int(session['account_data']['api_id'])
+                    if len(session['account_data']['api_hash']) < 10:
+                        raise ValueError("API Hash too short")
+                except:
+                    await update.message.reply_text(
+                        "❌ **Invalid API Credentials!**\n\nPlease check your API ID and API Hash from https://my.telegram.org and try again.",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    # Reset to API ID step
+                    session['step'] = 'api_id'
+                    return
                 
                 # Save account
                 account_id = self.db.add_telegram_account(
