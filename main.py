@@ -1,7 +1,17 @@
 #!/usr/bin/env python3
 """
-TgCF Bot - Telegram Chat Forwarding Bot
-Main application entry point
+TgCF Pro - Enterprise Telegram Automation Bot
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Professional-grade Telegram automation solution for business messaging 
+and advertising campaigns.
+
+Main Application Entry Point
+
+Author: TgCF Pro Team
+License: MIT
+Version: 1.0.0
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
 import asyncio

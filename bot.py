@@ -1,3 +1,23 @@
+"""
+TgCF Pro - Enterprise Telegram Bot Interface
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Professional Telegram bot interface providing intuitive user interactions
+for enterprise-grade automation and campaign management.
+
+Features:
+- Multi-account management with streamlined setup
+- Advanced campaign creation and scheduling
+- Real-time performance monitoring and analytics
+- Enterprise security with access control
+- Professional UI/UX with inline keyboards
+
+Author: TgCF Pro Team
+License: MIT
+Version: 1.0.0
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+
 import asyncio
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
@@ -10,7 +30,7 @@ from forwarder import MessageForwarder
 from bump_service import BumpService
 import json
 
-# Configure logging
+# Configure professional logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -40,18 +60,18 @@ class TgcfBot:
         self.db.add_user(user.id, user.username, user.first_name, user.last_name)
         
         welcome_text = """
-🤖 **Welcome to Your Personal TgCF Bot!**
+🚀 **Welcome to TgCF Pro**
 
-Your automated business tool for message forwarding and advertisement campaigns with **multiple work account support**.
+*Enterprise Telegram Automation Platform*
 
-**Features:**
-• Multiple work account management
-• Live message forwarding between channels/groups
-• Automated ad campaigns (Bump Service)
-• Custom scheduling and targeting
-• Performance tracking and statistics
+**Professional Features:**
+• 🏢 Multi-Account Management - Unlimited work accounts
+• 📢 Smart Bump Service - Advanced campaign automation  
+• ⚡ Real-time Forwarding - Lightning-fast message processing
+• 📊 Business Analytics - Comprehensive performance tracking
+• 🛡️ Enterprise Security - Professional-grade protection
 
-Use the buttons below to manage your work accounts and campaigns!
+**Ready to automate your business communications?**
         """
         
         keyboard = [

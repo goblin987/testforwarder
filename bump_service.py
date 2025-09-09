@@ -1,3 +1,24 @@
+"""
+TgCF Pro - Smart Bump Service Engine
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Enterprise-grade automated advertising and campaign management system.
+Provides intelligent scheduling, multi-target broadcasting, and comprehensive
+performance analytics for business communication automation.
+
+Features:
+- Advanced campaign scheduling with multiple patterns
+- Multi-account campaign management
+- Real-time performance tracking and analytics
+- Intelligent retry mechanisms and error handling
+- Professional campaign templates and A/B testing
+
+Author: TgCF Pro Team
+License: MIT
+Version: 1.0.0
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+
 import asyncio
 import logging
 import schedule

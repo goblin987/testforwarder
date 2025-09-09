@@ -1,3 +1,22 @@
+"""
+TgCF Pro - Configuration Management
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Enterprise configuration management with environment variable validation,
+security features, and professional deployment settings.
+
+Features:
+- Secure environment variable handling
+- Configuration validation and error reporting
+- Professional deployment configuration
+- Enterprise security settings
+
+Author: TgCF Pro Team
+License: MIT
+Version: 1.0.0
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+
 import os
 from dotenv import load_dotenv
 
