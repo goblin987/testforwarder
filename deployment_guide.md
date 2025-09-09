@@ -41,10 +41,13 @@ In Render dashboard, add these environment variables:
 
 ```
 BOT_TOKEN=your_bot_token_from_botfather
+API_ID=your_api_id_from_my.telegram.org
+API_HASH=your_api_hash_from_my.telegram.org
 PASSWORD=your_secure_password
+OWNER_USER_ID=your_telegram_user_id (optional - for access control)
 ```
 
-**Note:** Unlike other bots, this bot doesn't need your personal API credentials in environment variables! Each user adds their own API credentials through the bot interface for maximum security and privacy.
+**Note:** Since you're the only user, you set your API credentials once in the environment. All your work accounts will use these same credentials for connections.
 
 ### Step 4: Deploy
 
@@ -59,14 +62,12 @@ PASSWORD=your_secure_password
 - Send `/start`
 - You should see the main menu with "Bump Service (Auto Ads)" option
 
-### 2. Add Account Test
+### 2. Add Work Account Test
 - Click "Manage Accounts" → "Add New Account"
 - Enter account details:
-  - Account name (e.g., "My Personal Account")
+  - Account name (e.g., "Marketing Account", "Sales Team")
   - Phone number (with country code, e.g., +1234567890)
-  - **Your own API ID** from https://my.telegram.org
-  - **Your own API Hash** from https://my.telegram.org
-- Complete the setup (each user uses their own API credentials!)
+- Complete! (Uses your API credentials from environment variables)
 
 ### 3. Create Campaign Test
 - Click "Bump Service (Auto Ads)" → "Create New Campaign"

@@ -28,21 +28,30 @@ class TgcfBot:
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
         user = update.effective_user
+        
+        # Check if this is the bot owner (optional - you can remove this check if you want)
+        if Config.OWNER_USER_ID and str(user.id) != Config.OWNER_USER_ID:
+            await update.message.reply_text(
+                "🔒 **Access Restricted**\n\nThis bot is for authorized use only.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+            
         self.db.add_user(user.id, user.username, user.first_name, user.last_name)
         
         welcome_text = """
-🤖 **Welcome to TgCF Bot!**
+🤖 **Welcome to Your Personal TgCF Bot!**
 
-The ultimate tool to automate custom telegram message forwarding with **multiple account support**.
+Your automated business tool for message forwarding and advertisement campaigns with **multiple work account support**.
 
 **Features:**
-• Multiple Telegram account management
-• Live message forwarding
-• Custom filters and plugins
-• Separate forwarding per account
-• Support for all message types
+• Multiple work account management
+• Live message forwarding between channels/groups
+• Automated ad campaigns (Bump Service)
+• Custom scheduling and targeting
+• Performance tracking and statistics
 
-Use the buttons below to get started!
+Use the buttons below to manage your work accounts and campaigns!
         """
         
         keyboard = [
@@ -433,52 +442,17 @@ Access the full-featured web interface for advanced configuration:
                 session['step'] = 'phone_number'
                 
                 await update.message.reply_text(
-                    "✅ **Account name set!**\n\n**Step 2/5: Phone Number**\n\nPlease send me the phone number for this account (with country code, e.g., +1234567890).",
+                    "✅ **Account name set!**\n\n**Step 2/3: Phone Number**\n\nPlease send me the phone number for this work account (with country code, e.g., +1234567890).",
                     parse_mode=ParseMode.MARKDOWN
                 )
             
             elif session['step'] == 'phone_number':
                 session['account_data']['phone_number'] = message_text
-                session['step'] = 'api_id'
-                
-                await update.message.reply_text(
-                    "✅ **Phone number set!**\n\n**Step 3/5: API ID**\n\nPlease send me the API ID for this account.\n\nGet it from: https://my.telegram.org",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            
-            elif session['step'] == 'api_id':
-                try:
-                    api_id = int(message_text)
-                    session['account_data']['api_id'] = str(api_id)
-                    session['step'] = 'api_hash'
-                    
-                    await update.message.reply_text(
-                        "✅ **API ID set!**\n\n**Step 4/5: API Hash**\n\nPlease send me the API Hash for this account.\n\nGet it from: https://my.telegram.org",
-                        parse_mode=ParseMode.MARKDOWN
-                    )
-                except ValueError:
-                    await update.message.reply_text(
-                        "❌ **Invalid API ID!**\n\nPlease send a valid numeric API ID.",
-                        parse_mode=ParseMode.MARKDOWN
-                    )
-            
-            elif session['step'] == 'api_hash':
-                session['account_data']['api_hash'] = message_text
                 session['step'] = 'complete'
                 
-                # Validate API credentials format
-                try:
-                    api_id = int(session['account_data']['api_id'])
-                    if len(session['account_data']['api_hash']) < 10:
-                        raise ValueError("API Hash too short")
-                except:
-                    await update.message.reply_text(
-                        "❌ **Invalid API Credentials!**\n\nPlease check your API ID and API Hash from https://my.telegram.org and try again.",
-                        parse_mode=ParseMode.MARKDOWN
-                    )
-                    # Reset to API ID step
-                    session['step'] = 'api_id'
-                    return
+                # Use API credentials from environment
+                session['account_data']['api_id'] = Config.API_ID
+                session['account_data']['api_hash'] = Config.API_HASH
                 
                 # Save account
                 account_id = self.db.add_telegram_account(
@@ -500,10 +474,11 @@ Access the full-featured web interface for advanced configuration:
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 await update.message.reply_text(
-                    f"🎉 **Account Added Successfully!**\n\n**Name:** {session['account_data']['account_name']}\n**Phone:** `{session['account_data']['phone_number']}`\n\nYou can now create forwarding configurations for this account!",
+                    f"🎉 **Work Account Added Successfully!**\n\n**Name:** {session['account_data']['account_name']}\n**Phone:** `{session['account_data']['phone_number']}`\n\nYou can now create campaigns and forwarding rules for this account!",
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=reply_markup
                 )
+            
         
         # Handle campaign creation
         elif 'campaign_data' in session:
@@ -793,13 +768,13 @@ Access the full-featured web interface for advanced configuration:
         self.user_sessions[user_id] = {'step': 'account_name', 'account_data': {}}
         
         text = """
-➕ **Add New Telegram Account**
+➕ **Add New Work Account**
 
-**Step 1/5: Account Name**
+**Step 1/3: Account Name**
 
-Please send me a name for this account (e.g., "My Personal Account", "Work Account").
+Please send me a name for this work account (e.g., "Marketing Account", "Sales Account", "Support Account").
 
-This name will help you identify the account in the bot interface.
+This name will help you identify the account when managing campaigns.
         """
         
         keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="manage_accounts")]]
