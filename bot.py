@@ -720,12 +720,16 @@ Access the full-featured web interface for advanced configuration:
             )
             return
         
-        text = "👥 **Manage Accounts**\n\n"
+        text = "👥 Manage Accounts\n\n"
         keyboard = []
         
         for account in accounts:
-            text += f"**{account['account_name']}**\n"
-            text += f"Phone: `{account['phone_number']}`\n"
+            # Use plain text formatting
+            account_name = self.escape_markdown(account['account_name'])
+            phone_number = self.escape_markdown(account['phone_number'])
+            
+            text += f"📱 {account_name}\n"
+            text += f"📞 Phone: {phone_number}\n"
             text += f"Status: {'🟢 Active' if account['is_active'] else '🔴 Inactive'}\n\n"
             
             keyboard.append([
@@ -738,22 +742,12 @@ Access the full-featured web interface for advanced configuration:
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        try:
-            await query.edit_message_text(
-                text,
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=reply_markup
-            )
-        except Exception as e:
-            # Fallback to HTML if Markdown fails
-            logger.warning(f"Markdown parsing failed in manage accounts, falling back to HTML: {e}")
-            # Convert Markdown to HTML for fallback
-            html_text = text.replace("**", "<b>").replace("**", "</b>").replace("`", "<code>").replace("`", "</code>")
-            await query.edit_message_text(
-                html_text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
+        # Use plain text to avoid Markdown parsing issues
+        plain_text = text.replace("**", "").replace("`", "").replace("*", "")
+        await query.edit_message_text(
+            plain_text,
+            reply_markup=reply_markup
+        )
     
     async def show_account_details(self, query, account_id):
         """Show detailed account information"""
