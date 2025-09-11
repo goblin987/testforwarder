@@ -1901,6 +1901,12 @@ This name will help you identify the campaign in your dashboard.
     async def handle_account_selection(self, query, account_id):
         """Handle account selection for campaign with immediate execution"""
         user_id = query.from_user.id
+        logger.info(f"Account selection started for user {user_id}, account {account_id}")
+        
+        try:
+            await query.answer("Processing account selection...")
+        except Exception as e:
+            logger.error(f"Failed to answer query: {e}")
         
         if user_id not in self.user_sessions or 'campaign_data' not in self.user_sessions[user_id]:
             await query.answer("Session expired! Please start again.", show_alert=True)
@@ -1909,12 +1915,16 @@ This name will help you identify the campaign in your dashboard.
         
         session = self.user_sessions[user_id]
         campaign_data = session['campaign_data']
+        logger.info(f"Campaign data: {list(campaign_data.keys())}")
         
         # Get account details for display
         account = self.db.get_account(account_id)
         if not account:
             await query.answer("Account not found!", show_alert=True)
+            logger.error(f"Account {account_id} not found in database")
             return
+        
+        logger.info(f"Account found: {account['account_name']}")
         
         # Create the campaign with enhanced data structure
         try:
@@ -1930,6 +1940,8 @@ This name will help you identify the campaign in your dashboard.
                 'immediate_start': True  # Flag for immediate execution
             }
             
+            logger.info(f"Creating campaign with data: {enhanced_campaign_data}")
+            
             campaign_id = self.bump_service.add_campaign(
                 user_id,
                 account_id,
@@ -1940,8 +1952,11 @@ This name will help you identify the campaign in your dashboard.
                 enhanced_campaign_data['schedule_time']
             )
             
-            # IMMEDIATE EXECUTION: Send first message immediately
-            immediate_success = await self.execute_immediate_campaign(campaign_id, account_id, enhanced_campaign_data)
+            logger.info(f"Campaign created successfully with ID: {campaign_id}")
+            
+            # Skip immediate execution for now to avoid timeouts
+            # immediate_success = await self.execute_immediate_campaign(campaign_id, account_id, enhanced_campaign_data)
+            immediate_success = False  # Temporary disable
             
             # Clear session
             del self.user_sessions[user_id]
@@ -1954,12 +1969,9 @@ This name will help you identify the campaign in your dashboard.
 **Schedule:** {enhanced_campaign_data['schedule_type']} at {enhanced_campaign_data['schedule_time']}
 **Targets:** {len(enhanced_campaign_data['target_chats'])} chat(s)
 
+✅ **Campaign is now active and scheduled!**
+📅 **Messages will be sent according to your schedule**
 """
-            
-            if immediate_success:
-                success_text += "✅ **First message sent immediately!**\n📅 **Next message scheduled according to your timing**"
-            else:
-                success_text += "⏳ **Campaign scheduled and ready to run**\n📅 **First message will be sent at the next scheduled time**"
             
             keyboard = [
                 [InlineKeyboardButton("⚙️ Configure Campaign", callback_data=f"campaign_{campaign_id}")],
@@ -1968,22 +1980,6 @@ This name will help you identify the campaign in your dashboard.
                 [InlineKeyboardButton("🔙 Bump Service", callback_data="back_to_bump")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            success_text = f"""
-🎉 **Campaign Created Successfully!**
-
-**Name:** {campaign_data['campaign_name']}
-**Account:** {account['account_name']}
-**Schedule:** {campaign_data['schedule_type']} at {campaign_data['schedule_time']}
-**Target Chats:** {len(campaign_data['target_chats'])}
-
-Your campaign is now active and will start posting ads according to your schedule!
-
-**Next Steps:**
-• Test your campaign before it goes live
-• Monitor performance in campaign details
-• Adjust settings as needed
-            """
             
             await query.edit_message_text(
                 success_text,

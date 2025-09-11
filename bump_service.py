@@ -105,10 +105,19 @@ class BumpService:
             conn.commit()
     
     def add_campaign(self, user_id: int, account_id: int, campaign_name: str, 
-                    ad_content: str, target_chats: List[str], schedule_type: str, 
+                    ad_content, target_chats: List[str], schedule_type: str, 
                     schedule_time: str) -> int:
-        """Add new ad campaign"""
+        """Add new ad campaign with support for complex content types"""
         import sqlite3
+        
+        # Convert ad_content to JSON string if it's a list or dict
+        if isinstance(ad_content, (list, dict)):
+            ad_content_str = json.dumps(ad_content)
+        else:
+            ad_content_str = str(ad_content)
+        
+        # Convert target_chats to JSON string
+        target_chats_str = json.dumps(target_chats) if isinstance(target_chats, list) else str(target_chats)
         
         with sqlite3.connect(self.db.db_path) as conn:
             cursor = conn.cursor()
@@ -116,14 +125,14 @@ class BumpService:
                 INSERT INTO ad_campaigns 
                 (user_id, account_id, campaign_name, ad_content, target_chats, schedule_type, schedule_time)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (user_id, account_id, campaign_name, ad_content, 
-                 json.dumps(target_chats), schedule_type, schedule_time))
+            ''', (user_id, account_id, campaign_name, ad_content_str, 
+                 target_chats_str, schedule_type, schedule_time))
             conn.commit()
             campaign_id = cursor.lastrowid
             
             # Schedule the campaign
             self.schedule_campaign(campaign_id)
-            logger.info(f"Added campaign {campaign_id}: {campaign_name}")
+            logger.info(f"Added campaign {campaign_id}: {campaign_name} with content type: {type(ad_content)}")
             return campaign_id
     
     def get_user_campaigns(self, user_id: int) -> List[Dict]:
@@ -143,13 +152,25 @@ class BumpService:
             
             campaigns = []
             for row in rows:
+                # Parse ad_content (could be JSON string or plain string)
+                try:
+                    ad_content = json.loads(row[4]) if row[4].startswith(('[', '{')) else row[4]
+                except (json.JSONDecodeError, AttributeError):
+                    ad_content = row[4]
+                
+                # Parse target_chats (should be JSON string)
+                try:
+                    target_chats = json.loads(row[5]) if isinstance(row[5], str) else row[5]
+                except (json.JSONDecodeError, TypeError):
+                    target_chats = [row[5]] if row[5] else []
+                
                 campaigns.append({
                     'id': row[0],
                     'user_id': row[1],
                     'account_id': row[2],
                     'campaign_name': row[3],
-                    'ad_content': row[4],
-                    'target_chats': json.loads(row[5]),
+                    'ad_content': ad_content,
+                    'target_chats': target_chats,
                     'schedule_type': row[6],
                     'schedule_time': row[7],
                     'is_active': row[8],
@@ -175,13 +196,25 @@ class BumpService:
             row = cursor.fetchone()
             
             if row:
+                # Parse ad_content (could be JSON string or plain string)
+                try:
+                    ad_content = json.loads(row[4]) if row[4].startswith(('[', '{')) else row[4]
+                except (json.JSONDecodeError, AttributeError):
+                    ad_content = row[4]
+                
+                # Parse target_chats (should be JSON string)
+                try:
+                    target_chats = json.loads(row[5]) if isinstance(row[5], str) else row[5]
+                except (json.JSONDecodeError, TypeError):
+                    target_chats = [row[5]] if row[5] else []
+                
                 return {
                     'id': row[0],
                     'user_id': row[1],
                     'account_id': row[2],
                     'campaign_name': row[3],
-                    'ad_content': row[4],
-                    'target_chats': json.loads(row[5]),
+                    'ad_content': ad_content,
+                    'target_chats': target_chats,
                     'schedule_type': row[6],
                     'schedule_time': row[7],
                     'is_active': row[8],
