@@ -1199,6 +1199,7 @@ Your campaign is now active and will start posting ads according to your schedul
         user_id = update.message.from_user.id
         
 
+        document = update.message.document
         
         # Check if this is a session file
         if not document.file_name or not document.file_name.endswith(".session"):
