@@ -985,54 +985,80 @@ Buttons will appear as an inline keyboard below your ad message."""
                     if dialog.is_group and not dialog.is_channel:
                         target_chats.append(str(dialog.id))
             
-            # Send messages to target chats
+            # Send messages to target chats using entity objects
             success_count = 0
             ad_content = campaign_data['ad_content']
             buttons = campaign_data.get('buttons', [])
             
-            # Prepare inline keyboard if buttons exist
-            reply_markup = None
+            # Create Telethon buttons if we have button data
+            telethon_buttons = None
             if buttons:
-                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                keyboard = []
+                from telethon.tl.types import KeyboardButtonUrl
+                button_rows = []
                 for button in buttons:
-                    keyboard.append([InlineKeyboardButton(button['text'], url=button['url'])])
-                reply_markup = InlineKeyboardMarkup(keyboard)
+                    button_rows.append([KeyboardButtonUrl(button['text'], button['url'])])
+                telethon_buttons = button_rows
+                logger.info(f"Prepared {len(buttons)} buttons for immediate execution")
             
-            for chat_id in target_chats:
+            # Get all dialogs and find groups (use entities instead of IDs)
+            target_entities = []
+            if campaign_data.get('target_mode') == 'all_groups' or target_chats == ['ALL_WORKER_GROUPS']:
+                logger.info("Discovering worker account groups for immediate execution...")
+                dialogs = await client.get_dialogs()
+                
+                for dialog in dialogs:
+                    if dialog.is_group:  # Include both groups and supergroups
+                        target_entities.append(dialog.entity)
+                        logger.info(f"Found group for immediate execution: {dialog.name} (ID: {dialog.id})")
+                
+                logger.info(f"Discovered {len(target_entities)} groups for immediate execution")
+            else:
+                # Use specific chat IDs - convert to entities
+                for chat_id in target_chats:
+                    try:
+                        entity = await client.get_entity(chat_id)
+                        target_entities.append(entity)
+                    except Exception as e:
+                        logger.error(f"Failed to get entity for {chat_id}: {e}")
+            
+            for chat_entity in target_entities:
                 try:
                     # Handle different content types
                     if isinstance(ad_content, list) and ad_content:
                         # Multiple messages (forwarded content)
-                        for message_data in ad_content:
+                        for i, message_data in enumerate(ad_content):
+                            # Only add buttons to the last message
+                            buttons_for_message = telethon_buttons if i == len(ad_content) - 1 else None
+                            
                             if message_data.get('media_type'):
                                 # Send media message
                                 await client.send_file(
-                                    chat_id,
+                                    chat_entity,
                                     message_data['file_id'],
                                     caption=message_data.get('caption', message_data.get('text', '')),
-                                    buttons=reply_markup.inline_keyboard if reply_markup else None
+                                    buttons=buttons_for_message
                                 )
                             else:
-                                # Send text message
+                                # Send text message with buttons
                                 await client.send_message(
-                                    chat_id,
+                                    chat_entity,
                                     message_data.get('text', ''),
-                                    buttons=reply_markup.inline_keyboard if reply_markup else None
+                                    buttons=buttons_for_message
                                 )
                     else:
-                        # Single text message
+                        # Single text message with buttons
                         message_text = ad_content if isinstance(ad_content, str) else str(ad_content)
                         await client.send_message(
-                            chat_id,
+                            chat_entity,
                             message_text,
-                            buttons=reply_markup.inline_keyboard if reply_markup else None
+                            buttons=telethon_buttons
                         )
                     
                     success_count += 1
+                    logger.info(f"Successfully sent to {chat_entity.title} ({chat_entity.id}) with {len(buttons) if buttons else 0} buttons")
                     
                 except Exception as e:
-                    logger.error(f"Failed to send to {chat_id}: {e}")
+                    logger.error(f"Failed to send to {chat_entity.title if hasattr(chat_entity, 'title') else chat_entity.id}: {e}")
                     continue
             
             await client.disconnect()
@@ -1180,32 +1206,63 @@ Check that your worker account has access to the target groups."""
             success_count = 0
             ad_content = campaign_data['ad_content']
             
+            # Parse buttons from campaign data
+            buttons_data = []
+            if isinstance(ad_content, list) and ad_content:
+                # Look for buttons in the first message data
+                first_message = ad_content[0]
+                if 'buttons' in first_message:
+                    buttons_data = first_message['buttons']
+            
+            # Also check for buttons in campaign_data
+            if 'buttons' in campaign_data and campaign_data['buttons']:
+                buttons_data = campaign_data['buttons']
+            
+            # Create Telethon buttons if we have button data
+            telethon_buttons = None
+            if buttons_data:
+                from telethon.tl.types import KeyboardButtonUrl
+                button_rows = []
+                for button in buttons_data:
+                    button_rows.append([KeyboardButtonUrl(button['text'], button['url'])])
+                telethon_buttons = button_rows
+                logger.info(f"Prepared {len(buttons_data)} buttons for campaign")
+            
             for chat_entity in target_chats:
                 try:
                     # Handle different content types
                     if isinstance(ad_content, list) and ad_content:
                         # Multiple messages (forwarded content)
-                        for message_data in ad_content:
+                        for i, message_data in enumerate(ad_content):
+                            # Only add buttons to the last message
+                            buttons_for_message = telethon_buttons if i == len(ad_content) - 1 else None
+                            
                             if message_data.get('media_type'):
                                 # Send media message
                                 await client.send_file(
                                     chat_entity,
                                     message_data['file_id'],
-                                    caption=message_data.get('caption', message_data.get('text', ''))
+                                    caption=message_data.get('caption', message_data.get('text', '')),
+                                    buttons=buttons_for_message
                                 )
                             else:
-                                # Send text message
+                                # Send text message with buttons
                                 await client.send_message(
                                     chat_entity,
-                                    message_data.get('text', '')
+                                    message_data.get('text', ''),
+                                    buttons=buttons_for_message
                                 )
                     else:
-                        # Single text message
+                        # Single text message with buttons
                         message_text = ad_content if isinstance(ad_content, str) else str(ad_content)
-                        await client.send_message(chat_entity, message_text)
+                        await client.send_message(
+                            chat_entity, 
+                            message_text,
+                            buttons=telethon_buttons
+                        )
                     
                     success_count += 1
-                    logger.info(f"Successfully sent to {chat_entity.title} ({chat_entity.id})")
+                    logger.info(f"Successfully sent to {chat_entity.title} ({chat_entity.id}) with {len(buttons_data) if buttons_data else 0} buttons")
                     
                 except Exception as e:
                     logger.error(f"Failed to send to {chat_entity.title if hasattr(chat_entity, 'title') else chat_entity.id}: {e}")
