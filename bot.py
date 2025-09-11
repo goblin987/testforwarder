@@ -1961,16 +1961,16 @@ This name will help you identify the campaign in your dashboard.
             # Clear session
             del self.user_sessions[user_id]
             
-            # Success message with immediate execution feedback
-            success_text = f"""🎉 **Campaign Created Successfully!**
+            # Success message with plain text to avoid parse entities error
+            success_text = f"""🎉 Campaign Created Successfully!
 
-**Campaign:** {enhanced_campaign_data['campaign_name']}
-**Account:** {account['account_name']} ({account['phone_number']})
-**Schedule:** {enhanced_campaign_data['schedule_type']} at {enhanced_campaign_data['schedule_time']}
-**Targets:** {len(enhanced_campaign_data['target_chats'])} chat(s)
+Campaign: {enhanced_campaign_data['campaign_name']}
+Account: {account['account_name']} ({account['phone_number']})
+Schedule: {enhanced_campaign_data['schedule_type']} at {enhanced_campaign_data['schedule_time']}
+Targets: {len(enhanced_campaign_data['target_chats'])} chat(s)
 
-✅ **Campaign is now active and scheduled!**
-📅 **Messages will be sent according to your schedule**
+✅ Campaign is now active and scheduled!
+📅 Messages will be sent according to your schedule
 """
             
             keyboard = [
@@ -1983,7 +1983,6 @@ This name will help you identify the campaign in your dashboard.
             
             await query.edit_message_text(
                 success_text,
-                parse_mode=ParseMode.MARKDOWN,
                 reply_markup=reply_markup
             )
             
