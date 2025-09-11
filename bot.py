@@ -38,6 +38,33 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class TgcfBot:
+    def escape_markdown(self, text):
+        """Escape special Markdown characters"""
+        if not text:
+            return ""
+        # Escape special characters that break Markdown
+        text = str(text)
+        text = text.replace("\\", "\\\\")  # Backslash first
+        text = text.replace("*", "\\*")   # Asterisk
+        text = text.replace("_", "\\_")   # Underscore
+        text = text.replace("`", "\\`")   # Backtick
+        text = text.replace("[", "\\[")   # Square brackets
+        text = text.replace("]", "\\]")   # Square brackets
+        text = text.replace("(", "\\(")   # Parentheses
+        text = text.replace(")", "\\)")   # Parentheses
+        text = text.replace("~", "\\~")   # Tilde
+        text = text.replace(">", "\\>")   # Greater than
+        text = text.replace("#", "\\#")   # Hash
+        text = text.replace("+", "\\+")   # Plus
+        text = text.replace("-", "\\-")   # Minus
+        text = text.replace("=", "\\=")   # Equals
+        text = text.replace("|", "\\|")   # Pipe
+        text = text.replace("{", "\\{")   # Curly braces
+        text = text.replace("}", "\\}")   # Curly braces
+        text = text.replace(".", "\\.")   # Dot
+        text = text.replace("!", "\\!")   # Exclamation
+        return text
+
     def __init__(self):
         self.db = Database()
         self.plugin_manager = PluginManager()
@@ -702,7 +729,7 @@ Access the full-featured web interface for advanced configuration:
             text += f"Status: {'🟢 Active' if account['is_active'] else '🔴 Inactive'}\n\n"
             
             keyboard.append([
-                InlineKeyboardButton(f"⚙️ {account['account_name']}", callback_data=f"account_{account['id']}"),
+                InlineKeyboardButton(f"⚙️ {self.escape_markdown(account['account_name'])}", callback_data=f"account_{account['id']}"),
                 InlineKeyboardButton("🗑️", callback_data=f"delete_account_{account['id']}")
             ])
         
@@ -711,11 +738,22 @@ Access the full-featured web interface for advanced configuration:
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await query.edit_message_text(
-            text,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
+        try:
+            await query.edit_message_text(
+                text,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            # Fallback to HTML if Markdown fails
+            logger.warning(f"Markdown parsing failed in manage accounts, falling back to HTML: {e}")
+            # Convert Markdown to HTML for fallback
+            html_text = text.replace("**", "<b>").replace("**", "</b>").replace("`", "<code>").replace("`", "</code>")
+            await query.edit_message_text(
+                html_text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
     
     async def show_account_details(self, query, account_id):
         """Show detailed account information"""
