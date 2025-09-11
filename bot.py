@@ -103,6 +103,7 @@ class TgcfBot:
         
         keyboard = [
             [InlineKeyboardButton("👥 Manage Accounts", callback_data="manage_accounts")],
+            [InlineKeyboardButton("📢 Bump Service", callback_data="bump_service")],
             [InlineKeyboardButton("📋 My Configurations", callback_data="my_configs")],
             [InlineKeyboardButton("➕ Add New Forwarding", callback_data="add_forwarding")],
             [InlineKeyboardButton("⚙️ Settings", callback_data="settings")],
@@ -257,6 +258,12 @@ class TgcfBot:
             await self.handle_target_specific_chats(query)
         elif data == "cancel_campaign":
             await self.handle_cancel_campaign(query)
+        elif data == "back_to_schedule_selection":
+            await self.show_schedule_selection(query)
+        elif data == "back_to_target_selection":
+            await self.show_target_selection(query)
+        elif data == "back_to_button_choice":
+            await self.show_button_choice(query)
         else:
             await query.answer("Unknown command!", show_alert=True)
     
@@ -925,6 +932,214 @@ Buttons will appear as an inline keyboard below your ad message."""
         # Return to bump service menu
         await asyncio.sleep(2)
         await self.show_bump_service(query)
+    
+    async def execute_immediate_campaign(self, campaign_id: int, account_id: int, campaign_data: dict) -> bool:
+        """Execute campaign immediately upon creation"""
+        try:
+            # Get account details
+            account = self.db.get_account(account_id)
+            if not account:
+                return False
+            
+            # Initialize Telethon client for immediate execution
+            from telethon import TelegramClient
+            import base64
+            
+            # Decode session string
+            session_data = base64.b64decode(account['session_string'])
+            
+            # Create temporary session file
+            temp_session_path = f"temp_session_{account_id}"
+            with open(f"{temp_session_path}.session", "wb") as f:
+                f.write(session_data)
+            
+            # Initialize client
+            client = TelegramClient(
+                temp_session_path,
+                account['api_id'] if account['api_id'] != 'uploaded' else '123456',
+                account['api_hash'] if account['api_hash'] != 'uploaded' else 'dummy_hash'
+            )
+            
+            await client.start()
+            
+            # Determine target chats
+            target_chats = campaign_data['target_chats']
+            if campaign_data.get('target_mode') == 'all_groups' or target_chats == ['ALL_WORKER_GROUPS']:
+                # Get all groups the account is member of
+                dialogs = await client.get_dialogs()
+                target_chats = []
+                for dialog in dialogs:
+                    if dialog.is_group and not dialog.is_channel:
+                        target_chats.append(str(dialog.id))
+            
+            # Send messages to target chats
+            success_count = 0
+            ad_content = campaign_data['ad_content']
+            buttons = campaign_data.get('buttons', [])
+            
+            # Prepare inline keyboard if buttons exist
+            reply_markup = None
+            if buttons:
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                keyboard = []
+                for button in buttons:
+                    keyboard.append([InlineKeyboardButton(button['text'], url=button['url'])])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            for chat_id in target_chats:
+                try:
+                    # Handle different content types
+                    if isinstance(ad_content, list) and ad_content:
+                        # Multiple messages (forwarded content)
+                        for message_data in ad_content:
+                            if message_data.get('media_type'):
+                                # Send media message
+                                await client.send_file(
+                                    chat_id,
+                                    message_data['file_id'],
+                                    caption=message_data.get('caption', message_data.get('text', '')),
+                                    buttons=reply_markup.inline_keyboard if reply_markup else None
+                                )
+                            else:
+                                # Send text message
+                                await client.send_message(
+                                    chat_id,
+                                    message_data.get('text', ''),
+                                    buttons=reply_markup.inline_keyboard if reply_markup else None
+                                )
+                    else:
+                        # Single text message
+                        message_text = ad_content if isinstance(ad_content, str) else str(ad_content)
+                        await client.send_message(
+                            chat_id,
+                            message_text,
+                            buttons=reply_markup.inline_keyboard if reply_markup else None
+                        )
+                    
+                    success_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"Failed to send to {chat_id}: {e}")
+                    continue
+            
+            await client.disconnect()
+            
+            # Clean up temporary session file
+            import os
+            try:
+                os.remove(f"{temp_session_path}.session")
+            except:
+                pass
+            
+            return success_count > 0
+            
+        except Exception as e:
+            logger.error(f"Immediate campaign execution failed: {e}")
+            return False
+    
+    async def show_schedule_selection(self, query):
+        """Show schedule selection menu (back navigation)"""
+        user_id = query.from_user.id
+        if user_id not in self.user_sessions:
+            await query.answer("Session expired! Please start again.", show_alert=True)
+            await self.show_bump_service(query)
+            return
+        
+        text = """⏰ **Step 4/6: Schedule Type**
+
+**How often should this campaign run?**
+
+**📅 Daily** - Once per day at a specific time
+**📊 Weekly** - Once per week on a chosen day
+**⏰ Hourly** - Every hour automatically
+**🔧 Custom** - Set your own interval (e.g., every 4 hours)"""
+        
+        keyboard = [
+            [InlineKeyboardButton("📅 Daily", callback_data="schedule_daily")],
+            [InlineKeyboardButton("📊 Weekly", callback_data="schedule_weekly")],
+            [InlineKeyboardButton("⏰ Hourly", callback_data="schedule_hourly")],
+            [InlineKeyboardButton("🔧 Custom", callback_data="schedule_custom")],
+            [InlineKeyboardButton("🔙 Back to Targets", callback_data="back_to_target_selection")],
+            [InlineKeyboardButton("❌ Cancel Campaign", callback_data="cancel_campaign")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+    
+    async def show_target_selection(self, query):
+        """Show target selection menu (back navigation)"""
+        user_id = query.from_user.id
+        if user_id not in self.user_sessions:
+            await query.answer("Session expired! Please start again.", show_alert=True)
+            await self.show_bump_service(query)
+            return
+        
+        text = """🎯 **Step 3/6: Target Chats**
+
+**Choose how to select your target chats:**
+
+**🌐 Send to All Worker Groups**
+• Automatically targets all groups your worker account is in
+• Smart detection of group chats
+• Excludes private chats and channels
+• Perfect for broad campaigns
+
+**🎯 Specify Target Chats**
+• Manually enter specific chat IDs or usernames
+• Precise targeting control
+• Include channels, groups, or private chats
+• Custom audience selection"""
+        
+        keyboard = [
+            [InlineKeyboardButton("🌐 Send to All Worker Groups", callback_data="target_all_groups")],
+            [InlineKeyboardButton("🎯 Specify Target Chats", callback_data="target_specific_chats")],
+            [InlineKeyboardButton("🔙 Back to Buttons", callback_data="back_to_button_choice")],
+            [InlineKeyboardButton("❌ Cancel Campaign", callback_data="cancel_campaign")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+    
+    async def show_button_choice(self, query):
+        """Show button choice menu (back navigation)"""
+        user_id = query.from_user.id
+        if user_id not in self.user_sessions:
+            await query.answer("Session expired! Please start again.", show_alert=True)
+            await self.show_bump_service(query)
+            return
+        
+        text = """➕ **Step 2.5/6: Add Buttons (Optional)**
+
+**Would you like to add buttons under your ad?**
+
+Buttons will appear as an inline keyboard below your ad message.
+
+**Examples:**
+• Shop Now → https://yourstore.com
+• Contact Us → https://t.me/support
+• Visit Website → https://yoursite.com"""
+        
+        keyboard = [
+            [InlineKeyboardButton("➕ Add Buttons", callback_data="add_buttons_yes")],
+            [InlineKeyboardButton("⏭️ Skip Buttons", callback_data="add_buttons_no")],
+            [InlineKeyboardButton("📤 Add More Messages", callback_data="add_more_messages")],
+            [InlineKeyboardButton("❌ Cancel Campaign", callback_data="cancel_campaign")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
     
     async def show_web_interface(self, query):
         """Show web interface information"""
@@ -1669,9 +1884,12 @@ This name will help you identify the campaign in your dashboard.
             )
             return
         elif schedule_type == 'custom':
-            text = "✅ **Custom schedule selected!**\n\n**Step 5/6: Custom Schedule**\n\nPlease send me your custom schedule.\n\n**Examples:**\n• every 4 hours\n• every 30 minutes\n• every 2 days"
+            text = "✅ **Custom schedule selected!**\n\n**Step 5/6: Custom Schedule**\n\nPlease send me your custom schedule.\n\n**Examples:**\n• every 4 hours\n• every 30 minutes\n• every 2 days\n• every 12 hours\n• every 1 day"
         
-        keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="back_to_bump")]]
+        keyboard = [
+            [InlineKeyboardButton("🔙 Back to Schedule", callback_data="back_to_schedule_selection")],
+            [InlineKeyboardButton("❌ Cancel Campaign", callback_data="cancel_campaign")]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
@@ -1681,7 +1899,7 @@ This name will help you identify the campaign in your dashboard.
         )
     
     async def handle_account_selection(self, query, account_id):
-        """Handle account selection for campaign"""
+        """Handle account selection for campaign with immediate execution"""
         user_id = query.from_user.id
         
         if user_id not in self.user_sessions or 'campaign_data' not in self.user_sessions[user_id]:
@@ -1692,22 +1910,56 @@ This name will help you identify the campaign in your dashboard.
         session = self.user_sessions[user_id]
         campaign_data = session['campaign_data']
         
-        # Create the campaign
+        # Get account details for display
+        account = self.db.get_account(account_id)
+        if not account:
+            await query.answer("Account not found!", show_alert=True)
+            return
+        
+        # Create the campaign with enhanced data structure
         try:
+            # Prepare enhanced campaign data
+            enhanced_campaign_data = {
+                'campaign_name': campaign_data['campaign_name'],
+                'ad_content': campaign_data.get('ad_messages', [campaign_data.get('ad_content', '')]),
+                'target_chats': campaign_data['target_chats'],
+                'schedule_type': campaign_data['schedule_type'],
+                'schedule_time': campaign_data['schedule_time'],
+                'buttons': campaign_data.get('buttons', []),
+                'target_mode': campaign_data.get('target_mode', 'specific'),
+                'immediate_start': True  # Flag for immediate execution
+            }
+            
             campaign_id = self.bump_service.add_campaign(
                 user_id,
                 account_id,
-                campaign_data['campaign_name'],
-                campaign_data['ad_content'],
-                campaign_data['target_chats'],
-                campaign_data['schedule_type'],
-                campaign_data['schedule_time']
+                enhanced_campaign_data['campaign_name'],
+                enhanced_campaign_data['ad_content'],
+                enhanced_campaign_data['target_chats'],
+                enhanced_campaign_data['schedule_type'],
+                enhanced_campaign_data['schedule_time']
             )
+            
+            # IMMEDIATE EXECUTION: Send first message immediately
+            immediate_success = await self.execute_immediate_campaign(campaign_id, account_id, enhanced_campaign_data)
             
             # Clear session
             del self.user_sessions[user_id]
             
-            account = self.db.get_account(account_id)
+            # Success message with immediate execution feedback
+            success_text = f"""🎉 **Campaign Created Successfully!**
+
+**Campaign:** {enhanced_campaign_data['campaign_name']}
+**Account:** {account['account_name']} ({account['phone_number']})
+**Schedule:** {enhanced_campaign_data['schedule_type']} at {enhanced_campaign_data['schedule_time']}
+**Targets:** {len(enhanced_campaign_data['target_chats'])} chat(s)
+
+"""
+            
+            if immediate_success:
+                success_text += "✅ **First message sent immediately!**\n📅 **Next message scheduled according to your timing**"
+            else:
+                success_text += "⏳ **Campaign scheduled and ready to run**\n📅 **First message will be sent at the next scheduled time**"
             
             keyboard = [
                 [InlineKeyboardButton("⚙️ Configure Campaign", callback_data=f"campaign_{campaign_id}")],
