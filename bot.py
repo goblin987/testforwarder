@@ -1201,7 +1201,7 @@ Your campaign is now active and will start posting ads according to your schedul
         # Check if user is in session upload mode
         if user_id not in self.user_sessions or self.user_sessions[user_id].get("step") != "upload_session":
             await update.message.reply_text(
-                " **Unexpected file!**\n\nPlease use the " Upload Session File" option from the account management menu first.",
+                " **Unexpected file!**\n\nPlease use the "" Upload Session File"" option from the account management menu first.",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
@@ -1259,7 +1259,7 @@ Your campaign is now active and will start posting ads according to your schedul
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await update.message.reply_text(
-                f" **Session Uploaded Successfully!**\n\n**Account:** {account_name}\n**Phone:** +{phone_number or "Unknown"}\n**Status:** Ready for campaigns\n\nYour account has been added and is ready to use!",
+                f" **Session Uploaded Successfully!**\n\n**Account:** {account_name}\n**Phone:** +{phone_number or ""Unknown""}\n**Status:** Ready for campaigns\n\nYour account has been added and is ready to use!",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=reply_markup
             )
