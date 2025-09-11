@@ -1,5 +1,5 @@
-﻿# Core Telegram Libraries
-python-telegram-bot==20.7
+# Core Telegram Libraries
+python-telegram-bot==20.0
 telethon==1.34.0
 
 # Configuration & Environment
