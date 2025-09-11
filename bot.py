@@ -233,11 +233,26 @@ class TgcfBot:
             await self.show_my_configs(query)
         elif data == "back_to_accounts":
             await self.show_manage_accounts(query)
+        elif data == "upload_session":
+            await self.start_session_upload(query)
+        elif data == "manual_setup":
+            await self.start_manual_setup(query)
+        elif data == "advanced_settings":
+            await self.show_advanced_settings(query)
+        elif data == "configure_plugins":
+            await self.show_configure_plugins(query)
+        elif data == "performance_settings":
+            await self.show_performance_settings(query)
+        elif data == "security_settings":
+            await self.show_security_settings(query)
+        else:
+            await query.answer("Unknown command!", show_alert=True)
     
     async def show_main_menu(self, query):
-        """Show main menu"""
+        """Show main menu with all core features"""
         keyboard = [
             [InlineKeyboardButton("👥 Manage Accounts", callback_data="manage_accounts")],
+            [InlineKeyboardButton("📢 Bump Service", callback_data="bump_service")],
             [InlineKeyboardButton("📋 My Configurations", callback_data="my_configs")],
             [InlineKeyboardButton("➕ Add New Forwarding", callback_data="add_forwarding")],
             [InlineKeyboardButton("⚙️ Settings", callback_data="settings")],
@@ -400,6 +415,158 @@ Please send me the source chat ID or username.
         keyboard = [
             [InlineKeyboardButton("🔧 Advanced Settings", callback_data="advanced_settings")],
             [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+    
+    async def show_advanced_settings(self, query):
+        """Show advanced settings menu"""
+        text = """
+🔧 **Advanced Settings**
+
+**Plugin Configuration:**
+• Message filters and blacklists
+• Text formatting options
+• Caption and watermark settings
+
+**Performance Settings:**
+• Message batch size limits
+• Delay configurations
+• Error handling options
+
+**Security Settings:**
+• Access control
+• Session management
+• Data encryption
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🔌 Configure Plugins", callback_data="configure_plugins")],
+            [InlineKeyboardButton("⚡ Performance Settings", callback_data="performance_settings")],
+            [InlineKeyboardButton("🔒 Security Settings", callback_data="security_settings")],
+            [InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+    
+    async def show_configure_plugins(self, query):
+        """Show plugin configuration menu"""
+        text = """
+🔌 **Configure Plugins**
+
+**Available Plugins:**
+
+**🔍 Filter Plugin**
+• Blacklist/whitelist messages
+• Keyword filtering
+• Pattern matching
+
+**📝 Format Plugin**
+• Bold, italic, code formatting
+• Message styling options
+
+**🔄 Replace Plugin**
+• Text replacement rules
+• Regular expressions
+• Content modification
+
+**📋 Caption Plugin**
+• Header and footer text
+• Custom message templates
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🔍 Filter Settings", callback_data="filter_settings")],
+            [InlineKeyboardButton("📝 Format Settings", callback_data="format_settings")],
+            [InlineKeyboardButton("🔄 Replace Settings", callback_data="replace_settings")],
+            [InlineKeyboardButton("📋 Caption Settings", callback_data="caption_settings")],
+            [InlineKeyboardButton("🔙 Back to Advanced", callback_data="advanced_settings")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+    
+    async def show_performance_settings(self, query):
+        """Show performance settings menu"""
+        text = """
+⚡ **Performance Settings**
+
+**Current Configuration:**
+• Max messages per batch: 100
+• Delay between messages: 0.1s
+• Connection timeout: 30s
+• Retry attempts: 3
+
+**Optimization Options:**
+• Batch processing size
+• Message throttling
+• Error handling strategy
+• Resource management
+
+**Monitoring:**
+• Real-time performance metrics
+• Error rate tracking
+• Success rate analytics
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("📊 View Metrics", callback_data="view_metrics")],
+            [InlineKeyboardButton("⚙️ Adjust Limits", callback_data="adjust_limits")],
+            [InlineKeyboardButton("🔙 Back to Advanced", callback_data="advanced_settings")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+    
+    async def show_security_settings(self, query):
+        """Show security settings menu"""
+        text = """
+🔒 **Security Settings**
+
+**Access Control:**
+• Owner-only mode: Enabled
+• User authentication required
+• Session validation active
+
+**Data Protection:**
+• Encrypted session storage
+• Secure API credential handling
+• Protected database access
+
+**Privacy Features:**
+• No message content logging
+• Secure credential transmission
+• Automatic session cleanup
+
+**Audit & Monitoring:**
+• Access attempt logging
+• Security event tracking
+• Failed login monitoring
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("👤 Access Control", callback_data="access_control")],
+            [InlineKeyboardButton("🔐 Data Protection", callback_data="data_protection")],
+            [InlineKeyboardButton("📋 Security Logs", callback_data="security_logs")],
+            [InlineKeyboardButton("🔙 Back to Advanced", callback_data="advanced_settings")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -838,24 +1005,28 @@ Access the full-featured web interface for advanced configuration:
     async def start_add_account(self, query):
         """Start the process of adding a new Telegram account"""
         user_id = query.from_user.id
-        self.user_sessions[user_id] = {'step': 'account_name', 'account_data': {}}
         
         text = """
 ➕ **Add New Work Account**
 
-**Fast Session Upload Method**
+**Choose your setup method:**
 
- **Upload your .session file for instant account setup**
+**📤 Upload Session File (Recommended)**
+- Fastest setup method
+- No API credentials needed
+- Account ready immediately
 
-**Benefits:**
- No API credentials needed
- No verification codes
- Account ready immediately
-
-Send your .session file as a document, or use manual setup below:
+**🔧 Manual Setup (Advanced)**
+- Enter API credentials manually
+- Step-by-step guided setup
+- For advanced users
         """
         
-        keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="manage_accounts")]]
+        keyboard = [
+            [InlineKeyboardButton("📤 Upload Session File", callback_data="upload_session")],
+            [InlineKeyboardButton("🔧 Manual Setup (Advanced)", callback_data="manual_setup")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="manage_accounts")]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
