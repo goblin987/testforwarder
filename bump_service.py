@@ -277,11 +277,31 @@ class BumpService:
             return None
         
         try:
+            # Handle uploaded sessions (no API credentials needed)
+            if account['api_id'] == 'uploaded' or account['api_hash'] == 'uploaded':
+                api_id = 123456  # Dummy API ID
+                api_hash = 'dummy_hash_for_uploaded_sessions'  # Dummy API Hash
+            else:
+                try:
+                    api_id = int(account['api_id'])
+                    api_hash = account['api_hash']
+                except ValueError:
+                    logger.error(f"Invalid API credentials for account {account_id}: api_id={account['api_id']}, api_hash={account['api_hash']}")
+                    return None
+            
             session_name = f'bump_session_{account_id}'
-            client = TelegramClient(session_name, account['api_id'], account['api_hash'])
+            client = TelegramClient(session_name, api_id, api_hash)
             
             if account['session_string']:
-                await client.start(session_string=account['session_string'])
+                # For uploaded sessions, use the session data directly
+                if account['api_id'] == 'uploaded':
+                    import base64
+                    session_data = base64.b64decode(account['session_string'])
+                    with open(f"{session_name}.session", "wb") as f:
+                        f.write(session_data)
+                    await client.start()
+                else:
+                    await client.start(session_string=account['session_string'])
             else:
                 await client.start()
                 # Save session string

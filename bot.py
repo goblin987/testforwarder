@@ -264,6 +264,9 @@ class TgcfBot:
             await self.show_target_selection(query)
         elif data == "back_to_button_choice":
             await self.show_button_choice(query)
+        elif data.startswith("start_campaign_"):
+            campaign_id = int(data.split("_")[2])
+            await self.start_campaign_manually(query, campaign_id)
         else:
             await query.answer("Unknown command!", show_alert=True)
     
@@ -1045,6 +1048,183 @@ Buttons will appear as an inline keyboard below your ad message."""
             
         except Exception as e:
             logger.error(f"Immediate campaign execution failed: {e}")
+            return False
+    
+    async def start_campaign_manually(self, query, campaign_id):
+        """Manually start a campaign immediately"""
+        user_id = query.from_user.id
+        
+        try:
+            await query.answer("Starting campaign...")
+            
+            # Get campaign details
+            campaign = self.bump_service.get_campaign(campaign_id)
+            if not campaign or campaign['user_id'] != user_id:
+                await query.answer("Campaign not found!", show_alert=True)
+                return
+            
+            # Get account details
+            account = self.db.get_account(campaign['account_id'])
+            if not account:
+                await query.answer("Account not found!", show_alert=True)
+                return
+            
+            # Prepare campaign data for execution
+            enhanced_campaign_data = {
+                'campaign_name': campaign['campaign_name'],
+                'ad_content': campaign['ad_content'],
+                'target_chats': campaign['target_chats'],
+                'schedule_type': campaign['schedule_type'],
+                'schedule_time': campaign['schedule_time'],
+                'buttons': [],  # Will be parsed from ad_content if needed
+                'target_mode': 'all_groups' if campaign['target_chats'] == ['ALL_WORKER_GROUPS'] else 'specific',
+                'immediate_start': True
+            }
+            
+            # Execute campaign
+            success = await self.execute_campaign_with_better_discovery(campaign['account_id'], enhanced_campaign_data)
+            
+            if success:
+                success_text = f"""🎉 Campaign Started Successfully!
+
+Campaign: {campaign['campaign_name']}
+Account: {account['account_name']}
+Status: ✅ First message sent immediately!
+Schedule: Next message in {campaign['schedule_time']}
+
+Your ads are now being posted to all target groups!"""
+            else:
+                success_text = f"""⚠️ Campaign Start Issues
+
+Campaign: {campaign['campaign_name']}
+Account: {account['account_name']}
+Status: ❌ Some messages failed to send
+
+Check that your worker account has access to the target groups."""
+            
+            keyboard = [
+                [InlineKeyboardButton("🔄 Try Again", callback_data=f"start_campaign_{campaign_id}")],
+                [InlineKeyboardButton("⚙️ Configure Campaign", callback_data=f"campaign_{campaign_id}")],
+                [InlineKeyboardButton("📋 My Campaigns", callback_data="my_campaigns")],
+                [InlineKeyboardButton("🔙 Bump Service", callback_data="back_to_bump")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                success_text,
+                reply_markup=reply_markup
+            )
+            
+        except Exception as e:
+            logger.error(f"Manual campaign start failed: {e}")
+            await query.answer(f"❌ Failed to start campaign: {str(e)[:50]}", show_alert=True)
+    
+    async def execute_campaign_with_better_discovery(self, account_id: int, campaign_data: dict) -> bool:
+        """Execute campaign with improved group discovery"""
+        try:
+            # Get account details
+            account = self.db.get_account(account_id)
+            if not account:
+                return False
+            
+            # Initialize Telethon client
+            from telethon import TelegramClient
+            import base64
+            
+            # Decode session string
+            session_data = base64.b64decode(account['session_string'])
+            
+            # Create temporary session file
+            temp_session_path = f"temp_session_{account_id}"
+            with open(f"{temp_session_path}.session", "wb") as f:
+                f.write(session_data)
+            
+            # Handle uploaded sessions (no API credentials needed)
+            if account['api_id'] == 'uploaded' or account['api_hash'] == 'uploaded':
+                api_id = 123456  # Dummy API ID
+                api_hash = 'dummy_hash_for_uploaded_sessions'  # Dummy API Hash
+            else:
+                try:
+                    api_id = int(account['api_id'])
+                    api_hash = account['api_hash']
+                except ValueError:
+                    logger.error(f"Invalid API credentials for account {account_id}")
+                    return False
+            
+            # Initialize client
+            client = TelegramClient(temp_session_path, api_id, api_hash)
+            await client.start()
+            
+            # Get all dialogs and find groups
+            target_chats = []
+            if campaign_data.get('target_mode') == 'all_groups' or campaign_data['target_chats'] == ['ALL_WORKER_GROUPS']:
+                logger.info("Discovering worker account groups...")
+                dialogs = await client.get_dialogs()
+                
+                for dialog in dialogs:
+                    if dialog.is_group:  # Include both groups and supergroups
+                        target_chats.append(dialog.entity)
+                        logger.info(f"Found group: {dialog.name} (ID: {dialog.id})")
+                
+                logger.info(f"Discovered {len(target_chats)} groups")
+            else:
+                # Use specific chat IDs
+                for chat_id in campaign_data['target_chats']:
+                    try:
+                        entity = await client.get_entity(chat_id)
+                        target_chats.append(entity)
+                    except Exception as e:
+                        logger.error(f"Failed to get entity for {chat_id}: {e}")
+            
+            # Send messages to target chats
+            success_count = 0
+            ad_content = campaign_data['ad_content']
+            
+            for chat_entity in target_chats:
+                try:
+                    # Handle different content types
+                    if isinstance(ad_content, list) and ad_content:
+                        # Multiple messages (forwarded content)
+                        for message_data in ad_content:
+                            if message_data.get('media_type'):
+                                # Send media message
+                                await client.send_file(
+                                    chat_entity,
+                                    message_data['file_id'],
+                                    caption=message_data.get('caption', message_data.get('text', ''))
+                                )
+                            else:
+                                # Send text message
+                                await client.send_message(
+                                    chat_entity,
+                                    message_data.get('text', '')
+                                )
+                    else:
+                        # Single text message
+                        message_text = ad_content if isinstance(ad_content, str) else str(ad_content)
+                        await client.send_message(chat_entity, message_text)
+                    
+                    success_count += 1
+                    logger.info(f"Successfully sent to {chat_entity.title} ({chat_entity.id})")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to send to {chat_entity.title if hasattr(chat_entity, 'title') else chat_entity.id}: {e}")
+                    continue
+            
+            await client.disconnect()
+            
+            # Clean up temporary session file
+            import os
+            try:
+                os.remove(f"{temp_session_path}.session")
+            except:
+                pass
+            
+            logger.info(f"Campaign execution completed. Success: {success_count}/{len(target_chats)}")
+            return success_count > 0
+            
+        except Exception as e:
+            logger.error(f"Campaign execution failed: {e}")
             return False
     
     async def show_schedule_selection(self, query):
@@ -1992,6 +2172,7 @@ Targets: {len(enhanced_campaign_data['target_chats'])} chat(s)
                 success_text += "⏳ Campaign scheduled and ready to run\n📅 Messages will be sent according to your schedule"
             
             keyboard = [
+                [InlineKeyboardButton("🚀 Start Campaign", callback_data=f"start_campaign_{campaign_id}")],
                 [InlineKeyboardButton("⚙️ Configure Campaign", callback_data=f"campaign_{campaign_id}")],
                 [InlineKeyboardButton("🧪 Test Campaign", callback_data=f"test_campaign_{campaign_id}")],
                 [InlineKeyboardButton("📋 My Campaigns", callback_data="my_campaigns")],
