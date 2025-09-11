@@ -19,14 +19,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def signal_handler(signum, frame):
-    logger.info(f\"Received signal {signum}, shutting down...\")
+    logger.info(f"Received signal {signum}, shutting down...")
     sys.exit(0)
 
 def main():
     try:
         # Validate configuration
         Config.validate()
-        logger.info(\"Configuration validated successfully\")
+        logger.info("Configuration validated successfully")
         
         # Set up signal handlers
         signal.signal(signal.SIGINT, signal_handler)
@@ -34,14 +34,14 @@ def main():
         
         # Create and run bot
         bot = TgcfBot()
-        logger.info(\"Starting TgCF Bot...\")
+        logger.info("Starting TgCF Bot...")
         bot.run()
         
     except KeyboardInterrupt:
-        logger.info(\"Bot stopped by user\")
+        logger.info("Bot stopped by user")
     except Exception as e:
-        logger.error(f\"Fatal error: {e}\")
+        logger.error(f"Fatal error: {e}")
         sys.exit(1)
 
-if __name__ == \"__main__\":
+if __name__ == "__main__":
     main()
