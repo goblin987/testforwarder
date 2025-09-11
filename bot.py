@@ -1193,7 +1193,84 @@ Your campaign is now active and will start posting ads according to your schedul
         ]
         await application.bot.set_my_commands(commands)
     
-    def run(self):
+
+    async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle document uploads for session files"""
+        user_id = update.message.from_user.id
+        
+        # Check if user is in session upload mode
+        if user_id not in self.user_sessions or self.user_sessions[user_id].get("step") != "upload_session":
+            await update.message.reply_text(
+                " **Unexpected file!**\n\nPlease use the " Upload Session File" option from the account management menu first.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        document = update.message.document
+        
+        # Check file extension
+        if not document.file_name or not document.file_name.endswith(".session"):
+            await update.message.reply_text(
+                " **Invalid file type!**\n\nPlease send a .session file.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        # Check file size (50KB limit)
+        if document.file_size > 50000:
+            await update.message.reply_text(
+                " **File too large!**\n\nSession files should be less than 50KB.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        try:
+            # Download the session file
+            file = await context.bot.get_file(document.file_id)
+            session_data = await file.download_as_bytearray()
+            
+            # Extract phone number from filename
+            phone_number = document.file_name.replace(".session", "").replace("+", "")
+            account_name = f"Account_{phone_number[:4]}****" if phone_number else f"Uploaded_Account_{user_id}"
+            
+            # Save session as base64 in database
+            import base64
+            session_string = base64.b64encode(session_data).decode("utf-8")
+            
+            # Add account to database
+            account_id = self.db.add_telegram_account(
+                user_id,
+                account_name,
+                phone_number or "Unknown",
+                "uploaded",  # API ID placeholder
+                "uploaded",  # API Hash placeholder  
+                session_string
+            )
+            
+            # Clear user session
+            del self.user_sessions[user_id]
+            
+            # Success message with options
+            keyboard = [
+                [InlineKeyboardButton(" Manage Accounts", callback_data="manage_accounts")],
+                [InlineKeyboardButton(" Upload Another", callback_data="upload_session")],
+                [InlineKeyboardButton(" Main Menu", callback_data="main_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                f" **Session Uploaded Successfully!**\n\n**Account:** {account_name}\n**Phone:** +{phone_number or "Unknown"}\n**Status:** Ready for campaigns\n\nYour account has been added and is ready to use!",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
+            )
+            
+        except Exception as e:
+            logger.error(f"Session upload error: {e}")
+            await update.message.reply_text(
+                f" **Upload failed!**\n\nError: {str(e)}\n\nPlease try again with a valid session file.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+\n    def run(self):
         """Run the bot"""
         # Validate configuration
         Config.validate()
@@ -1210,6 +1287,7 @@ Your campaign is now active and will start posting ads according to your schedul
         application.add_handler(CommandHandler("help", self.help_command))
         application.add_handler(CallbackQueryHandler(self.button_callback))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        application.add_handler(MessageHandler(filters.Document.ALL, self.handle_document))
         
         # Setup bot commands
         application.post_init = self.setup_bot_commands
