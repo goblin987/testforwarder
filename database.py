@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 """
 TgCF Pro - Enterprise Database Management
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -18,9 +17,6 @@ License: MIT
 Version: 1.0.0
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
-
-=======
->>>>>>> 4371692681735d6a6ceecabb9f81583ccecc39b3
 import sqlite3
 import json
 import os
@@ -28,8 +24,19 @@ from typing import Dict, List, Optional
 from config import Config
 
 class Database:
-    def __init__(self, db_path: str = "tgcf.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str = None):
+        # Use persistent disk if available, otherwise local storage
+        if db_path is None:
+            # Check for Render persistent disk mount
+            if os.path.exists('/data'):
+                self.db_path = '/data/tgcf.db'
+            else:
+                self.db_path = 'tgcf.db'
+        else:
+            self.db_path = db_path
+        
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self.init_database()
     
     def init_database(self):
