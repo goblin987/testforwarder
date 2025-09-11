@@ -811,16 +811,11 @@ Access the full-featured web interface for advanced configuration:
         text = """
 ➕ **Add New Work Account**
 
-**Fast Session Upload Method**
+**Step 1/5: Account Name**
 
- **Upload your .session file for instant account setup**
+Please send me a name for this work account (e.g., "Marketing Account", "Sales Account", "Support Account").
 
-**Benefits:**
- No API credentials needed
- No verification codes
- Account ready immediately
-
-Send your .session file as a document, or use manual setup below:
+This name will help you identify the account when managing campaigns.
         """
         
         keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="manage_accounts")]]
@@ -1217,63 +1212,6 @@ Your campaign is now active and will start posting ads according to your schedul
         # Start the bot
         logger.info("Starting TgCF Bot...")
         application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
-    async def start_session_upload(self, query):
-        """Start session file upload process"""
-        user_id = query.from_user.id
-        self.user_sessions[user_id] = {"step": "upload_session", "account_data": {}}
-        
-        text = """
- **Upload Session File**
-
-Send me your Telegram session file (.session) as a document.
-
-**Requirements:**
- File must have .session extension
- File size should be less than 50KB
- Session must be valid and active
-
-**Benefits:**
- Instant account setup - no API credentials needed
- No verification codes required  
- Account ready immediately after upload
-
-Send the session file now, or click Cancel to go back.
-        """
-        
-        keyboard = [[InlineKeyboardButton(" Cancel", callback_data="manage_accounts")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            text,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
-    
-    async def start_manual_setup(self, query):
-        """Start manual account setup (old 5-step process)"""
-        user_id = query.from_user.id
-        self.user_sessions[user_id] = {"step": "account_name", "account_data": {}}
-        
-        text = """
- **Manual Account Setup**
-
-**Step 1/5: Account Name**
-
-Please send me a name for this work account (e.g., "Marketing Account", "Sales Account", "Support Account").
-
-This name will help you identify the account when managing campaigns.
-        """
-        
-        keyboard = [[InlineKeyboardButton(" Cancel", callback_data="manage_accounts")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            text,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
 
 if __name__ == "__main__":
     bot = TgcfBot()
