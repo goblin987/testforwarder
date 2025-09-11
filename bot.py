@@ -1198,13 +1198,17 @@ Your campaign is now active and will start posting ads according to your schedul
         """Handle document uploads for session files"""
         user_id = update.message.from_user.id
         
-        # Check if user is in session upload mode
-        if user_id not in self.user_sessions or self.user_sessions[user_id].get("step") != "upload_session":
+
+        
+        # Check if this is a session file
+        if not document.file_name or not document.file_name.endswith(".session"):
             await update.message.reply_text(
-                " **Unexpected file!**\n\nPlease use the "" Upload Session File"" option from the account management menu first.",
+                " **Invalid file type!**\n\nI can only process .session files for account setup.\n\nPlease upload a .session file or use the account management menu.",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
+        
+        # Automatically process session files
         
         document = update.message.document
         
