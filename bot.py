@@ -1270,7 +1270,8 @@ Your campaign is now active and will start posting ads according to your schedul
                 f" **Upload failed!**\n\nError: {str(e)}\n\nPlease try again with a valid session file.",
                 parse_mode=ParseMode.MARKDOWN
             )
-\n    def run(self):
+
+    def run(self):
         """Run the bot"""
         # Validate configuration
         Config.validate()
