@@ -1276,6 +1276,22 @@ Your campaign is now active and will start posting ads according to your schedul
                 parse_mode=ParseMode.MARKDOWN
             )
 
+
+    async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle errors that occur in the bot"""
+        logger.error(f"Exception while handling an update: {context.error}")
+        
+        # Try to send error message to user if possible
+        if update and hasattr(update, '"'"'effective_chat'"'"') and update.effective_chat:
+            try:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=" **Something went wrong!**\n\nPlease try again or contact support if the issue persists.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception as e:
+                logger.error(f"Failed to send error message: {e}")
+
     def run(self):
         """Run the bot"""
         # Validate configuration
@@ -1287,6 +1303,9 @@ Your campaign is now active and will start posting ads according to your schedul
         
         # Create application
         application = Application.builder().token(Config.BOT_TOKEN).build()
+        
+        # Add error handler
+        application.add_error_handler(self.error_handler)
         
         # Add handlers
         application.add_handler(CommandHandler("start", self.start_command))
