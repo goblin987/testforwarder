@@ -1,9 +1,26 @@
-import re
+﻿import re
 import asyncio
 from typing import Dict, Any, Optional
-from PIL import Image, ImageDraw, ImageFont
-import cv2
-import pytesseract
+
+# Optional imports - handle gracefully if not available
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+
+try:
+    import pytesseract
+    PYTESSERACT_AVAILABLE = True
+except ImportError:
+    PYTESSERACT_AVAILABLE = False
+
 import io
 
 class PluginManager:
@@ -18,7 +35,7 @@ class PluginManager:
         }
     
     async def process_message(self, message, config: Dict[str, Any]):
-        """Process message through all enabled plugins"""
+        \"\"\"Process message through all enabled plugins\"\"\"
         processed_message = message
         
         for plugin_name, plugin in self.plugins.items():
@@ -31,14 +48,14 @@ class PluginManager:
 
 class FilterPlugin:
     def __init__(self):
-        self.name = "filter"
+        self.name = \"filter\"
     
     async def process(self, message, config: Dict[str, Any]):
-        """Filter messages based on blacklist/whitelist"""
+        \"\"\"Filter messages based on blacklist/whitelist\"\"\"
         if not config.get('enabled', False):
             return message
         
-        text = message.text or ""
+        text = message.text or \"\"
         
         # Blacklist filter
         if config.get('blacklist'):
@@ -59,10 +76,10 @@ class FilterPlugin:
 
 class FormatPlugin:
     def __init__(self):
-        self.name = "format"
+        self.name = \"format\"
     
     async def process(self, message, config: Dict[str, Any]):
-        """Format message text"""
+        \"\"\"Format message text\"\"\"
         if not config.get('enabled', False) or not message.text:
             return message
         
@@ -70,29 +87,29 @@ class FormatPlugin:
         
         # Bold
         if config.get('bold', False):
-            text = f"**{text}**"
+            text = f\"**{text}**\"
         
         # Italic
         if config.get('italic', False):
-            text = f"*{text}*"
+            text = f\"*{text}*\"
         
         # Code
         if config.get('code', False):
-            text = f"`{text}`"
+            text = f\"{text}\"
         
         # Strikethrough
         if config.get('strikethrough', False):
-            text = f"~~{text}~~"
+            text = f\"~~{text}~~\"
         
         message.text = text
         return message
 
 class ReplacePlugin:
     def __init__(self):
-        self.name = "replace"
+        self.name = \"replace\"
     
     async def process(self, message, config: Dict[str, Any]):
-        """Replace text using regex"""
+        \"\"\"Replace text using regex\"\"\"
         if not config.get('enabled', False) or not message.text:
             return message
         
@@ -112,10 +129,10 @@ class ReplacePlugin:
 
 class CaptionPlugin:
     def __init__(self):
-        self.name = "caption"
+        self.name = \"caption\"
     
     async def process(self, message, config: Dict[str, Any]):
-        """Add header/footer to message"""
+        \"\"\"Add header/footer to message\"\"\"
         if not config.get('enabled', False):
             return message
         
@@ -124,19 +141,23 @@ class CaptionPlugin:
         
         if message.text:
             if header:
-                message.text = f"{header}\n{message.text}"
+                message.text = f\"{header}\n{message.text}\"
             if footer:
-                message.text = f"{message.text}\n{footer}"
+                message.text = f\"{message.text}\n{footer}\"
         
         return message
 
 class WatermarkPlugin:
     def __init__(self):
-        self.name = "watermark"
+        self.name = \"watermark\"
     
     async def process(self, message, config: Dict[str, Any]):
-        """Add watermark to images/videos"""
+        \"\"\"Add watermark to images/videos\"\"\"
         if not config.get('enabled', False):
+            return message
+        
+        if not PIL_AVAILABLE:
+            print(\"Warning: PIL not available, watermark plugin disabled\")
             return message
         
         # This would require more complex implementation for actual watermarking
@@ -145,11 +166,15 @@ class WatermarkPlugin:
 
 class OCRPlugin:
     def __init__(self):
-        self.name = "ocr"
+        self.name = \"ocr\"
     
     async def process(self, message, config: Dict[str, Any]):
-        """Perform OCR on images"""
+        \"\"\"Perform OCR on images\"\"\"
         if not config.get('enabled', False):
+            return message
+        
+        if not (PIL_AVAILABLE and PYTESSERACT_AVAILABLE):
+            print(\"Warning: PIL or pytesseract not available, OCR plugin disabled\")
             return message
         
         # This would require downloading and processing images
