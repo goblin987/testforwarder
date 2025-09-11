@@ -953,12 +953,22 @@ Buttons will appear as an inline keyboard below your ad message."""
             with open(f"{temp_session_path}.session", "wb") as f:
                 f.write(session_data)
             
+            # Handle uploaded sessions (no API credentials needed)
+            if account['api_id'] == 'uploaded' or account['api_hash'] == 'uploaded':
+                # For uploaded sessions, we can use dummy credentials since session is already authenticated
+                api_id = 123456  # Dummy API ID
+                api_hash = 'dummy_hash_for_uploaded_sessions'  # Dummy API Hash
+            else:
+                # Use real API credentials for manually set up accounts
+                try:
+                    api_id = int(account['api_id'])
+                    api_hash = account['api_hash']
+                except ValueError:
+                    logger.error(f"Invalid API credentials for account {account_id}")
+                    return False
+            
             # Initialize client
-            client = TelegramClient(
-                temp_session_path,
-                account['api_id'] if account['api_id'] != 'uploaded' else '123456',
-                account['api_hash'] if account['api_hash'] != 'uploaded' else 'dummy_hash'
-            )
+            client = TelegramClient(temp_session_path, api_id, api_hash)
             
             await client.start()
             
@@ -1723,21 +1733,26 @@ Automatically post your advertisements to multiple chats at scheduled times!
         performance = self.bump_service.get_campaign_performance(campaign_id)
         
         status = "🟢 Active" if campaign['is_active'] else "🔴 Inactive"
-        text = f"⚙️ **{campaign['campaign_name']}** {status}\n\n"
-        text += f"**Account:** {campaign['account_name']}\n"
-        text += f"**Schedule:** {campaign['schedule_type']} at {campaign['schedule_time']}\n"
-        text += f"**Target Chats:** {len(campaign['target_chats'])}\n"
-        text += f"**Last Run:** {campaign['last_run'] or 'Never'}\n\n"
+        text = f"⚙️ {campaign['campaign_name']} {status}\n\n"
+        text += f"Account: {campaign['account_name']}\n"
+        text += f"Schedule: {campaign['schedule_type']} at {campaign['schedule_time']}\n"
+        text += f"Target Chats: {len(campaign['target_chats'])}\n"
+        text += f"Last Run: {campaign['last_run'] or 'Never'}\n\n"
         
-        text += "**Performance:**\n"
+        text += "Performance:\n"
         text += f"• Total Attempts: {performance['total_attempts']}\n"
         text += f"• Successful: {performance['successful_sends']}\n"
         text += f"• Failed: {performance['failed_sends']}\n"
         text += f"• Success Rate: {performance['success_rate']:.1f}%\n\n"
         
-        text += "**Ad Content Preview:**\n"
-        preview = campaign['ad_content'][:200] + "..." if len(campaign['ad_content']) > 200 else campaign['ad_content']
-        text += f"`{preview}`"
+        text += "Ad Content Preview:\n"
+        # Handle complex ad content safely
+        if isinstance(campaign['ad_content'], list):
+            preview = "Multiple forwarded messages"
+        else:
+            preview_text = str(campaign['ad_content'])[:200]
+            preview = preview_text + "..." if len(preview_text) > 200 else preview_text
+        text += f"{preview}"
         
         keyboard = [
             [InlineKeyboardButton("🔄 Toggle Status", callback_data=f"toggle_campaign_{campaign_id}")],
@@ -1749,7 +1764,6 @@ Automatically post your advertisements to multiple chats at scheduled times!
         
         await query.edit_message_text(
             text,
-            parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
     
@@ -1954,14 +1968,15 @@ This name will help you identify the campaign in your dashboard.
             
             logger.info(f"Campaign created successfully with ID: {campaign_id}")
             
-            # Skip immediate execution for now to avoid timeouts
-            # immediate_success = await self.execute_immediate_campaign(campaign_id, account_id, enhanced_campaign_data)
-            immediate_success = False  # Temporary disable
+            # IMMEDIATE EXECUTION: Send first message immediately
+            logger.info("Starting immediate campaign execution...")
+            immediate_success = await self.execute_immediate_campaign(campaign_id, account_id, enhanced_campaign_data)
+            logger.info(f"Immediate execution result: {immediate_success}")
             
             # Clear session
             del self.user_sessions[user_id]
             
-            # Success message with plain text to avoid parse entities error
+            # Success message with immediate execution feedback
             success_text = f"""🎉 Campaign Created Successfully!
 
 Campaign: {enhanced_campaign_data['campaign_name']}
@@ -1969,9 +1984,12 @@ Account: {account['account_name']} ({account['phone_number']})
 Schedule: {enhanced_campaign_data['schedule_type']} at {enhanced_campaign_data['schedule_time']}
 Targets: {len(enhanced_campaign_data['target_chats'])} chat(s)
 
-✅ Campaign is now active and scheduled!
-📅 Messages will be sent according to your schedule
 """
+            
+            if immediate_success:
+                success_text += "✅ First message sent immediately!\n📅 Next message scheduled according to your timing"
+            else:
+                success_text += "⏳ Campaign scheduled and ready to run\n📅 Messages will be sent according to your schedule"
             
             keyboard = [
                 [InlineKeyboardButton("⚙️ Configure Campaign", callback_data=f"campaign_{campaign_id}")],
