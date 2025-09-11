@@ -245,6 +245,18 @@ class TgcfBot:
             await self.show_performance_settings(query)
         elif data == "security_settings":
             await self.show_security_settings(query)
+        elif data == "add_buttons_yes":
+            await self.handle_add_buttons_yes(query)
+        elif data == "add_buttons_no":
+            await self.handle_add_buttons_no(query)
+        elif data == "add_more_messages":
+            await self.handle_add_more_messages(query)
+        elif data == "target_all_groups":
+            await self.handle_target_all_groups(query)
+        elif data == "target_specific_chats":
+            await self.handle_target_specific_chats(query)
+        elif data == "cancel_campaign":
+            await self.handle_cancel_campaign(query)
         else:
             await query.answer("Unknown command!", show_alert=True)
     
@@ -576,6 +588,344 @@ Please send me the source chat ID or username.
             reply_markup=reply_markup
         )
     
+    async def handle_forwarded_ad_content(self, update: Update, session: dict):
+        """Handle forwarded message as ad content with full fidelity preservation"""
+        user_id = update.effective_user.id
+        message = update.message
+        
+        # Store the complete message data for full fidelity reproduction
+        ad_data = {
+            'message_id': message.message_id,
+            'chat_id': message.chat_id,
+            'text': message.text,
+            'caption': message.caption,
+            'entities': [],
+            'caption_entities': [],
+            'media_type': None,
+            'file_id': None,
+            'has_custom_emojis': False,
+            'has_premium_emojis': False
+        }
+        
+        # Preserve text entities (formatting, emojis, links)
+        if message.entities:
+            for entity in message.entities:
+                entity_data = {
+                    'type': entity.type,
+                    'offset': entity.offset,
+                    'length': entity.length,
+                    'url': entity.url if hasattr(entity, 'url') else None,
+                    'user': entity.user.id if hasattr(entity, 'user') and entity.user else None,
+                    'language': entity.language if hasattr(entity, 'language') else None,
+                    'custom_emoji_id': entity.custom_emoji_id if hasattr(entity, 'custom_emoji_id') else None
+                }
+                ad_data['entities'].append(entity_data)
+                
+                # Check for custom/premium emojis
+                if entity.type == 'custom_emoji':
+                    ad_data['has_custom_emojis'] = True
+        
+        # Preserve caption entities for media messages
+        if message.caption_entities:
+            for entity in message.caption_entities:
+                entity_data = {
+                    'type': entity.type,
+                    'offset': entity.offset,
+                    'length': entity.length,
+                    'url': entity.url if hasattr(entity, 'url') else None,
+                    'custom_emoji_id': entity.custom_emoji_id if hasattr(entity, 'custom_emoji_id') else None
+                }
+                ad_data['caption_entities'].append(entity_data)
+                
+                if entity.type == 'custom_emoji':
+                    ad_data['has_custom_emojis'] = True
+        
+        # Handle different media types
+        if message.photo:
+            ad_data['media_type'] = 'photo'
+            ad_data['file_id'] = message.photo[-1].file_id  # Get highest resolution
+        elif message.video:
+            ad_data['media_type'] = 'video'
+            ad_data['file_id'] = message.video.file_id
+        elif message.document:
+            ad_data['media_type'] = 'document'
+            ad_data['file_id'] = message.document.file_id
+        elif message.animation:
+            ad_data['media_type'] = 'animation'
+            ad_data['file_id'] = message.animation.file_id
+        elif message.voice:
+            ad_data['media_type'] = 'voice'
+            ad_data['file_id'] = message.voice.file_id
+        elif message.video_note:
+            ad_data['media_type'] = 'video_note'
+            ad_data['file_id'] = message.video_note.file_id
+        elif message.sticker:
+            ad_data['media_type'] = 'sticker'
+            ad_data['file_id'] = message.sticker.file_id
+        elif message.audio:
+            ad_data['media_type'] = 'audio'
+            ad_data['file_id'] = message.audio.file_id
+        
+        # Store the ad data
+        if 'ad_messages' not in session['campaign_data']:
+            session['campaign_data']['ad_messages'] = []
+        session['campaign_data']['ad_messages'].append(ad_data)
+        
+        # Show preview and ask about buttons
+        emoji_info = ""
+        if ad_data['has_custom_emojis']:
+            emoji_info = "\n✨ **Custom emojis detected and preserved!**"
+        
+        media_info = ""
+        if ad_data['media_type']:
+            media_info = f"\n📎 **Media:** {ad_data['media_type'].title()}"
+        
+        text = f"""✅ **Ad content received!**{emoji_info}{media_info}
+
+**Preview saved with full fidelity:**
+• All formatting preserved
+• Custom/premium emojis maintained
+• Media files stored
+• Original message structure kept
+
+**Would you like to add buttons under this ad?**
+
+Buttons will appear as an inline keyboard below your ad message."""
+        
+        keyboard = [
+            [InlineKeyboardButton("➕ Add Buttons", callback_data="add_buttons_yes")],
+            [InlineKeyboardButton("⏭️ Skip Buttons", callback_data="add_buttons_no")],
+            [InlineKeyboardButton("📤 Add More Messages", callback_data="add_more_messages")],
+            [InlineKeyboardButton("❌ Cancel Campaign", callback_data="cancel_campaign")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+        
+        session['step'] = 'add_buttons_choice'
+    
+    async def handle_button_choice(self, update: Update, session: dict):
+        """Handle user's choice about adding buttons"""
+        message_text = update.message.text.strip()
+        
+        if message_text.lower() in ['yes', 'y', 'add', 'buttons']:
+            session['step'] = 'button_input'
+            await update.message.reply_text(
+                "➕ **Add Buttons to Your Ad**\n\n**Format:** [Button Text] - [URL]\n\n**Examples:**\n`Shop Now - https://example.com/shop`\n`Visit Website - https://mysite.com`\n`Contact Us - https://t.me/support`\n\n**Send one button per message, or multiple buttons separated by new lines.**\n\n**When finished, type 'done' or 'finish'**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            # Skip buttons, move to target chats
+            session['step'] = 'target_chats_choice'
+            await self.show_target_chat_options(update, session)
+    
+    async def handle_button_input(self, update: Update, session: dict):
+        """Handle button input from user"""
+        message_text = update.message.text.strip()
+        
+        if message_text.lower() in ['done', 'finish', 'complete']:
+            # Move to target chats selection
+            session['step'] = 'target_chats_choice'
+            await self.show_target_chat_options(update, session)
+            return
+        
+        # Parse button input
+        if 'buttons' not in session['campaign_data']:
+            session['campaign_data']['buttons'] = []
+        
+        # Handle multiple buttons in one message
+        lines = message_text.split('\n')
+        buttons_added = 0
+        
+        for line in lines:
+            line = line.strip()
+            if ' - ' in line:
+                try:
+                    button_text, button_url = line.split(' - ', 1)
+                    button_text = button_text.strip('[]')
+                    button_url = button_url.strip()
+                    
+                    # Validate URL
+                    if not (button_url.startswith('http://') or button_url.startswith('https://') or button_url.startswith('t.me/')):
+                        button_url = 'https://' + button_url
+                    
+                    session['campaign_data']['buttons'].append({
+                        'text': button_text,
+                        'url': button_url
+                    })
+                    buttons_added += 1
+                except:
+                    continue
+        
+        if buttons_added > 0:
+            total_buttons = len(session['campaign_data']['buttons'])
+            await update.message.reply_text(
+                f"✅ **{buttons_added} button(s) added!** (Total: {total_buttons})\n\n**Current buttons:**\n" + 
+                "\n".join([f"• {btn['text']} → {btn['url']}" for btn in session['campaign_data']['buttons']]) +
+                "\n\n**Add more buttons or type 'done' to continue.**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            await update.message.reply_text(
+                "❌ **Invalid format!**\n\nPlease use: `[Button Text] - [URL]`\n\nExample: `Shop Now - https://example.com`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+    
+    async def show_target_chat_options(self, update: Update, session: dict):
+        """Show enhanced target chat selection options"""
+        text = """🎯 **Step 3/6: Target Chats**
+
+**Choose how to select your target chats:**
+
+**🌐 Send to All Worker Groups**
+• Automatically targets all groups your worker account is in
+• Smart detection of group chats
+• Excludes private chats and channels
+• Perfect for broad campaigns
+
+**🎯 Specify Target Chats**
+• Manually enter specific chat IDs or usernames
+• Precise targeting control
+• Include channels, groups, or private chats
+• Custom audience selection"""
+        
+        keyboard = [
+            [InlineKeyboardButton("🌐 Send to All Worker Groups", callback_data="target_all_groups")],
+            [InlineKeyboardButton("🎯 Specify Target Chats", callback_data="target_specific_chats")],
+            [InlineKeyboardButton("❌ Cancel Campaign", callback_data="cancel_campaign")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+    
+    async def handle_add_buttons_yes(self, query):
+        """Handle user choosing to add buttons"""
+        user_id = query.from_user.id
+        if user_id in self.user_sessions:
+            session = self.user_sessions[user_id]
+            session['step'] = 'button_input'
+            
+            await query.edit_message_text(
+                "➕ **Add Buttons to Your Ad**\n\n**Format:** [Button Text] - [URL]\n\n**Examples:**\n`Shop Now - https://example.com/shop`\n`Visit Website - https://mysite.com`\n`Contact Us - https://t.me/support`\n\n**Send one button per message, or multiple buttons separated by new lines.**\n\n**When finished, type 'done' or 'finish'**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+    
+    async def handle_add_buttons_no(self, query):
+        """Handle user choosing to skip buttons"""
+        user_id = query.from_user.id
+        if user_id in self.user_sessions:
+            session = self.user_sessions[user_id]
+            session['step'] = 'target_chats_choice'
+            
+            # Show target chat options
+            text = """🎯 **Step 3/6: Target Chats**
+
+**Choose how to select your target chats:**
+
+**🌐 Send to All Worker Groups**
+• Automatically targets all groups your worker account is in
+• Smart detection of group chats
+• Excludes private chats and channels
+• Perfect for broad campaigns
+
+**🎯 Specify Target Chats**
+• Manually enter specific chat IDs or usernames
+• Precise targeting control
+• Include channels, groups, or private chats
+• Custom audience selection"""
+            
+            keyboard = [
+                [InlineKeyboardButton("🌐 Send to All Worker Groups", callback_data="target_all_groups")],
+                [InlineKeyboardButton("🎯 Specify Target Chats", callback_data="target_specific_chats")],
+                [InlineKeyboardButton("❌ Cancel Campaign", callback_data="cancel_campaign")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                text,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
+            )
+    
+    async def handle_add_more_messages(self, query):
+        """Handle user choosing to add more messages"""
+        user_id = query.from_user.id
+        if user_id in self.user_sessions:
+            session = self.user_sessions[user_id]
+            session['step'] = 'ad_content'  # Go back to ad content step
+            
+            await query.edit_message_text(
+                "📤 **Add More Messages**\n\n**Forward additional messages** that you want to include in this ad campaign.\n\nAll messages will be sent in sequence when the campaign runs.\n\n**Just forward the next message(s) from any chat!**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+    
+    async def handle_target_all_groups(self, query):
+        """Handle user choosing to target all worker groups"""
+        user_id = query.from_user.id
+        if user_id in self.user_sessions:
+            session = self.user_sessions[user_id]
+            session['campaign_data']['target_mode'] = 'all_groups'
+            session['campaign_data']['target_chats'] = ['ALL_WORKER_GROUPS']
+            session['step'] = 'schedule_type'
+            
+            # Move to schedule selection
+            text = """✅ **Target set to all worker groups!**
+
+**Step 4/6: Schedule Type**
+
+**How often should this campaign run?**"""
+            
+            keyboard = [
+                [InlineKeyboardButton("📅 Daily", callback_data="schedule_daily")],
+                [InlineKeyboardButton("📊 Weekly", callback_data="schedule_weekly")],
+                [InlineKeyboardButton("⏰ Hourly", callback_data="schedule_hourly")],
+                [InlineKeyboardButton("🔧 Custom", callback_data="schedule_custom")],
+                [InlineKeyboardButton("❌ Cancel", callback_data="cancel_campaign")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                text,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
+            )
+    
+    async def handle_target_specific_chats(self, query):
+        """Handle user choosing to specify target chats manually"""
+        user_id = query.from_user.id
+        if user_id in self.user_sessions:
+            session = self.user_sessions[user_id]
+            session['campaign_data']['target_mode'] = 'specific'
+            session['step'] = 'target_chats'
+            
+            await query.edit_message_text(
+                "🎯 **Specify Target Chats**\n\n**Send me the target chat IDs or usernames** where you want to post ads.\n\n**Format:** One per line or comma-separated\n\n**Examples:**\n@channel1\n@channel2\n@mygroup\n-1001234567890\n\n**Supported:**\n• Public channels (@channelname)\n• Public groups (@groupname)\n• Private chats (chat ID numbers)\n• Telegram usernames (@username)",
+                parse_mode=ParseMode.MARKDOWN
+            )
+    
+    async def handle_cancel_campaign(self, query):
+        """Handle user canceling campaign creation"""
+        user_id = query.from_user.id
+        if user_id in self.user_sessions:
+            del self.user_sessions[user_id]
+        
+        await query.edit_message_text(
+            "❌ **Campaign creation canceled.**\n\nYou can start a new campaign anytime from the Bump Service menu.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+        # Return to bump service menu
+        await asyncio.sleep(2)
+        await self.show_bump_service(query)
+    
     async def show_web_interface(self, query):
         """Show web interface information"""
         text = f"""
@@ -722,18 +1072,25 @@ Access the full-featured web interface for advanced configuration:
                 session['step'] = 'ad_content'
                 
                 await update.message.reply_text(
-                    "✅ **Campaign name set!**\n\n**Step 2/6: Ad Content**\n\nPlease send me the advertisement content that will be posted.\n\nYou can include:\n• Text messages\n• Emojis\n• Links\n• Formatting (bold, italic, etc.)",
+                    "✅ **Campaign name set!**\n\n**Step 2/6: Ad Content**\n\n📤 **Forward me the message(s) you want to use as advertisement**\n\n**Supported Content:**\n• Text with custom/premium emojis ✨\n• Images, videos, documents 📸\n• Voice messages and stickers 🎵\n• Full formatting preservation 📝\n• Multiple messages (forward each one)\n\n**Just forward the message(s) from any chat - I'll preserve everything exactly!**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             
             elif session['step'] == 'ad_content':
-                session['campaign_data']['ad_content'] = message_text
-                session['step'] = 'target_chats'
-                
-                await update.message.reply_text(
-                    "✅ **Ad content set!**\n\n**Step 3/6: Target Chats**\n\nPlease send me the target chat IDs or usernames where you want to post ads.\n\n**Format:** One per line or comma-separated\n\n**Examples:**\n@channel1\n@channel2\n-1001234567890",
-                    parse_mode=ParseMode.MARKDOWN
-                )
+                # Handle forwarded message with full fidelity
+                await self.handle_forwarded_ad_content(update, session)
+            
+            elif session['step'] == 'add_buttons_choice':
+                # Handle button addition choice
+                await self.handle_button_choice(update, session)
+            
+            elif session['step'] == 'button_input':
+                # Handle button data input
+                await self.handle_button_input(update, session)
+            
+            elif session['step'] == 'target_chats_choice':
+                # This step is now handled by button callbacks
+                pass
             
             elif session['step'] == 'target_chats':
                 # Parse target chats
