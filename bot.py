@@ -1102,10 +1102,12 @@ Buttons will appear as an inline keyboard below your ad message."""
                 'target_chats': campaign['target_chats'],
                 'schedule_type': campaign['schedule_type'],
                 'schedule_time': campaign['schedule_time'],
-                'buttons': [],  # Will be parsed from ad_content if needed
-                'target_mode': 'all_groups' if campaign['target_chats'] == ['ALL_WORKER_GROUPS'] else 'specific',
+                'buttons': campaign.get('buttons', []),  # Get buttons from database
+                'target_mode': campaign.get('target_mode', 'all_groups' if campaign['target_chats'] == ['ALL_WORKER_GROUPS'] else 'specific'),
                 'immediate_start': True
             }
+            
+            logger.info(f"Executing campaign with {len(enhanced_campaign_data['buttons'])} buttons")
             
             # Execute campaign
             success = await self.execute_campaign_with_better_discovery(campaign['account_id'], enhanced_campaign_data)
@@ -2200,7 +2202,9 @@ This name will help you identify the campaign in your dashboard.
                 enhanced_campaign_data['ad_content'],
                 enhanced_campaign_data['target_chats'],
                 enhanced_campaign_data['schedule_type'],
-                enhanced_campaign_data['schedule_time']
+                enhanced_campaign_data['schedule_time'],
+                enhanced_campaign_data['buttons'],
+                enhanced_campaign_data['target_mode']
             )
             
             logger.info(f"Campaign created successfully with ID: {campaign_id}")

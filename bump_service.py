@@ -78,6 +78,8 @@ class BumpService:
                     target_chats TEXT,
                     schedule_type TEXT,
                     schedule_time TEXT,
+                    buttons TEXT,
+                    target_mode TEXT,
                     is_active BOOLEAN DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_run TIMESTAMP,
@@ -86,6 +88,14 @@ class BumpService:
                     FOREIGN KEY (account_id) REFERENCES telegram_accounts (id)
                 )
             ''')
+            
+            # Add buttons column to existing tables if it doesn't exist
+            cursor.execute("PRAGMA table_info(ad_campaigns)")
+            columns = [column[1] for column in cursor.fetchall()]
+            if 'buttons' not in columns:
+                cursor.execute('ALTER TABLE ad_campaigns ADD COLUMN buttons TEXT')
+            if 'target_mode' not in columns:
+                cursor.execute('ALTER TABLE ad_campaigns ADD COLUMN target_mode TEXT')
             
             # Ad performance tracking
             cursor.execute('''
@@ -106,8 +116,8 @@ class BumpService:
     
     def add_campaign(self, user_id: int, account_id: int, campaign_name: str, 
                     ad_content, target_chats: List[str], schedule_type: str, 
-                    schedule_time: str) -> int:
-        """Add new ad campaign with support for complex content types"""
+                    schedule_time: str, buttons=None, target_mode='specific') -> int:
+        """Add new ad campaign with support for complex content types and buttons"""
         import sqlite3
         
         # Convert ad_content to JSON string if it's a list or dict
@@ -119,20 +129,23 @@ class BumpService:
         # Convert target_chats to JSON string
         target_chats_str = json.dumps(target_chats) if isinstance(target_chats, list) else str(target_chats)
         
+        # Convert buttons to JSON string
+        buttons_str = json.dumps(buttons) if buttons else None
+        
         with sqlite3.connect(self.db.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO ad_campaigns 
-                (user_id, account_id, campaign_name, ad_content, target_chats, schedule_type, schedule_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (user_id, account_id, campaign_name, ad_content, target_chats, schedule_type, schedule_time, buttons, target_mode)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (user_id, account_id, campaign_name, ad_content_str, 
-                 target_chats_str, schedule_type, schedule_time))
+                 target_chats_str, schedule_type, schedule_time, buttons_str, target_mode))
             conn.commit()
             campaign_id = cursor.lastrowid
             
             # Schedule the campaign
             self.schedule_campaign(campaign_id)
-            logger.info(f"Added campaign {campaign_id}: {campaign_name} with content type: {type(ad_content)}")
+            logger.info(f"Added campaign {campaign_id}: {campaign_name} with content type: {type(ad_content)}, buttons: {len(buttons) if buttons else 0}")
             return campaign_id
     
     def get_user_campaigns(self, user_id: int) -> List[Dict]:
@@ -164,6 +177,18 @@ class BumpService:
                 except (json.JSONDecodeError, TypeError):
                     target_chats = [row[5]] if row[5] else []
                 
+                # Parse buttons if they exist
+                try:
+                    buttons = json.loads(row[8]) if len(row) > 8 and row[8] else []
+                except (json.JSONDecodeError, IndexError):
+                    buttons = []
+                
+                # Parse target_mode if it exists
+                try:
+                    target_mode = row[9] if len(row) > 9 and row[9] else 'specific'
+                except IndexError:
+                    target_mode = 'specific'
+                
                 campaigns.append({
                     'id': row[0],
                     'user_id': row[1],
@@ -173,11 +198,13 @@ class BumpService:
                     'target_chats': target_chats,
                     'schedule_type': row[6],
                     'schedule_time': row[7],
-                    'is_active': row[8],
-                    'created_at': row[9],
-                    'last_run': row[10],
-                    'total_sends': row[11],
-                    'account_name': row[12]
+                    'buttons': buttons,
+                    'target_mode': target_mode,
+                    'is_active': row[10] if len(row) > 10 else row[8],
+                    'created_at': row[11] if len(row) > 11 else row[9],
+                    'last_run': row[12] if len(row) > 12 else row[10],
+                    'total_sends': row[13] if len(row) > 13 else row[11],
+                    'account_name': row[14] if len(row) > 14 else row[12]
                 })
             return campaigns
     
@@ -208,6 +235,18 @@ class BumpService:
                 except (json.JSONDecodeError, TypeError):
                     target_chats = [row[5]] if row[5] else []
                 
+                # Parse buttons if they exist
+                try:
+                    buttons = json.loads(row[8]) if len(row) > 8 and row[8] else []
+                except (json.JSONDecodeError, IndexError):
+                    buttons = []
+                
+                # Parse target_mode if it exists
+                try:
+                    target_mode = row[9] if len(row) > 9 and row[9] else 'specific'
+                except IndexError:
+                    target_mode = 'specific'
+                
                 return {
                     'id': row[0],
                     'user_id': row[1],
@@ -217,11 +256,13 @@ class BumpService:
                     'target_chats': target_chats,
                     'schedule_type': row[6],
                     'schedule_time': row[7],
-                    'is_active': row[8],
-                    'created_at': row[9],
-                    'last_run': row[10],
-                    'total_sends': row[11],
-                    'account_name': row[12]
+                    'buttons': buttons,
+                    'target_mode': target_mode,
+                    'is_active': row[10] if len(row) > 10 else row[8],
+                    'created_at': row[11] if len(row) > 11 else row[9],
+                    'last_run': row[12] if len(row) > 12 else row[10],
+                    'total_sends': row[13] if len(row) > 13 else row[11],
+                    'account_name': row[14] if len(row) > 14 else row[12]
                 }
             return None
     
