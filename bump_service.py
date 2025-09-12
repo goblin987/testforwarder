@@ -358,7 +358,7 @@ class BumpService:
             return None
     
     async def send_ad(self, campaign_id: int):
-        """Send ad for a specific campaign"""
+        """Send ad for a specific campaign with button support"""
         campaign = self.get_campaign(campaign_id)
         if not campaign or not campaign['is_active']:
             logger.warning(f"Campaign {campaign_id} not found or inactive")
@@ -371,29 +371,87 @@ class BumpService:
         
         ad_content = campaign['ad_content']
         target_chats = campaign['target_chats']
+        buttons = campaign.get('buttons', [])
         sent_count = 0
         
-        for chat in target_chats:
+        # Create Telethon buttons if we have button data
+        telethon_buttons = None
+        if buttons:
+            from telethon.tl.types import KeyboardButtonUrl
+            button_rows = []
+            for button in buttons:
+                button_rows.append([KeyboardButtonUrl(button['text'], button['url'])])
+            telethon_buttons = button_rows
+            logger.info(f"Prepared {len(buttons)} buttons for scheduled campaign {campaign_id}")
+        
+        # Get all groups if target_mode is all_groups
+        if campaign.get('target_mode') == 'all_groups' or target_chats == ['ALL_WORKER_GROUPS']:
+            logger.info(f"Getting all groups for scheduled campaign {campaign_id}")
+            dialogs = await client.get_dialogs()
+            target_entities = []
+            for dialog in dialogs:
+                if dialog.is_group:
+                    target_entities.append(dialog.entity)
+                    logger.info(f"Found group for scheduled send: {dialog.name}")
+        else:
+            # Convert chat IDs to entities
+            target_entities = []
+            for chat_id in target_chats:
+                try:
+                    entity = await client.get_entity(chat_id)
+                    target_entities.append(entity)
+                except Exception as e:
+                    logger.error(f"Failed to get entity for {chat_id}: {e}")
+        
+        for chat_entity in target_entities:
             try:
-                # Send the ad
-                message = await client.send_message(chat, ad_content)
+                # Handle different content types
+                if isinstance(ad_content, list) and ad_content:
+                    # Multiple messages (forwarded content)
+                    for i, message_data in enumerate(ad_content):
+                        # Only add buttons to the last message
+                        buttons_for_message = telethon_buttons if i == len(ad_content) - 1 else None
+                        
+                        if message_data.get('media_type'):
+                            # Send media message
+                            message = await client.send_file(
+                                chat_entity,
+                                message_data['file_id'],
+                                caption=message_data.get('caption', message_data.get('text', '')),
+                                buttons=buttons_for_message
+                            )
+                        else:
+                            # Send text message with buttons
+                            message = await client.send_message(
+                                chat_entity,
+                                message_data.get('text', ''),
+                                buttons=buttons_for_message
+                            )
+                else:
+                    # Single text message with buttons
+                    message_text = ad_content if isinstance(ad_content, str) else str(ad_content)
+                    message = await client.send_message(
+                        chat_entity,
+                        message_text,
+                        buttons=telethon_buttons
+                    )
                 
                 # Log the performance
-                self.log_ad_performance(campaign_id, campaign['user_id'], chat, message.id)
+                self.log_ad_performance(campaign_id, campaign['user_id'], str(chat_entity.id), message.id)
                 sent_count += 1
                 
-                logger.info(f"Ad sent to {chat} for campaign {campaign['campaign_name']}")
+                logger.info(f"Scheduled ad sent to {chat_entity.title} ({chat_entity.id}) for campaign {campaign['campaign_name']} with {len(buttons)} buttons")
                 
                 # Add delay between sends
                 await asyncio.sleep(2)
                 
             except Exception as e:
-                logger.error(f"Failed to send ad to {chat}: {e}")
-                self.log_ad_performance(campaign_id, campaign['user_id'], chat, None, 'failed')
+                logger.error(f"Failed to send scheduled ad to {chat_entity.title if hasattr(chat_entity, 'title') else 'Unknown'}: {e}")
+                self.log_ad_performance(campaign_id, campaign['user_id'], str(chat_entity.id) if hasattr(chat_entity, 'id') else 'unknown', None, 'failed')
         
         # Update campaign statistics
         self.update_campaign_stats(campaign_id, sent_count)
-        logger.info(f"Campaign {campaign['campaign_name']} completed: {sent_count}/{len(target_chats)} ads sent")
+        logger.info(f"Scheduled campaign {campaign['campaign_name']} completed: {sent_count}/{len(target_entities)} ads sent with buttons")
     
     def log_ad_performance(self, campaign_id: int, user_id: int, target_chat: str, 
                           message_id: Optional[int], status: str = 'sent'):
