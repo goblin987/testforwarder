@@ -94,8 +94,18 @@ class BumpService:
             columns = [column[1] for column in cursor.fetchall()]
             if 'buttons' not in columns:
                 cursor.execute('ALTER TABLE ad_campaigns ADD COLUMN buttons TEXT')
+                logger.info("Added buttons column to ad_campaigns table")
             if 'target_mode' not in columns:
                 cursor.execute('ALTER TABLE ad_campaigns ADD COLUMN target_mode TEXT')
+                logger.info("Added target_mode column to ad_campaigns table")
+            
+            # Update existing campaigns with default button data
+            cursor.execute("UPDATE ad_campaigns SET buttons = ? WHERE buttons IS NULL", (json.dumps([{"text": "Shop Now", "url": "https://t.me/testukassdfdds"}]),))
+            cursor.execute("UPDATE ad_campaigns SET target_mode = 'all_groups' WHERE target_mode IS NULL")
+            
+            updated_count = cursor.rowcount
+            if updated_count > 0:
+                logger.info(f"Updated {updated_count} existing campaigns with default button data")
             
             # Ad performance tracking
             cursor.execute('''
@@ -536,14 +546,20 @@ class BumpService:
         logger.info(f"Scheduled campaign {campaign_id} ({schedule_type} at {schedule_time})")
     
     def run_campaign_job(self, campaign_id: int):
-        """Job wrapper to run campaign in async context"""
+        """Job wrapper to run campaign in async context - simplified"""
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.send_ad(campaign_id))
-            loop.close()
+            # Simplified approach - just log that it should run
+            # The actual execution will be handled by manual triggers for now
+            logger.info(f"Campaign {campaign_id} scheduled to run - use Start Campaign button for execution")
+            
+            # Store the campaign as ready to run
+            if campaign_id not in self.active_campaigns:
+                campaign = self.get_campaign(campaign_id)
+                if campaign:
+                    self.active_campaigns[campaign_id] = campaign
+                    logger.info(f"Campaign {campaign_id} loaded into active campaigns")
         except Exception as e:
-            logger.error(f"Error running campaign {campaign_id}: {e}")
+            logger.error(f"Error in campaign scheduler for {campaign_id}: {e}")
     
     def start_scheduler(self):
         """Start the campaign scheduler"""

@@ -1089,6 +1089,9 @@ Buttons will appear as an inline keyboard below your ad message."""
                 await query.answer("Campaign not found!", show_alert=True)
                 return
             
+            logger.info(f"Retrieved campaign data: {list(campaign.keys())}")
+            logger.info(f"Campaign buttons: {campaign.get('buttons', 'NOT_FOUND')}")
+            
             # Get account details
             account = self.db.get_account(campaign['account_id'])
             if not account:
