@@ -165,28 +165,41 @@ class BumpService:
             
             campaigns = []
             for row in rows:
-                # Parse ad_content (could be JSON string or plain string)
+                # Parse ad_content (could be JSON string or plain string) - safer parsing
                 try:
-                    ad_content = json.loads(row[4]) if row[4].startswith(('[', '{')) else row[4]
-                except (json.JSONDecodeError, AttributeError):
-                    ad_content = row[4]
+                    if row[4] and isinstance(row[4], str) and row[4].startswith(('[', '{')):
+                        ad_content = json.loads(row[4])
+                    else:
+                        ad_content = str(row[4]) if row[4] else ""
+                except (json.JSONDecodeError, AttributeError, TypeError):
+                    ad_content = str(row[4]) if row[4] else ""
                 
-                # Parse target_chats (should be JSON string)
+                # Parse target_chats (should be JSON string) - safer parsing
                 try:
-                    target_chats = json.loads(row[5]) if isinstance(row[5], str) else row[5]
+                    if row[5] and isinstance(row[5], str):
+                        target_chats = json.loads(row[5])
+                    elif isinstance(row[5], list):
+                        target_chats = row[5]
+                    else:
+                        target_chats = [str(row[5])] if row[5] else []
                 except (json.JSONDecodeError, TypeError):
-                    target_chats = [row[5]] if row[5] else []
+                    target_chats = [str(row[5])] if row[5] else []
                 
-                # Parse buttons if they exist
+                # Parse buttons if they exist - much safer parsing
+                buttons = []
                 try:
-                    buttons = json.loads(row[8]) if len(row) > 8 and row[8] else []
-                except (json.JSONDecodeError, IndexError):
+                    if len(row) > 8 and row[8] is not None:
+                        if isinstance(row[8], str) and row[8]:
+                            buttons = json.loads(row[8])
+                        elif isinstance(row[8], list):
+                            buttons = row[8]
+                except (json.JSONDecodeError, IndexError, TypeError):
                     buttons = []
                 
-                # Parse target_mode if it exists
+                # Parse target_mode if it exists - safer parsing
                 try:
-                    target_mode = row[9] if len(row) > 9 and row[9] else 'specific'
-                except IndexError:
+                    target_mode = str(row[9]) if len(row) > 9 and row[9] else 'specific'
+                except (IndexError, TypeError):
                     target_mode = 'specific'
                 
                 campaigns.append({
@@ -223,28 +236,41 @@ class BumpService:
             row = cursor.fetchone()
             
             if row:
-                # Parse ad_content (could be JSON string or plain string)
+                # Parse ad_content (could be JSON string or plain string) - safer parsing
                 try:
-                    ad_content = json.loads(row[4]) if row[4].startswith(('[', '{')) else row[4]
-                except (json.JSONDecodeError, AttributeError):
-                    ad_content = row[4]
+                    if row[4] and isinstance(row[4], str) and row[4].startswith(('[', '{')):
+                        ad_content = json.loads(row[4])
+                    else:
+                        ad_content = str(row[4]) if row[4] else ""
+                except (json.JSONDecodeError, AttributeError, TypeError):
+                    ad_content = str(row[4]) if row[4] else ""
                 
-                # Parse target_chats (should be JSON string)
+                # Parse target_chats (should be JSON string) - safer parsing
                 try:
-                    target_chats = json.loads(row[5]) if isinstance(row[5], str) else row[5]
+                    if row[5] and isinstance(row[5], str):
+                        target_chats = json.loads(row[5])
+                    elif isinstance(row[5], list):
+                        target_chats = row[5]
+                    else:
+                        target_chats = [str(row[5])] if row[5] else []
                 except (json.JSONDecodeError, TypeError):
-                    target_chats = [row[5]] if row[5] else []
+                    target_chats = [str(row[5])] if row[5] else []
                 
-                # Parse buttons if they exist
+                # Parse buttons if they exist - much safer parsing
+                buttons = []
                 try:
-                    buttons = json.loads(row[8]) if len(row) > 8 and row[8] else []
-                except (json.JSONDecodeError, IndexError):
+                    if len(row) > 8 and row[8] is not None:
+                        if isinstance(row[8], str) and row[8]:
+                            buttons = json.loads(row[8])
+                        elif isinstance(row[8], list):
+                            buttons = row[8]
+                except (json.JSONDecodeError, IndexError, TypeError):
                     buttons = []
                 
-                # Parse target_mode if it exists
+                # Parse target_mode if it exists - safer parsing
                 try:
-                    target_mode = row[9] if len(row) > 9 and row[9] else 'specific'
-                except IndexError:
+                    target_mode = str(row[9]) if len(row) > 9 and row[9] else 'specific'
+                except (IndexError, TypeError):
                     target_mode = 'specific'
                 
                 return {
