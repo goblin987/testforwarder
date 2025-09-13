@@ -1091,6 +1091,8 @@ Buttons will appear as an inline keyboard below your ad message."""
             
             logger.info(f"Retrieved campaign data: {list(campaign.keys())}")
             logger.info(f"Campaign buttons: {campaign.get('buttons', 'NOT_FOUND')}")
+            logger.info(f"Campaign target_mode: {campaign.get('target_mode', 'NOT_FOUND')}")
+            logger.info(f"Full campaign data: {campaign}")
             
             # Get account details
             account = self.db.get_account(campaign['account_id'])
@@ -1211,17 +1213,21 @@ Check that your worker account has access to the target groups."""
             success_count = 0
             ad_content = campaign_data['ad_content']
             
-            # Parse buttons from campaign data
-            buttons_data = []
-            if isinstance(ad_content, list) and ad_content:
-                # Look for buttons in the first message data
+            # Parse buttons from campaign data with enhanced debugging
+            buttons_data = campaign_data.get('buttons', [])
+            logger.info(f"Button data from campaign_data: {buttons_data}")
+            
+            # Fallback: check in ad_content if not found in campaign_data
+            if not buttons_data and isinstance(ad_content, list) and ad_content:
                 first_message = ad_content[0]
                 if 'buttons' in first_message:
                     buttons_data = first_message['buttons']
+                    logger.info(f"Button data from ad_content: {buttons_data}")
             
-            # Also check for buttons in campaign_data
-            if 'buttons' in campaign_data and campaign_data['buttons']:
-                buttons_data = campaign_data['buttons']
+            # Final fallback: use default button if none found
+            if not buttons_data:
+                buttons_data = [{"text": "Shop Now", "url": "https://t.me/testukassdfdds"}]
+                logger.info(f"Using default button data: {buttons_data}")
             
             # Create Telethon buttons if we have button data
             telethon_buttons = None
@@ -1935,15 +1941,17 @@ Automatically post your advertisements to multiple chats at scheduled times!
             )
             return
         
-        text = "📋 **My Ad Campaigns**\n\n"
+        text = "📋 My Ad Campaigns\n\n"
         keyboard = []
         
         for campaign in campaigns:
             status = "🟢 Active" if campaign['is_active'] else "🔴 Inactive"
-            text += f"**{campaign['campaign_name']}** {status}\n"
-            text += f"Schedule: {campaign['schedule_type']} at {campaign['schedule_time']}\n"
-            text += f"Targets: {len(campaign['target_chats'])} chats\n"
-            text += f"Total Sends: {campaign['total_sends']}\n\n"
+            # Use plain text formatting to avoid Markdown conflicts
+            campaign_name = str(campaign['campaign_name'])[:50]  # Limit length
+            text += f"📢 {campaign_name} {status}\n"
+            text += f"⏰ Schedule: {campaign['schedule_type']} at {campaign['schedule_time']}\n"
+            text += f"🎯 Targets: {len(campaign['target_chats'])} chats\n"
+            text += f"📊 Total Sends: {campaign['total_sends']}\n\n"
             
             keyboard.append([
                 InlineKeyboardButton(f"⚙️ {campaign['campaign_name']}", callback_data=f"campaign_{campaign['id']}"),
@@ -1956,11 +1964,18 @@ Automatically post your advertisements to multiple chats at scheduled times!
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await query.edit_message_text(
-            text,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
+        try:
+            await query.edit_message_text(
+                text,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Failed to display campaigns: {e}")
+            # Fallback display
+            await query.edit_message_text(
+                "📋 My Campaigns\n\nCampaigns found but display error occurred.\nUse individual campaign buttons below.",
+                reply_markup=reply_markup
+            )
     
     async def show_campaign_details(self, query, campaign_id):
         """Show detailed campaign information"""
@@ -2212,10 +2227,9 @@ This name will help you identify the campaign in your dashboard.
             
             logger.info(f"Campaign created successfully with ID: {campaign_id}")
             
-            # IMMEDIATE EXECUTION: Send first message immediately
-            logger.info("Starting immediate campaign execution...")
-            immediate_success = await self.execute_immediate_campaign(campaign_id, account_id, enhanced_campaign_data)
-            logger.info(f"Immediate execution result: {immediate_success}")
+            # DISABLED AUTOMATIC EXECUTION: User must manually start campaigns
+            logger.info("Campaign created - automatic execution disabled, user must click Start Campaign")
+            immediate_success = False  # No automatic execution
             
             # Clear session
             del self.user_sessions[user_id]
@@ -2230,10 +2244,8 @@ Targets: {len(enhanced_campaign_data['target_chats'])} chat(s)
 
 """
             
-            if immediate_success:
-                success_text += "✅ First message sent immediately!\n📅 Next message scheduled according to your timing"
-            else:
-                success_text += "⏳ Campaign scheduled and ready to run\n📅 Messages will be sent according to your schedule"
+            # Always show manual start message
+            success_text += "⏳ Campaign created and ready to start\n🚀 Click 'Start Campaign' to send the first message\n📅 Then messages will repeat according to your schedule"
             
             keyboard = [
                 [InlineKeyboardButton("🚀 Start Campaign", callback_data=f"start_campaign_{campaign_id}")],

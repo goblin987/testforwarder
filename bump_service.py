@@ -562,23 +562,18 @@ class BumpService:
             logger.error(f"Error in campaign scheduler for {campaign_id}: {e}")
     
     def start_scheduler(self):
-        """Start the campaign scheduler"""
+        """Start the campaign scheduler - simplified approach"""
         if self.is_running:
             return
         
         self.is_running = True
+        logger.info("Bump service scheduler started (manual execution mode)")
         
-        def scheduler_loop():
-            while self.is_running:
-                schedule.run_pending()
-                time.sleep(30)  # Check every 30 seconds
-        
-        self.scheduler_thread = threading.Thread(target=scheduler_loop, daemon=True)
-        self.scheduler_thread.start()
-        logger.info("Bump service scheduler started")
-        
-        # Load existing campaigns
+        # Load existing campaigns into memory for manual execution
         self.load_existing_campaigns()
+        
+        # Note: Automatic scheduling disabled to prevent event loop conflicts
+        # Users must manually start campaigns using the "Start Campaign" button
     
     def stop_scheduler(self):
         """Stop the campaign scheduler"""
