@@ -400,14 +400,32 @@ class BumpService:
             if account['session_string']:
                 # For uploaded sessions, use the session data directly
                 if account['api_id'] == 'uploaded':
-                    # For uploaded sessions, we can't re-authenticate, so just use the session string directly
+                    # For uploaded sessions, try multiple approaches
                     try:
+                        # First try: Use session string directly
                         await client.start(session_string=account['session_string'])
-                    except Exception as e:
-                        logger.error(f"Failed to use uploaded session for account {account_id}: {e}")
-                        # For uploaded sessions, we can't create a new session without user interaction
-                        logger.error(f"Account {account_id} has an uploaded session that cannot be refreshed automatically")
-                        return None
+                        logger.info(f"Successfully started uploaded session for account {account_id}")
+                    except Exception as e1:
+                        logger.warning(f"Session string failed for account {account_id}: {e1}")
+                        try:
+                            # Second try: Use session file if it exists
+                            import base64
+                            import os
+                            session_file = f"{session_name}.session"
+                            if os.path.exists(session_file):
+                                await client.start()
+                                logger.info(f"Successfully started from existing session file for account {account_id}")
+                            else:
+                                # Third try: Create session file from base64 data
+                                session_data = base64.b64decode(account['session_string'])
+                                with open(session_file, "wb") as f:
+                                    f.write(session_data)
+                                await client.start()
+                                logger.info(f"Successfully created and started session file for account {account_id}")
+                        except Exception as e2:
+                            logger.error(f"All session methods failed for account {account_id}: {e2}")
+                            logger.error(f"Account {account_id} needs to be re-added with fresh credentials")
+                            return None
                 else:
                     try:
                         await client.start(session_string=account['session_string'])
@@ -438,9 +456,16 @@ class BumpService:
             logger.warning(f"Campaign {campaign_id} not found or inactive")
             return
         
+        # Get account info for logging
+        account = self.db.get_account(campaign['account_id'])
+        account_name = account['account_name'] if account else f"Account_{campaign['account_id']}"
+        
+        logger.info(f"🚀 Starting campaign {campaign['campaign_name']} using {account_name}")
+        
         client = await self.initialize_telegram_client(campaign['account_id'])
         if not client:
-            logger.error(f"Failed to get client for campaign {campaign_id}")
+            logger.error(f"❌ Failed to initialize {account_name} for campaign {campaign_id}")
+            logger.error(f"💡 Solution: Re-add {account_name} with API credentials instead of uploaded session")
             return
         
         ad_content = campaign['ad_content']
