@@ -1051,12 +1051,27 @@ Buttons will appear as an inline keyboard below your ad message."""
                             
                             # Add buttons to the last message only
                             if i == len(ad_content) - 1:
-                                logger.info(f"Adding Shop Now button to final message (immediate execution)")
-                                await client.send_message(
-                                    chat_entity,
-                                    message_text,
-                                    buttons=telethon_buttons
-                                )
+                                logger.info(f"Adding buttons to final message (immediate execution)")
+                                try:
+                                    # Try to send with buttons first
+                                    await client.send_message(
+                                        chat_entity,
+                                        message_text,
+                                        buttons=telethon_buttons
+                                    )
+                                    logger.info(f"✅ Sent message with inline buttons to {chat_entity.title}")
+                                except Exception as button_error:
+                                    logger.warning(f"⚠️ Inline buttons failed for {chat_entity.title}: {button_error}")
+                                    # Fallback: Add button URLs as text
+                                    button_text = ""
+                                    for button_row in telethon_buttons:
+                                        for button in button_row:
+                                            if hasattr(button, 'url'):
+                                                button_text += f"\n🔗 {button.text}: {button.url}"
+                                    
+                                    final_message = message_text + button_text
+                                    await client.send_message(chat_entity, final_message)
+                                    logger.info(f"✅ Sent message with text buttons to {chat_entity.title}")
                             else:
                                 # Send without buttons for earlier messages
                                 await client.send_message(
@@ -1282,12 +1297,27 @@ Check that your worker account has access to the target groups."""
                             
                             # Add buttons to the last message only
                             if i == len(ad_content) - 1:
-                                logger.info(f"Adding Shop Now button to final message")
-                                await client.send_message(
-                                    chat_entity,
-                                    message_text,
-                                    buttons=telethon_buttons
-                                )
+                                logger.info(f"Adding buttons to final message")
+                                try:
+                                    # Try to send with buttons first
+                                    await client.send_message(
+                                        chat_entity,
+                                        message_text,
+                                        buttons=telethon_buttons
+                                    )
+                                    logger.info(f"✅ Sent message with inline buttons to {chat_entity.title}")
+                                except Exception as button_error:
+                                    logger.warning(f"⚠️ Inline buttons failed for {chat_entity.title}: {button_error}")
+                                    # Fallback: Add button URLs as text
+                                    button_text = ""
+                                    for button_row in telethon_buttons:
+                                        for button in button_row:
+                                            if hasattr(button, 'url'):
+                                                button_text += f"\n🔗 {button.text}: {button.url}"
+                                    
+                                    final_message = message_text + button_text
+                                    await client.send_message(chat_entity, final_message)
+                                    logger.info(f"✅ Sent message with text buttons to {chat_entity.title}")
                             else:
                                 # Send without buttons for earlier messages
                                 await client.send_message(

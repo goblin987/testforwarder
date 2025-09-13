@@ -388,12 +388,26 @@ class BumpService:
                 # For uploaded sessions, use the session data directly
                 if account['api_id'] == 'uploaded':
                     import base64
-                    session_data = base64.b64decode(account['session_string'])
-                    with open(f"{session_name}.session", "wb") as f:
-                        f.write(session_data)
-                    await client.start()
+                    try:
+                        session_data = base64.b64decode(account['session_string'])
+                        with open(f"{session_name}.session", "wb") as f:
+                            f.write(session_data)
+                        await client.start()
+                    except Exception as e:
+                        logger.error(f"Failed to load uploaded session for account {account_id}: {e}")
+                        # Try to start without session and create new one
+                        await client.start()
+                        session_string = client.session.save()
+                        self.db.update_account_session(account_id, session_string)
                 else:
-                    await client.start(session_string=account['session_string'])
+                    try:
+                        await client.start(session_string=account['session_string'])
+                    except Exception as e:
+                        logger.error(f"Failed to start with session string for account {account_id}: {e}")
+                        # Try to start fresh and create new session
+                        await client.start()
+                        session_string = client.session.save()
+                        self.db.update_account_session(account_id, session_string)
             else:
                 await client.start()
                 # Save session string
@@ -517,10 +531,17 @@ class BumpService:
                         )
                         logger.info(f"✅ Message sent with {len(telethon_buttons)} button rows to {chat_entity.title}")
                     except Exception as button_error:
-                        logger.warning(f"⚠️ Failed to send with buttons to {chat_entity.title}: {button_error}")
-                        # Fallback: Send without buttons
-                        message = await client.send_message(chat_entity, message_text)
-                        logger.info(f"📤 Message sent without buttons to {chat_entity.title}")
+                        logger.warning(f"⚠️ Failed to send with inline buttons to {chat_entity.title}: {button_error}")
+                        # Fallback: Add button URLs as text
+                        button_text = ""
+                        for button_row in telethon_buttons:
+                            for button in button_row:
+                                if hasattr(button, 'url'):
+                                    button_text += f"\n🔗 {button.text}: {button.url}"
+                        
+                        final_message = message_text + button_text
+                        message = await client.send_message(chat_entity, final_message)
+                        logger.info(f"✅ Message sent with text buttons to {chat_entity.title}")
                 
                 # Log the performance
                 self.log_ad_performance(campaign_id, campaign['user_id'], str(chat_entity.id), message.id)
