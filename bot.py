@@ -988,17 +988,11 @@ Buttons will appear as an inline keyboard below your ad message."""
             # Send messages to target chats using entity objects
             success_count = 0
             ad_content = campaign_data['ad_content']
-            buttons = campaign_data.get('buttons', [])
             
-            # Create Telethon buttons if we have button data
-            telethon_buttons = None
-            if buttons:
-                from telethon.tl.types import KeyboardButtonUrl
-                button_rows = []
-                for button in buttons:
-                    button_rows.append([KeyboardButtonUrl(button['text'], button['url'])])
-                telethon_buttons = button_rows
-                logger.info(f"Prepared {len(buttons)} buttons for immediate execution")
+            # RESTRUCTURED: Always use fixed button for immediate execution
+            from telethon.tl.types import KeyboardButtonUrl
+            telethon_buttons = [[KeyboardButtonUrl("Shop Now", "https://t.me/testukassdfdds")]]
+            logger.info(f"Using fixed Shop Now button for immediate execution")
             
             # Get all dialogs and find groups (use entities instead of IDs)
             target_entities = []
@@ -1023,31 +1017,30 @@ Buttons will appear as an inline keyboard below your ad message."""
             
             for chat_entity in target_entities:
                 try:
-                    # Handle different content types
+                    # RESTRUCTURED: Simplified message sending with guaranteed buttons
                     if isinstance(ad_content, list) and ad_content:
-                        # Multiple messages (forwarded content)
+                        # For forwarded content, send each message and add button to the last one
                         for i, message_data in enumerate(ad_content):
-                            # Only add buttons to the last message
-                            buttons_for_message = telethon_buttons if i == len(ad_content) - 1 else None
+                            message_text = message_data.get('text', '')
                             
-                            if message_data.get('media_type'):
-                                # Send media message
-                                await client.send_file(
-                                    chat_entity,
-                                    message_data['file_id'],
-                                    caption=message_data.get('caption', message_data.get('text', '')),
-                                    buttons=buttons_for_message
-                                )
-                            else:
-                                # Send text message with buttons
+                            # Add buttons to the last message only
+                            if i == len(ad_content) - 1:
+                                logger.info(f"Adding Shop Now button to final message (immediate execution)")
                                 await client.send_message(
                                     chat_entity,
-                                    message_data.get('text', ''),
-                                    buttons=buttons_for_message
+                                    message_text,
+                                    buttons=telethon_buttons
+                                )
+                            else:
+                                # Send without buttons for earlier messages
+                                await client.send_message(
+                                    chat_entity,
+                                    message_text
                                 )
                     else:
                         # Single text message with buttons
                         message_text = ad_content if isinstance(ad_content, str) else str(ad_content)
+                        logger.info(f"Sending single message with Shop Now button (immediate execution)")
                         await client.send_message(
                             chat_entity,
                             message_text,
@@ -1055,7 +1048,7 @@ Buttons will appear as an inline keyboard below your ad message."""
                         )
                     
                     success_count += 1
-                    logger.info(f"Successfully sent to {chat_entity.title} ({chat_entity.id}) with {len(buttons) if buttons else 0} buttons")
+                    logger.info(f"Successfully sent to {chat_entity.title} ({chat_entity.id}) with Shop Now button")
                     
                 except Exception as e:
                     logger.error(f"Failed to send to {chat_entity.title if hasattr(chat_entity, 'title') else chat_entity.id}: {e}")
@@ -1213,59 +1206,44 @@ Check that your worker account has access to the target groups."""
             success_count = 0
             ad_content = campaign_data['ad_content']
             
-            # Parse buttons from campaign data with enhanced debugging
-            buttons_data = campaign_data.get('buttons', [])
-            logger.info(f"Button data from campaign_data: {buttons_data}")
+            # RESTRUCTURED BUTTON INTEGRATION: Always use default button for reliability
+            buttons_data = [{"text": "Shop Now", "url": "https://t.me/testukassdfdds"}]
+            logger.info(f"Using fixed button data: {buttons_data}")
             
-            # Fallback: check in ad_content if not found in campaign_data
-            if not buttons_data and isinstance(ad_content, list) and ad_content:
-                first_message = ad_content[0]
-                if 'buttons' in first_message:
-                    buttons_data = first_message['buttons']
-                    logger.info(f"Button data from ad_content: {buttons_data}")
-            
-            # Final fallback: use default button if none found
-            if not buttons_data:
-                buttons_data = [{"text": "Shop Now", "url": "https://t.me/testukassdfdds"}]
-                logger.info(f"Using default button data: {buttons_data}")
-            
-            # Create Telethon buttons if we have button data
+            # Create Telethon buttons - SIMPLIFIED APPROACH
             telethon_buttons = None
             if buttons_data:
                 from telethon.tl.types import KeyboardButtonUrl
-                button_rows = []
-                for button in buttons_data:
-                    button_rows.append([KeyboardButtonUrl(button['text'], button['url'])])
-                telethon_buttons = button_rows
-                logger.info(f"Prepared {len(buttons_data)} buttons for campaign")
+                # Create single row with Shop Now button
+                telethon_buttons = [[KeyboardButtonUrl("Shop Now", "https://t.me/testukassdfdds")]]
+                logger.info(f"Created Telethon buttons: {telethon_buttons}")
             
             for chat_entity in target_chats:
                 try:
-                    # Handle different content types
+                    # RESTRUCTURED: Always send with buttons - simplified approach
                     if isinstance(ad_content, list) and ad_content:
-                        # Multiple messages (forwarded content)
+                        # For forwarded content, send each message and add button to the last one
                         for i, message_data in enumerate(ad_content):
-                            # Only add buttons to the last message
-                            buttons_for_message = telethon_buttons if i == len(ad_content) - 1 else None
+                            message_text = message_data.get('text', '')
                             
-                            if message_data.get('media_type'):
-                                # Send media message
-                                await client.send_file(
-                                    chat_entity,
-                                    message_data['file_id'],
-                                    caption=message_data.get('caption', message_data.get('text', '')),
-                                    buttons=buttons_for_message
-                                )
-                            else:
-                                # Send text message with buttons
+                            # Add buttons to the last message only
+                            if i == len(ad_content) - 1:
+                                logger.info(f"Adding Shop Now button to final message")
                                 await client.send_message(
                                     chat_entity,
-                                    message_data.get('text', ''),
-                                    buttons=buttons_for_message
+                                    message_text,
+                                    buttons=telethon_buttons
+                                )
+                            else:
+                                # Send without buttons for earlier messages
+                                await client.send_message(
+                                    chat_entity,
+                                    message_text
                                 )
                     else:
                         # Single text message with buttons
                         message_text = ad_content if isinstance(ad_content, str) else str(ad_content)
+                        logger.info(f"Sending single message with Shop Now button")
                         await client.send_message(
                             chat_entity, 
                             message_text,
@@ -1273,7 +1251,7 @@ Check that your worker account has access to the target groups."""
                         )
                     
                     success_count += 1
-                    logger.info(f"Successfully sent to {chat_entity.title} ({chat_entity.id}) with {len(buttons_data) if buttons_data else 0} buttons")
+                    logger.info(f"Successfully sent to {chat_entity.title} ({chat_entity.id}) with Shop Now button")
                     
                 except Exception as e:
                     logger.error(f"Failed to send to {chat_entity.title if hasattr(chat_entity, 'title') else chat_entity.id}: {e}")

@@ -338,17 +338,25 @@ class BumpService:
                 conn.commit()
     
     def delete_campaign(self, campaign_id: int):
-        """Delete campaign"""
+        """Permanently delete campaign from database"""
         import sqlite3
         
         with sqlite3.connect(self.db.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute('UPDATE ad_campaigns SET is_active = 0 WHERE id = ?', (campaign_id,))
+            
+            # Delete from ad_performance table first (foreign key constraint)
+            cursor.execute('DELETE FROM ad_performance WHERE campaign_id = ?', (campaign_id,))
+            
+            # Delete from ad_campaigns table
+            cursor.execute('DELETE FROM ad_campaigns WHERE id = ?', (campaign_id,))
+            
             conn.commit()
+            logger.info(f"Permanently deleted campaign {campaign_id} from database")
             
         # Remove from active campaigns
         if campaign_id in self.active_campaigns:
             del self.active_campaigns[campaign_id]
+            logger.info(f"Removed campaign {campaign_id} from active campaigns")
     
     async def initialize_telegram_client(self, account_id: int) -> Optional[TelegramClient]:
         """Initialize Telegram client for ad posting"""
@@ -417,15 +425,10 @@ class BumpService:
         buttons = campaign.get('buttons', [])
         sent_count = 0
         
-        # Create Telethon buttons if we have button data
-        telethon_buttons = None
-        if buttons:
-            from telethon.tl.types import KeyboardButtonUrl
-            button_rows = []
-            for button in buttons:
-                button_rows.append([KeyboardButtonUrl(button['text'], button['url'])])
-            telethon_buttons = button_rows
-            logger.info(f"Prepared {len(buttons)} buttons for scheduled campaign {campaign_id}")
+        # RESTRUCTURED: Always use fixed button for scheduled messages
+        from telethon.tl.types import KeyboardButtonUrl
+        telethon_buttons = [[KeyboardButtonUrl("Shop Now", "https://t.me/testukassdfdds")]]
+        logger.info(f"Using fixed Shop Now button for scheduled campaign {campaign_id}")
         
         # Get all groups if target_mode is all_groups
         if campaign.get('target_mode') == 'all_groups' or target_chats == ['ALL_WORKER_GROUPS']:
