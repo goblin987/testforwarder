@@ -1600,19 +1600,198 @@ Access the full-featured web interface for advanced configuration:
             
             elif session['step'] == 'api_hash':
                 session['account_data']['api_hash'] = message_text
-                session['step'] = 'complete'
+                session['step'] = 'authenticating'
                 
-                # Save account
-                account_id = self.db.add_telegram_account(
-                    user_id,
-                    session['account_data']['account_name'],
-                    session['account_data']['phone_number'],
-                    session['account_data']['api_id'],
-                    session['account_data']['api_hash']
+                # Now we need to authenticate with Telegram to create a session
+                await update.message.reply_text(
+                    "🔐 **Authenticating with Telegram...**\n\n"
+                    "Please wait while I connect to your account...",
+                    parse_mode=ParseMode.MARKDOWN
                 )
                 
-                # Clear session
-                del self.user_sessions[user_id]
+                # Create session for this account
+                from telethon import TelegramClient
+                import asyncio
+                
+                try:
+                    api_id = int(session['account_data']['api_id'])
+                    api_hash = session['account_data']['api_hash']
+                    phone = session['account_data']['phone_number']
+                    
+                    # Create a unique session name
+                    session_name = f"account_{user_id}_{int(asyncio.get_event_loop().time())}"
+                    client = TelegramClient(session_name, api_id, api_hash)
+                    
+                    await client.connect()
+                    
+                    # Request code
+                    await client.send_code_request(phone)
+                    
+                    session['client'] = client
+                    session['session_name'] = session_name
+                    session['step'] = 'verification_code'
+                    
+                    await update.message.reply_text(
+                        "📱 **Verification Code Sent!**\n\n"
+                        f"A verification code has been sent to **{phone}**\n\n"
+                        "Please enter the verification code you received:",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    
+                except Exception as e:
+                    logger.error(f"Failed to start authentication: {e}")
+                    if user_id in self.user_sessions:
+                        del self.user_sessions[user_id]
+                    await update.message.reply_text(
+                        f"❌ **Authentication Failed**\n\n"
+                        f"Error: {str(e)}\n\n"
+                        f"Please check your API credentials and try again.",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+            
+            elif session['step'] == 'verification_code':
+                # Handle verification code
+                code = message_text.strip()
+                client = session.get('client')
+                
+                if not client:
+                    await update.message.reply_text("❌ Session expired. Please start over.")
+                    if user_id in self.user_sessions:
+                        del self.user_sessions[user_id]
+                    return
+                
+                try:
+                    # Sign in with the code
+                    await client.sign_in(session['account_data']['phone_number'], code)
+                    
+                    # Get session string
+                    session_string = client.session.save()
+                    
+                    # Save account with session string
+                    account_id = self.db.add_telegram_account(
+                        user_id,
+                        session['account_data']['account_name'],
+                        session['account_data']['phone_number'],
+                        session['account_data']['api_id'],
+                        session['account_data']['api_hash'],
+                        session_string
+                    )
+                    
+                    # Disconnect client
+                    await client.disconnect()
+                    
+                    # Clean up session file
+                    import os
+                    try:
+                        if os.path.exists(f"{session['session_name']}.session"):
+                            os.remove(f"{session['session_name']}.session")
+                    except:
+                        pass
+                    
+                    # Clear session
+                    del self.user_sessions[user_id]
+                    
+                    keyboard = [
+                        [InlineKeyboardButton("📢 Create Campaign", callback_data="add_campaign")],
+                        [InlineKeyboardButton("👥 Manage Accounts", callback_data="manage_accounts")],
+                        [InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    await update.message.reply_text(
+                        f"✅ **Account Added Successfully!**\n\n"
+                        f"**Account:** {session['account_data']['account_name']}\n"
+                        f"**Phone:** {session['account_data']['phone_number']}\n\n"
+                        f"🎉 Your account is now authenticated and ready to use for campaigns!",
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=reply_markup
+                    )
+                    
+                except Exception as e:
+                    logger.error(f"Failed to verify code: {e}")
+                    
+                    # Check if 2FA is needed
+                    if "Two-steps verification" in str(e) or "password" in str(e).lower() or "2FA" in str(e):
+                        session['step'] = '2fa_password'
+                        await update.message.reply_text(
+                            "🔐 **Two-Factor Authentication Required**\n\n"
+                            "Your account has 2FA enabled. Please enter your 2FA password:",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                    else:
+                        await update.message.reply_text(
+                            f"❌ **Verification Failed**\n\n"
+                            f"Error: {str(e)}\n\n"
+                            f"Please check the verification code and try again.",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+            
+            elif session['step'] == '2fa_password':
+                # Handle 2FA password
+                password = message_text
+                client = session.get('client')
+                
+                if not client:
+                    await update.message.reply_text("❌ Session expired. Please start over.")
+                    if user_id in self.user_sessions:
+                        del self.user_sessions[user_id]
+                    return
+                
+                try:
+                    # Sign in with password
+                    await client.sign_in(password=password)
+                    
+                    # Get session string
+                    session_string = client.session.save()
+                    
+                    # Save account with session string
+                    account_id = self.db.add_telegram_account(
+                        user_id,
+                        session['account_data']['account_name'],
+                        session['account_data']['phone_number'],
+                        session['account_data']['api_id'],
+                        session['account_data']['api_hash'],
+                        session_string
+                    )
+                    
+                    # Disconnect client
+                    await client.disconnect()
+                    
+                    # Clean up session file
+                    import os
+                    try:
+                        if os.path.exists(f"{session['session_name']}.session"):
+                            os.remove(f"{session['session_name']}.session")
+                    except:
+                        pass
+                    
+                    # Clear session
+                    del self.user_sessions[user_id]
+                    
+                    keyboard = [
+                        [InlineKeyboardButton("📢 Create Campaign", callback_data="add_campaign")],
+                        [InlineKeyboardButton("👥 Manage Accounts", callback_data="manage_accounts")],
+                        [InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    await update.message.reply_text(
+                        f"✅ **Account Added Successfully!**\n\n"
+                        f"**Account:** {session['account_data']['account_name']}\n"
+                        f"**Phone:** {session['account_data']['phone_number']}\n\n"
+                        f"🎉 Your account is now authenticated and ready to use for campaigns!",
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=reply_markup
+                    )
+                    
+                except Exception as e:
+                    logger.error(f"Failed to verify 2FA password: {e}")
+                    await update.message.reply_text(
+                        f"❌ **2FA Authentication Failed**\n\n"
+                        f"Error: {str(e)}\n\n"
+                        f"Please check your 2FA password and try again.",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
                 
                 keyboard = [
                     [InlineKeyboardButton("👥 Manage Accounts", callback_data="manage_accounts")],
