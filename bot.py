@@ -948,13 +948,14 @@ Buttons will appear as an inline keyboard below your ad message."""
             from telethon import TelegramClient
             import base64
             
-            # Decode session string
-            session_data = base64.b64decode(account['session_string'])
-            
-            # Create temporary session file
+            # Handle session creation
             temp_session_path = f"temp_session_{account_id}"
-            with open(f"{temp_session_path}.session", "wb") as f:
-                f.write(session_data)
+            
+            # Only decode session string if it exists (uploaded sessions)
+            if account['session_string']:
+                session_data = base64.b64decode(account['session_string'])
+                with open(f"{temp_session_path}.session", "wb") as f:
+                    f.write(session_data)
             
             # Handle uploaded sessions (no API credentials needed)
             if account['api_id'] == 'uploaded' or account['api_hash'] == 'uploaded':
@@ -973,7 +974,14 @@ Buttons will appear as an inline keyboard below your ad message."""
             # Initialize client
             client = TelegramClient(temp_session_path, api_id, api_hash)
             
-            await client.start()
+            # Start client with proper authentication
+            if account['session_string']:
+                # Use existing session string
+                await client.start(session_string=account['session_string'])
+            else:
+                # For accounts with API credentials but no session yet
+                logger.error(f"Account {account_id} has no session string. Please re-authenticate the account.")
+                return False
             
             # Determine target chats
             target_chats = campaign_data['target_chats']
@@ -1206,13 +1214,14 @@ Check that your worker account has access to the target groups."""
             from telethon import TelegramClient
             import base64
             
-            # Decode session string
-            session_data = base64.b64decode(account['session_string'])
-            
-            # Create temporary session file
+            # Handle session creation
             temp_session_path = f"temp_session_{account_id}"
-            with open(f"{temp_session_path}.session", "wb") as f:
-                f.write(session_data)
+            
+            # Only decode session string if it exists (uploaded sessions)
+            if account['session_string']:
+                session_data = base64.b64decode(account['session_string'])
+                with open(f"{temp_session_path}.session", "wb") as f:
+                    f.write(session_data)
             
             # Handle uploaded sessions (no API credentials needed)
             if account['api_id'] == 'uploaded' or account['api_hash'] == 'uploaded':
