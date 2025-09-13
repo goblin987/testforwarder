@@ -338,7 +338,7 @@ class BumpService:
                 conn.commit()
     
     def delete_campaign(self, campaign_id: int):
-        """Permanently delete campaign from database"""
+        """Permanently delete campaign from database and clean up scheduler"""
         import sqlite3
         
         with sqlite3.connect(self.db.db_path) as conn:
@@ -357,6 +357,19 @@ class BumpService:
         if campaign_id in self.active_campaigns:
             del self.active_campaigns[campaign_id]
             logger.info(f"Removed campaign {campaign_id} from active campaigns")
+        
+        # Clean up scheduled jobs for this campaign
+        import schedule
+        jobs_to_remove = []
+        for job in schedule.jobs:
+            if hasattr(job, 'job_func') and hasattr(job.job_func, 'args') and job.job_func.args and job.job_func.args[0] == campaign_id:
+                jobs_to_remove.append(job)
+        
+        for job in jobs_to_remove:
+            schedule.cancel_job(job)
+            logger.info(f"Cancelled scheduled job for campaign {campaign_id}")
+        
+        logger.info(f"Campaign {campaign_id} completely cleaned up")
     
     async def initialize_telegram_client(self, account_id: int) -> Optional[TelegramClient]:
         """Initialize Telegram client for ad posting"""
@@ -495,6 +508,7 @@ class BumpService:
                     logger.error(f"Failed to get entity for {chat_id}: {e}")
         
         for chat_entity in target_entities:
+            message = None
             try:
                 # Handle different content types
                 if isinstance(ad_content, list) and ad_content:
@@ -544,10 +558,10 @@ class BumpService:
                         logger.info(f"✅ Message sent with text buttons to {chat_entity.title}")
                 
                 # Log the performance
-                self.log_ad_performance(campaign_id, campaign['user_id'], str(chat_entity.id), message.id)
-                sent_count += 1
-                
-                logger.info(f"Scheduled ad sent to {chat_entity.title} ({chat_entity.id}) for campaign {campaign['campaign_name']} with {len(buttons)} buttons")
+                if message:
+                    self.log_ad_performance(campaign_id, campaign['user_id'], str(chat_entity.id), message.id)
+                    sent_count += 1
+                    logger.info(f"Scheduled ad sent to {chat_entity.title} ({chat_entity.id}) for campaign {campaign['campaign_name']}")
                 
                 # Add delay between sends
                 await asyncio.sleep(2)

@@ -1060,6 +1060,7 @@ Buttons will appear as an inline keyboard below your ad message."""
                                         buttons=telethon_buttons
                                     )
                                     logger.info(f"✅ Sent message with inline buttons to {chat_entity.title}")
+                                    message_sent = True
                                 except Exception as button_error:
                                     logger.warning(f"⚠️ Inline buttons failed for {chat_entity.title}: {button_error}")
                                     # Fallback: Add button URLs as text
@@ -1070,14 +1071,20 @@ Buttons will appear as an inline keyboard below your ad message."""
                                                 button_text += f"\n🔗 {button.text}: {button.url}"
                                     
                                     final_message = message_text + button_text
-                                    await client.send_message(chat_entity, final_message)
-                                    logger.info(f"✅ Sent message with text buttons to {chat_entity.title}")
+                                    try:
+                                        await client.send_message(chat_entity, final_message)
+                                        logger.info(f"✅ Sent message with text buttons to {chat_entity.title}")
+                                        message_sent = True
+                                    except Exception as fallback_error:
+                                        logger.error(f"❌ Failed to send message to {chat_entity.title}: {fallback_error}")
+                                        # Skip this chat and continue with others
                             else:
                                 # Send without buttons for earlier messages
                                 await client.send_message(
                                     chat_entity,
                                     message_text
                                 )
+                                message_sent = True
                     else:
                         # Single text message with buttons
                         message_text = ad_content if isinstance(ad_content, str) else str(ad_content)
@@ -1088,8 +1095,9 @@ Buttons will appear as an inline keyboard below your ad message."""
                             buttons=telethon_buttons
                         )
                     
-                    success_count += 1
-                    logger.info(f"Successfully sent to {chat_entity.title} ({chat_entity.id}) with Shop Now button")
+                    if message_sent:
+                        success_count += 1
+                        logger.info(f"Successfully sent to {chat_entity.title} ({chat_entity.id}) with buttons")
                     
                 except Exception as e:
                     logger.error(f"Failed to send to {chat_entity.title if hasattr(chat_entity, 'title') else chat_entity.id}: {e}")
@@ -1288,6 +1296,7 @@ Check that your worker account has access to the target groups."""
                     logger.info("Using fallback Shop Now button")
             
             for chat_entity in target_chats:
+                message_sent = False
                 try:
                     # RESTRUCTURED: Always send with buttons - simplified approach
                     if isinstance(ad_content, list) and ad_content:
@@ -1306,6 +1315,7 @@ Check that your worker account has access to the target groups."""
                                         buttons=telethon_buttons
                                     )
                                     logger.info(f"✅ Sent message with inline buttons to {chat_entity.title}")
+                                    message_sent = True
                                 except Exception as button_error:
                                     logger.warning(f"⚠️ Inline buttons failed for {chat_entity.title}: {button_error}")
                                     # Fallback: Add button URLs as text
@@ -1316,14 +1326,20 @@ Check that your worker account has access to the target groups."""
                                                 button_text += f"\n🔗 {button.text}: {button.url}"
                                     
                                     final_message = message_text + button_text
-                                    await client.send_message(chat_entity, final_message)
-                                    logger.info(f"✅ Sent message with text buttons to {chat_entity.title}")
+                                    try:
+                                        await client.send_message(chat_entity, final_message)
+                                        logger.info(f"✅ Sent message with text buttons to {chat_entity.title}")
+                                        message_sent = True
+                                    except Exception as fallback_error:
+                                        logger.error(f"❌ Failed to send message to {chat_entity.title}: {fallback_error}")
+                                        # Skip this chat and continue with others
                             else:
                                 # Send without buttons for earlier messages
                                 await client.send_message(
                                     chat_entity,
                                     message_text
                                 )
+                                message_sent = True
                     else:
                         # Single text message with buttons
                         message_text = ad_content if isinstance(ad_content, str) else str(ad_content)
@@ -1334,8 +1350,9 @@ Check that your worker account has access to the target groups."""
                             buttons=telethon_buttons
                         )
                     
-                    success_count += 1
-                    logger.info(f"Successfully sent to {chat_entity.title} ({chat_entity.id}) with Shop Now button")
+                    if message_sent:
+                        success_count += 1
+                        logger.info(f"Successfully sent to {chat_entity.title} ({chat_entity.id}) with buttons")
                     
                 except Exception as e:
                     logger.error(f"Failed to send to {chat_entity.title if hasattr(chat_entity, 'title') else chat_entity.id}: {e}")
