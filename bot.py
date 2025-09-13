@@ -951,36 +951,61 @@ Buttons will appear as an inline keyboard below your ad message."""
             # Handle session creation
             temp_session_path = f"temp_session_{account_id}"
             
-            # Only decode session string if it exists (uploaded sessions)
-            if account['session_string']:
-                session_data = base64.b64decode(account['session_string'])
-                with open(f"{temp_session_path}.session", "wb") as f:
-                    f.write(session_data)
+            # Check if we have a valid session
+            if not account.get('session_string'):
+                logger.error(f"Account {account_id} has no session string. Please re-authenticate the account.")
+                return False
             
-            # Handle uploaded sessions (no API credentials needed)
+            # Handle uploaded sessions vs API credential sessions
             if account['api_id'] == 'uploaded' or account['api_hash'] == 'uploaded':
-                # For uploaded sessions, we can use dummy credentials since session is already authenticated
-                api_id = 123456  # Dummy API ID
-                api_hash = 'dummy_hash_for_uploaded_sessions'  # Dummy API Hash
+                # For uploaded sessions, decode and save the session file
+                try:
+                    session_data = base64.b64decode(account['session_string'])
+                    with open(f"{temp_session_path}.session", "wb") as f:
+                        f.write(session_data)
+                    # Use dummy credentials for uploaded sessions
+                    api_id = 123456  
+                    api_hash = 'dummy_hash_for_uploaded_sessions'
+                except Exception as e:
+                    logger.error(f"Failed to decode uploaded session for account {account_id}: {e}")
+                    return False
             else:
-                # Use real API credentials for manually set up accounts
+                # For API credential accounts with authenticated sessions
                 try:
                     api_id = int(account['api_id'])
                     api_hash = account['api_hash']
-                except ValueError:
-                    logger.error(f"Invalid API credentials for account {account_id}")
+                    
+                    # Session string from phone verification is already a proper session
+                    # Write it as the session file
+                    with open(f"{temp_session_path}.session", "w") as f:
+                        f.write(account['session_string'])
+                except (ValueError, TypeError) as e:
+                    logger.error(f"Invalid API credentials for account {account_id}: {e}")
                     return False
             
-            # Initialize client
-            client = TelegramClient(temp_session_path, api_id, api_hash)
-            
-            # Start client with proper authentication
-            if account['session_string']:
-                # Use existing session string
-                await client.start(session_string=account['session_string'])
-            else:
-                # For accounts with API credentials but no session yet
-                logger.error(f"Account {account_id} has no session string. Please re-authenticate the account.")
+            # Initialize and start client
+            try:
+                client = TelegramClient(temp_session_path, api_id, api_hash)
+                await client.start()
+                
+                # Verify the session is valid
+                me = await client.get_me()
+                if not me:
+                    logger.error(f"Session invalid for account {account_id}")
+                    await client.disconnect()
+                    return False
+                    
+                logger.info(f"Successfully authenticated as {me.username or me.phone}")
+                
+            except Exception as e:
+                logger.error(f"Failed to start client for account {account_id}: {e}")
+                # Clean up session file on failure
+                import os
+                try:
+                    if os.path.exists(f"{temp_session_path}.session"):
+                        os.remove(f"{temp_session_path}.session")
+                except:
+                    pass
                 return False
             
             # Determine target chats
@@ -1177,13 +1202,30 @@ Schedule: Next message in {campaign['schedule_time']}
 
 Your ads are now being posted to all target groups!"""
             else:
-                success_text = f"""⚠️ Campaign Start Issues
+                # Check if account needs re-authentication
+                if not account.get('session_string'):
+                    success_text = f"""❌ Account Authentication Required
 
 Campaign: {campaign['campaign_name']}
 Account: {account['account_name']}
-Status: ❌ Some messages failed to send
+Status: ❌ Account not authenticated
 
-Check that your worker account has access to the target groups."""
+**Solution:**
+1. Delete this account from 'Manage Accounts'
+2. Re-add the account using API credentials
+3. Complete phone verification when prompted
+4. Try starting the campaign again"""
+                else:
+                    success_text = f"""⚠️ Campaign Start Issues
+
+Campaign: {campaign['campaign_name']}
+Account: {account['account_name']}
+Status: ❌ Authentication failed or no access to groups
+
+**Possible Solutions:**
+1. Check that your account has access to target groups
+2. Try deleting and re-adding the account with phone verification
+3. Make sure the account is not banned/restricted"""
             
             keyboard = [
                 [InlineKeyboardButton("🔄 Try Again", callback_data=f"start_campaign_{campaign_id}")],
@@ -1217,27 +1259,62 @@ Check that your worker account has access to the target groups."""
             # Handle session creation
             temp_session_path = f"temp_session_{account_id}"
             
-            # Only decode session string if it exists (uploaded sessions)
-            if account['session_string']:
-                session_data = base64.b64decode(account['session_string'])
-                with open(f"{temp_session_path}.session", "wb") as f:
-                    f.write(session_data)
+            # Check if we have a valid session
+            if not account.get('session_string'):
+                logger.error(f"Account {account_id} has no session string. Please re-authenticate the account.")
+                return False
             
-            # Handle uploaded sessions (no API credentials needed)
+            # Handle uploaded sessions vs API credential sessions
             if account['api_id'] == 'uploaded' or account['api_hash'] == 'uploaded':
-                api_id = 123456  # Dummy API ID
-                api_hash = 'dummy_hash_for_uploaded_sessions'  # Dummy API Hash
+                # For uploaded sessions, decode and save the session file
+                try:
+                    session_data = base64.b64decode(account['session_string'])
+                    with open(f"{temp_session_path}.session", "wb") as f:
+                        f.write(session_data)
+                    # Use dummy credentials for uploaded sessions
+                    api_id = 123456  
+                    api_hash = 'dummy_hash_for_uploaded_sessions'
+                except Exception as e:
+                    logger.error(f"Failed to decode uploaded session for account {account_id}: {e}")
+                    return False
             else:
+                # For API credential accounts with authenticated sessions
                 try:
                     api_id = int(account['api_id'])
                     api_hash = account['api_hash']
-                except ValueError:
-                    logger.error(f"Invalid API credentials for account {account_id}")
+                    
+                    # Session string from phone verification is already a proper session
+                    # Write it as the session file
+                    with open(f"{temp_session_path}.session", "w") as f:
+                        f.write(account['session_string'])
+                except (ValueError, TypeError) as e:
+                    logger.error(f"Invalid API credentials for account {account_id}: {e}")
                     return False
             
-            # Initialize client
-            client = TelegramClient(temp_session_path, api_id, api_hash)
-            await client.start()
+            # Initialize and start client
+            try:
+                client = TelegramClient(temp_session_path, api_id, api_hash)
+                await client.start()
+                
+                # Verify the session is valid
+                me = await client.get_me()
+                if not me:
+                    logger.error(f"Session invalid for account {account_id}")
+                    await client.disconnect()
+                    return False
+                    
+                logger.info(f"Successfully authenticated as {me.username or me.phone}")
+                
+            except Exception as e:
+                logger.error(f"Failed to start client for account {account_id}: {e}")
+                # Clean up session file on failure
+                import os
+                try:
+                    if os.path.exists(f"{temp_session_path}.session"):
+                        os.remove(f"{temp_session_path}.session")
+                except:
+                    pass
+                return False
             
             # Get all dialogs and find groups
             target_chats = []
