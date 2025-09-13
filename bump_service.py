@@ -400,18 +400,14 @@ class BumpService:
             if account['session_string']:
                 # For uploaded sessions, use the session data directly
                 if account['api_id'] == 'uploaded':
-                    import base64
+                    # For uploaded sessions, we can't re-authenticate, so just use the session string directly
                     try:
-                        session_data = base64.b64decode(account['session_string'])
-                        with open(f"{session_name}.session", "wb") as f:
-                            f.write(session_data)
-                        await client.start()
+                        await client.start(session_string=account['session_string'])
                     except Exception as e:
-                        logger.error(f"Failed to load uploaded session for account {account_id}: {e}")
-                        # Try to start without session and create new one
-                        await client.start()
-                        session_string = client.session.save()
-                        self.db.update_account_session(account_id, session_string)
+                        logger.error(f"Failed to use uploaded session for account {account_id}: {e}")
+                        # For uploaded sessions, we can't create a new session without user interaction
+                        logger.error(f"Account {account_id} has an uploaded session that cannot be refreshed automatically")
+                        return None
                 else:
                     try:
                         await client.start(session_string=account['session_string'])
@@ -536,24 +532,26 @@ class BumpService:
                     # Single text message with buttons
                     message_text = ad_content if isinstance(ad_content, str) else str(ad_content)
                     
-                    # Ensure we have buttons and the chat allows them
+                    # ALWAYS add button URLs as text for groups (inline buttons don't work in regular groups)
+                    button_text = ""
+                    for button_row in telethon_buttons:
+                        for button in button_row:
+                            if hasattr(button, 'url'):
+                                button_text += f"\n\n🔗 {button.text}: {button.url}"
+                    
+                    # Combine message with button text
+                    final_message = message_text + button_text
+                    
+                    # Try sending with both inline buttons AND text
                     try:
                         message = await client.send_message(
                             chat_entity,
-                            message_text,
-                            buttons=telethon_buttons
+                            final_message,  # Message includes button URLs as text
+                            buttons=telethon_buttons  # Also try inline buttons for channels
                         )
-                        logger.info(f"✅ Message sent with {len(telethon_buttons)} button rows to {chat_entity.title}")
-                    except Exception as button_error:
-                        logger.warning(f"⚠️ Failed to send with inline buttons to {chat_entity.title}: {button_error}")
-                        # Fallback: Add button URLs as text
-                        button_text = ""
-                        for button_row in telethon_buttons:
-                            for button in button_row:
-                                if hasattr(button, 'url'):
-                                    button_text += f"\n🔗 {button.text}: {button.url}"
-                        
-                        final_message = message_text + button_text
+                        logger.info(f"✅ Message sent with buttons (inline + text) to {chat_entity.title}")
+                    except Exception as send_error:
+                        # If that fails, try without inline buttons
                         message = await client.send_message(chat_entity, final_message)
                         logger.info(f"✅ Message sent with text buttons to {chat_entity.title}")
                 

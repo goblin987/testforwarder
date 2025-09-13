@@ -1307,25 +1307,27 @@ Check that your worker account has access to the target groups."""
                             # Add buttons to the last message only
                             if i == len(ad_content) - 1:
                                 logger.info(f"Adding buttons to final message")
+                                # ALWAYS add button URLs as text for groups (inline buttons don't work in regular groups)
+                                button_text = ""
+                                for button_row in telethon_buttons:
+                                    for button in button_row:
+                                        if hasattr(button, 'url'):
+                                            button_text += f"\n\n🔗 {button.text}: {button.url}"
+                                
+                                # Combine message with button text
+                                final_message = message_text + button_text
+                                
                                 try:
-                                    # Try to send with buttons first
+                                    # Try sending with both inline buttons AND text (belt and suspenders approach)
                                     await client.send_message(
                                         chat_entity,
-                                        message_text,
-                                        buttons=telethon_buttons
+                                        final_message,  # Message now includes button URLs as text
+                                        buttons=telethon_buttons  # Also try inline buttons for channels/supergroups
                                     )
-                                    logger.info(f"✅ Sent message with inline buttons to {chat_entity.title}")
+                                    logger.info(f"✅ Sent message with buttons (inline + text) to {chat_entity.title}")
                                     message_sent = True
-                                except Exception as button_error:
-                                    logger.warning(f"⚠️ Inline buttons failed for {chat_entity.title}: {button_error}")
-                                    # Fallback: Add button URLs as text
-                                    button_text = ""
-                                    for button_row in telethon_buttons:
-                                        for button in button_row:
-                                            if hasattr(button, 'url'):
-                                                button_text += f"\n🔗 {button.text}: {button.url}"
-                                    
-                                    final_message = message_text + button_text
+                                except Exception as send_error:
+                                    # If that fails, try without inline buttons
                                     try:
                                         await client.send_message(chat_entity, final_message)
                                         logger.info(f"✅ Sent message with text buttons to {chat_entity.title}")
