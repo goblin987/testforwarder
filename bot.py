@@ -989,10 +989,36 @@ Buttons will appear as an inline keyboard below your ad message."""
             success_count = 0
             ad_content = campaign_data['ad_content']
             
-            # RESTRUCTURED: Always use fixed button for immediate execution - FIXED APPROACH
+            # Create buttons from campaign data
             from telethon import Button
-            telethon_buttons = [[Button.url("Shop Now", "https://t.me/testukassdfdds")]]
-            logger.info(f"Using fixed Shop Now button (Button.url) for immediate execution")
+            buttons_data = campaign_data.get('buttons', [])
+            
+            if buttons_data:
+                try:
+                    button_rows = []
+                    current_row = []
+                    
+                    for i, button in enumerate(buttons_data):
+                        if button.get('url'):
+                            telethon_button = Button.url(button['text'], button['url'])
+                        else:
+                            telethon_button = Button.inline(button['text'], f"btn_{i}")
+                        
+                        current_row.append(telethon_button)
+                        
+                        if len(current_row) == 2 or i == len(buttons_data) - 1:
+                            button_rows.append(current_row)
+                            current_row = []
+                    
+                    telethon_buttons = button_rows
+                    logger.info(f"✅ Created {len(buttons_data)} campaign buttons for immediate execution")
+                except Exception as e:
+                    logger.error(f"❌ Error creating campaign buttons: {e}")
+                    telethon_buttons = [[Button.url("Shop Now", "https://t.me/testukassdfdds")]]
+            else:
+                # Default button if none specified
+                telethon_buttons = [[Button.url("Shop Now", "https://t.me/testukassdfdds")]]
+                logger.info("Using default Shop Now button for immediate execution")
             
             # Get all dialogs and find groups (use entities instead of IDs)
             target_entities = []
@@ -1206,17 +1232,45 @@ Check that your worker account has access to the target groups."""
             success_count = 0
             ad_content = campaign_data['ad_content']
             
-            # RESTRUCTURED BUTTON INTEGRATION: Always use default button for reliability
-            buttons_data = [{"text": "Shop Now", "url": "https://t.me/testukassdfdds"}]
-            logger.info(f"Using fixed button data: {buttons_data}")
+            # Use actual campaign button data
+            buttons_data = campaign_data.get('buttons', [])
+            if not buttons_data:
+                # Fallback to default button if none specified
+                buttons_data = [{"text": "Shop Now", "url": "https://t.me/testukassdfdds"}]
+                logger.info(f"Using default button data: {buttons_data}")
+            else:
+                logger.info(f"Using campaign button data: {buttons_data}")
             
-            # Create Telethon buttons - FIXED APPROACH for visibility
+            # Create Telethon buttons from campaign data
             telethon_buttons = None
             if buttons_data:
                 from telethon import Button
-                # Use Telethon's Button.url method for guaranteed visibility
-                telethon_buttons = [[Button.url("Shop Now", "https://t.me/testukassdfdds")]]
-                logger.info(f"Created Telethon buttons using Button.url: {telethon_buttons}")
+                try:
+                    button_rows = []
+                    current_row = []
+                    
+                    for i, button in enumerate(buttons_data):
+                        if button.get('url'):
+                            # URL button
+                            telethon_button = Button.url(button['text'], button['url'])
+                        else:
+                            # Regular callback button
+                            telethon_button = Button.inline(button['text'], f"btn_{i}")
+                        
+                        current_row.append(telethon_button)
+                        
+                        # Create new row every 2 buttons or at the end
+                        if len(current_row) == 2 or i == len(buttons_data) - 1:
+                            button_rows.append(current_row)
+                            current_row = []
+                    
+                    telethon_buttons = button_rows
+                    logger.info(f"✅ Created {len(buttons_data)} buttons in {len(button_rows)} rows from campaign data")
+                except Exception as e:
+                    logger.error(f"❌ Error creating buttons from campaign data: {e}")
+                    # Fallback to default button
+                    telethon_buttons = [[Button.url("Shop Now", "https://t.me/testukassdfdds")]]
+                    logger.info("Using fallback Shop Now button")
             
             for chat_entity in target_chats:
                 try:

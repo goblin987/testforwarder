@@ -629,11 +629,17 @@ class BumpService:
             # Get campaign from database
             campaign = self.get_campaign(campaign_id)
             if not campaign:
-                logger.warning(f"Campaign {campaign_id} not found for scheduled execution")
+                logger.warning(f"Campaign {campaign_id} not found for scheduled execution - removing from active campaigns")
+                # Remove from active campaigns if campaign doesn't exist
+                if campaign_id in self.active_campaigns:
+                    del self.active_campaigns[campaign_id]
                 return
                 
             if not campaign.get('is_active', False):
-                logger.warning(f"Campaign {campaign_id} is not active, skipping scheduled execution")
+                logger.warning(f"Campaign {campaign_id} is not active, removing from active campaigns")
+                # Remove inactive campaigns from active campaigns
+                if campaign_id in self.active_campaigns:
+                    del self.active_campaigns[campaign_id]
                 return
             
             # Execute campaign in new thread to avoid blocking scheduler
