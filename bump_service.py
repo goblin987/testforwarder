@@ -398,48 +398,27 @@ class BumpService:
             client = TelegramClient(session_name, api_id, api_hash)
             
             if account['session_string']:
-                # For uploaded sessions, use the session data directly
-                if account['api_id'] == 'uploaded':
-                    # For uploaded sessions, try multiple approaches
-                    try:
-                        # First try: Use session string directly
-                        await client.start(session_string=account['session_string'])
-                        logger.info(f"Successfully started uploaded session for account {account_id}")
-                    except Exception as e1:
-                        logger.warning(f"Session string failed for account {account_id}: {e1}")
-                        try:
-                            # Second try: Use session file if it exists
-                            import base64
-                            import os
-                            session_file = f"{session_name}.session"
-                            if os.path.exists(session_file):
-                                await client.start()
-                                logger.info(f"Successfully started from existing session file for account {account_id}")
-                            else:
-                                # Third try: Create session file from base64 data
-                                session_data = base64.b64decode(account['session_string'])
-                                with open(session_file, "wb") as f:
-                                    f.write(session_data)
-                                await client.start()
-                                logger.info(f"Successfully created and started session file for account {account_id}")
-                        except Exception as e2:
-                            logger.error(f"All session methods failed for account {account_id}: {e2}")
-                            logger.error(f"Account {account_id} needs to be re-added with fresh credentials")
-                            return None
-                else:
-                    try:
-                        await client.start(session_string=account['session_string'])
-                    except Exception as e:
-                        logger.error(f"Failed to start with session string for account {account_id}: {e}")
-                        # Try to start fresh and create new session
-                        await client.start()
-                        session_string = client.session.save()
-                        self.db.update_account_session(account_id, session_string)
+                # All session strings are base64 encoded session file data
+                try:
+                    import base64
+                    import os
+                    session_file = f"{session_name}.session"
+                    
+                    # Decode the session string and write to file
+                    session_data = base64.b64decode(account['session_string'])
+                    with open(session_file, "wb") as f:
+                        f.write(session_data)
+                    
+                    # Start the client with the session file
+                    await client.start()
+                    logger.info(f"Successfully started session for account {account_id}")
+                except Exception as e:
+                    logger.error(f"Failed to start session for account {account_id}: {e}")
+                    logger.error(f"Account {account_id} needs to be re-added with fresh credentials")
+                    return None
             else:
-                await client.start()
-                # Save session string
-                session_string = client.session.save()
-                self.db.update_account_session(account_id, session_string)
+                logger.error(f"Account {account_id} has no session string. Please authenticate the account.")
+                return None
             
             self.telegram_clients[account_id] = client
             logger.info(f"Telegram client initialized for bump service (Account: {account_id})")

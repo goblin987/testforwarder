@@ -975,12 +975,16 @@ Buttons will appear as an inline keyboard below your ad message."""
                     api_id = int(account['api_id'])
                     api_hash = account['api_hash']
                     
-                    # Session string from phone verification is already a proper session
-                    # Write it as the session file
-                    with open(f"{temp_session_path}.session", "w") as f:
-                        f.write(account['session_string'])
+                    # Session string is base64 encoded session file data
+                    # Decode and write it as the session file
+                    session_data = base64.b64decode(account['session_string'])
+                    with open(f"{temp_session_path}.session", "wb") as f:
+                        f.write(session_data)
                 except (ValueError, TypeError) as e:
                     logger.error(f"Invalid API credentials for account {account_id}: {e}")
+                    return False
+                except Exception as e:
+                    logger.error(f"Failed to decode session for account {account_id}: {e}")
                     return False
             
             # Initialize and start client
@@ -1283,12 +1287,16 @@ Status: ❌ Authentication failed or no access to groups
                     api_id = int(account['api_id'])
                     api_hash = account['api_hash']
                     
-                    # Session string from phone verification is already a proper session
-                    # Write it as the session file
-                    with open(f"{temp_session_path}.session", "w") as f:
-                        f.write(account['session_string'])
+                    # Session string is base64 encoded session file data
+                    # Decode and write it as the session file
+                    session_data = base64.b64decode(account['session_string'])
+                    with open(f"{temp_session_path}.session", "wb") as f:
+                        f.write(session_data)
                 except (ValueError, TypeError) as e:
                     logger.error(f"Invalid API credentials for account {account_id}: {e}")
+                    return False
+                except Exception as e:
+                    logger.error(f"Failed to decode session for account {account_id}: {e}")
                     return False
             
             # Initialize and start client
@@ -1741,8 +1749,18 @@ Access the full-featured web interface for advanced configuration:
                     # Sign in with the code
                     await client.sign_in(session['account_data']['phone_number'], code)
                     
-                    # Get session string
-                    session_string = client.session.save()
+                    # Get session string - save the actual session file content
+                    import base64
+                    session_file_path = f"{session['session_name']}.session"
+                    
+                    # Save the session to ensure it's written to disk
+                    await client.disconnect()
+                    await client.connect()
+                    
+                    # Read the session file and encode it
+                    with open(session_file_path, 'rb') as f:
+                        session_data = f.read()
+                    session_string = base64.b64encode(session_data).decode('utf-8')
                     
                     # Save account with session string
                     account_id = self.db.add_telegram_account(
@@ -1818,8 +1836,18 @@ Access the full-featured web interface for advanced configuration:
                     # Sign in with password
                     await client.sign_in(password=password)
                     
-                    # Get session string
-                    session_string = client.session.save()
+                    # Get session string - save the actual session file content
+                    import base64
+                    session_file_path = f"{session['session_name']}.session"
+                    
+                    # Save the session to ensure it's written to disk
+                    await client.disconnect()
+                    await client.connect()
+                    
+                    # Read the session file and encode it
+                    with open(session_file_path, 'rb') as f:
+                        session_data = f.read()
+                    session_string = base64.b64encode(session_data).decode('utf-8')
                     
                     # Save account with session string
                     account_id = self.db.add_telegram_account(
