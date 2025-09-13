@@ -425,10 +425,41 @@ class BumpService:
         buttons = campaign.get('buttons', [])
         sent_count = 0
         
-        # RESTRUCTURED: Always use fixed button for scheduled messages - FIXED APPROACH
+        # Create buttons from campaign data or use default
         from telethon import Button
-        telethon_buttons = [[Button.url("Shop Now", "https://t.me/testukassdfdds")]]
-        logger.info(f"Using fixed Shop Now button (Button.url) for scheduled campaign {campaign_id}")
+        telethon_buttons = None
+        
+        if buttons and len(buttons) > 0:
+            # Convert stored button data to Telethon buttons
+            try:
+                button_rows = []
+                current_row = []
+                
+                for i, button in enumerate(buttons):
+                    if button.get('url'):
+                        # URL button
+                        telethon_button = Button.url(button['text'], button['url'])
+                    else:
+                        # Regular callback button (for inline responses)
+                        telethon_button = Button.inline(button['text'], f"btn_{campaign_id}_{i}")
+                    
+                    current_row.append(telethon_button)
+                    
+                    # Create new row every 2 buttons or at the end
+                    if len(current_row) == 2 or i == len(buttons) - 1:
+                        button_rows.append(current_row)
+                        current_row = []
+                
+                telethon_buttons = button_rows
+                logger.info(f"✅ Created {len(buttons)} buttons in {len(button_rows)} rows for campaign {campaign_id}")
+            except Exception as e:
+                logger.error(f"❌ Error creating buttons for campaign {campaign_id}: {e}")
+                # Fallback to default button
+                telethon_buttons = [[Button.url("Shop Now", "https://t.me/testukassdfdds")]]
+        else:
+            # Default button if none specified
+            telethon_buttons = [[Button.url("Shop Now", "https://t.me/testukassdfdds")]]
+            logger.info(f"Using default Shop Now button for campaign {campaign_id}")
         
         # Get all groups if target_mode is all_groups
         if campaign.get('target_mode') == 'all_groups' or target_chats == ['ALL_WORKER_GROUPS']:
@@ -476,11 +507,20 @@ class BumpService:
                 else:
                     # Single text message with buttons
                     message_text = ad_content if isinstance(ad_content, str) else str(ad_content)
-                    message = await client.send_message(
-                        chat_entity,
-                        message_text,
-                        buttons=telethon_buttons
-                    )
+                    
+                    # Ensure we have buttons and the chat allows them
+                    try:
+                        message = await client.send_message(
+                            chat_entity,
+                            message_text,
+                            buttons=telethon_buttons
+                        )
+                        logger.info(f"✅ Message sent with {len(telethon_buttons)} button rows to {chat_entity.title}")
+                    except Exception as button_error:
+                        logger.warning(f"⚠️ Failed to send with buttons to {chat_entity.title}: {button_error}")
+                        # Fallback: Send without buttons
+                        message = await client.send_message(chat_entity, message_text)
+                        logger.info(f"📤 Message sent without buttons to {chat_entity.title}")
                 
                 # Log the performance
                 self.log_ad_performance(campaign_id, campaign['user_id'], str(chat_entity.id), message.id)
@@ -544,13 +584,39 @@ class BumpService:
         elif schedule_type == 'hourly':
             schedule.every().hour.do(self.run_campaign_job, campaign_id)
         elif schedule_type == 'custom':
-            # Parse custom interval (e.g., "every 4 hours")
-            if 'hour' in schedule_time:
-                hours = int(schedule_time.split()[1])
-                schedule.every(hours).hours.do(self.run_campaign_job, campaign_id)
-            elif 'minute' in schedule_time:
-                minutes = int(schedule_time.split()[1])
-                schedule.every(minutes).minutes.do(self.run_campaign_job, campaign_id)
+            # Parse custom interval (e.g., "every 3 minutes", "every 4 hours")
+            try:
+                if 'hour' in schedule_time.lower():
+                    hours = int(schedule_time.split()[1])
+                    schedule.every(hours).hours.do(self.run_campaign_job, campaign_id)
+                    logger.info(f"📅 Campaign {campaign_id} scheduled every {hours} hours")
+                elif 'minute' in schedule_time.lower():
+                    # Handle formats like "3 minutes", "every 3 minutes"
+                    parts = schedule_time.split()
+                    if len(parts) >= 2:
+                        # Find the number in the string
+                        for part in parts:
+                            if part.isdigit():
+                                minutes = int(part)
+                                break
+                        else:
+                            minutes = 10  # default
+                    else:
+                        minutes = 10  # default
+                    schedule.every(minutes).minutes.do(self.run_campaign_job, campaign_id)
+                    logger.info(f"📅 Campaign {campaign_id} scheduled every {minutes} minutes")
+                elif schedule_time.isdigit():
+                    # If just a number, assume minutes
+                    minutes = int(schedule_time)
+                    schedule.every(minutes).minutes.do(self.run_campaign_job, campaign_id)
+                    logger.info(f"📅 Campaign {campaign_id} scheduled every {minutes} minutes")
+                else:
+                    logger.warning(f"⚠️ Unknown custom schedule format: {schedule_time}")
+            except (ValueError, IndexError) as e:
+                logger.error(f"❌ Error parsing custom schedule '{schedule_time}': {e}")
+                # Default to 10 minutes if parsing fails
+                schedule.every(10).minutes.do(self.run_campaign_job, campaign_id)
+                logger.info(f"📅 Campaign {campaign_id} defaulted to every 10 minutes")
         
         self.active_campaigns[campaign_id] = campaign
         logger.info(f"Scheduled campaign {campaign_id} ({schedule_type} at {schedule_time})")
@@ -598,37 +664,44 @@ class BumpService:
                 logger.error(f"Failed to initialize client for scheduled campaign {campaign_id}")
                 return False
             
-            # Send the ad
-            success = await self.send_ad(client, campaign_id, campaign)
-            
-            if success:
-                # Update last run time and total sends
-                self.update_campaign(campaign_id, 
-                                   last_run=datetime.now().isoformat(),
-                                   total_sends=campaign.get('total_sends', 0) + 1)
-                logger.info(f"✅ Scheduled campaign {campaign_id} executed successfully")
-            else:
-                logger.error(f"❌ Scheduled campaign {campaign_id} execution failed")
+            # Send the ad (send_ad method doesn't need client parameter)
+            await self.send_ad(campaign_id)
+            logger.info(f"✅ Scheduled campaign {campaign_id} executed successfully")
                 
-            return success
+            return True
             
         except Exception as e:
             logger.error(f"Error executing scheduled campaign {campaign_id}: {e}")
             return False
     
     def start_scheduler(self):
-        """Start the campaign scheduler - simplified approach"""
+        """Start the campaign scheduler with proper background thread"""
         if self.is_running:
             return
         
         self.is_running = True
-        logger.info("Bump service scheduler started (manual execution mode)")
+        logger.info("🚀 Bump service scheduler started (automatic execution mode)")
         
-        # Load existing campaigns into memory for manual execution
+        # Load existing campaigns into memory
         self.load_existing_campaigns()
         
-        # Note: Automatic scheduling disabled to prevent event loop conflicts
-        # Users must manually start campaigns using the "Start Campaign" button
+        # Start background scheduler thread
+        def scheduler_worker():
+            """Background worker that runs scheduled campaigns"""
+            logger.info("📅 Scheduler worker thread started")
+            while self.is_running:
+                try:
+                    schedule.run_pending()
+                    time.sleep(1)  # Check every second
+                except Exception as e:
+                    logger.error(f"Error in scheduler worker: {e}")
+                    time.sleep(5)  # Wait 5 seconds on error
+            logger.info("📅 Scheduler worker thread stopped")
+        
+        # Start the scheduler thread
+        self.scheduler_thread = threading.Thread(target=scheduler_worker, daemon=True)
+        self.scheduler_thread.start()
+        logger.info("✅ Background scheduler thread started successfully")
     
     def stop_scheduler(self):
         """Stop the campaign scheduler"""
