@@ -1975,11 +1975,19 @@ Automatically post your advertisements to multiple chats at scheduled times!
             )
         except Exception as e:
             logger.error(f"Failed to display campaigns: {e}")
-            # Fallback display
-            await query.edit_message_text(
-                "📋 My Campaigns\n\nCampaigns found but display error occurred.\nUse individual campaign buttons below.",
-                reply_markup=reply_markup
-            )
+            # Try without reply markup first
+            try:
+                await query.edit_message_text(
+                    "📋 My Campaigns\n\nRefreshing campaign list...",
+                )
+                # Then send new message with proper content
+                await query.message.reply_text(
+                    text,
+                    reply_markup=reply_markup
+                )
+            except Exception as e2:
+                logger.error(f"Fallback display also failed: {e2}")
+                await query.answer("Error displaying campaigns. Please try again.", show_alert=True)
     
     async def show_campaign_details(self, query, campaign_id):
         """Show detailed campaign information"""

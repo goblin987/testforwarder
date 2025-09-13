@@ -166,10 +166,13 @@ class BumpService:
         with sqlite3.connect(self.db.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT ac.*, ta.account_name 
+                SELECT ac.id, ac.user_id, ac.account_id, ac.campaign_name, ac.ad_content, 
+                       ac.target_chats, ac.schedule_type, ac.schedule_time, ac.buttons, 
+                       ac.target_mode, ac.is_active, ac.created_at, ac.last_run, 
+                       ac.total_sends, ta.account_name
                 FROM ad_campaigns ac
                 LEFT JOIN telegram_accounts ta ON ac.account_id = ta.id
-                WHERE ac.user_id = ? AND ac.is_active = 1
+                WHERE ac.user_id = ?
                 ORDER BY ac.created_at DESC
             ''', (user_id,))
             rows = cursor.fetchall()
@@ -214,21 +217,21 @@ class BumpService:
                     target_mode = 'specific'
                 
                 campaigns.append({
-                    'id': row[0],
-                    'user_id': row[1],
-                    'account_id': row[2],
-                    'campaign_name': row[3],
-                    'ad_content': ad_content,
-                    'target_chats': target_chats,
-                    'schedule_type': row[6],
-                    'schedule_time': row[7],
-                    'buttons': buttons,
-                    'target_mode': target_mode,
-                    'is_active': bool(row[10]) if len(row) > 10 else True,  # Default to active
-                    'created_at': row[11] if len(row) > 11 else row[9],
-                    'last_run': row[12] if len(row) > 12 else row[10],
-                    'total_sends': row[13] if len(row) > 13 else row[11],
-                    'account_name': row[14] if len(row) > 14 else row[12]
+                    'id': row[0],                    # ac.id
+                    'user_id': row[1],               # ac.user_id  
+                    'account_id': row[2],            # ac.account_id
+                    'campaign_name': row[3],         # ac.campaign_name
+                    'ad_content': ad_content,        # ac.ad_content (parsed)
+                    'target_chats': target_chats,    # ac.target_chats (parsed)
+                    'schedule_type': row[6],         # ac.schedule_type
+                    'schedule_time': row[7],         # ac.schedule_time
+                    'buttons': buttons,              # ac.buttons (parsed)
+                    'target_mode': target_mode,      # ac.target_mode (parsed)
+                    'is_active': bool(row[10]),      # ac.is_active
+                    'created_at': row[11],           # ac.created_at
+                    'last_run': row[12],             # ac.last_run
+                    'total_sends': row[13] or 0,     # ac.total_sends
+                    'account_name': row[14]          # ta.account_name
                 })
             return campaigns
     
@@ -239,7 +242,10 @@ class BumpService:
         with sqlite3.connect(self.db.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT ac.*, ta.account_name 
+                SELECT ac.id, ac.user_id, ac.account_id, ac.campaign_name, ac.ad_content, 
+                       ac.target_chats, ac.schedule_type, ac.schedule_time, ac.buttons, 
+                       ac.target_mode, ac.is_active, ac.created_at, ac.last_run, 
+                       ac.total_sends, ta.account_name
                 FROM ad_campaigns ac
                 LEFT JOIN telegram_accounts ta ON ac.account_id = ta.id
                 WHERE ac.id = ?
@@ -285,21 +291,21 @@ class BumpService:
                     target_mode = 'specific'
                 
                 return {
-                    'id': row[0],
-                    'user_id': row[1],
-                    'account_id': row[2],
-                    'campaign_name': row[3],
-                    'ad_content': ad_content,
-                    'target_chats': target_chats,
-                    'schedule_type': row[6],
-                    'schedule_time': row[7],
-                    'buttons': buttons,
-                    'target_mode': target_mode,
-                    'is_active': bool(row[10]) if len(row) > 10 else True,  # Default to active
-                    'created_at': row[11] if len(row) > 11 else row[9],
-                    'last_run': row[12] if len(row) > 12 else row[10],
-                    'total_sends': row[13] if len(row) > 13 else row[11],
-                    'account_name': row[14] if len(row) > 14 else row[12]
+                    'id': row[0],                    # ac.id
+                    'user_id': row[1],               # ac.user_id  
+                    'account_id': row[2],            # ac.account_id
+                    'campaign_name': row[3],         # ac.campaign_name
+                    'ad_content': ad_content,        # ac.ad_content (parsed)
+                    'target_chats': target_chats,    # ac.target_chats (parsed)
+                    'schedule_type': row[6],         # ac.schedule_type
+                    'schedule_time': row[7],         # ac.schedule_time
+                    'buttons': buttons,              # ac.buttons (parsed)
+                    'target_mode': target_mode,      # ac.target_mode (parsed)
+                    'is_active': bool(row[10]),      # ac.is_active
+                    'created_at': row[11],           # ac.created_at
+                    'last_run': row[12],             # ac.last_run
+                    'total_sends': row[13] or 0,     # ac.total_sends
+                    'account_name': row[14]          # ta.account_name
                 }
             return None
     
