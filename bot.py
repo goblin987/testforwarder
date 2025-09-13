@@ -1953,9 +1953,13 @@ Automatically post your advertisements to multiple chats at scheduled times!
             text += f"🎯 Targets: {len(campaign['target_chats'])} chats\n"
             text += f"📊 Total Sends: {campaign['total_sends']}\n\n"
             
+            # Add toggle button based on campaign status
+            toggle_icon = "⏸️" if campaign['is_active'] else "▶️"
+            toggle_text = "Pause" if campaign['is_active'] else "Activate"
+            
             keyboard.append([
-                InlineKeyboardButton(f"⚙️ {campaign['campaign_name']}", callback_data=f"campaign_{campaign['id']}"),
-                InlineKeyboardButton("🧪", callback_data=f"test_campaign_{campaign['id']}"),
+                InlineKeyboardButton(f"🚀 Start", callback_data=f"start_campaign_{campaign['id']}"),
+                InlineKeyboardButton(f"{toggle_icon} {toggle_text}", callback_data=f"toggle_campaign_{campaign['id']}"),
                 InlineKeyboardButton("🗑️", callback_data=f"delete_campaign_{campaign['id']}")
             ])
         
@@ -2088,11 +2092,19 @@ This name will help you identify the campaign in your dashboard.
             return
         
         new_status = not campaign['is_active']
-        self.bump_service.update_campaign(campaign_id, is_active=new_status)
+        
+        # Update campaign status in database
+        import sqlite3
+        with sqlite3.connect(self.bump_service.db.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE ad_campaigns SET is_active = ? WHERE id = ?", (new_status, campaign_id))
+            conn.commit()
         
         status_text = "activated" if new_status else "deactivated"
         await query.answer(f"Campaign {status_text}!", show_alert=True)
-        await self.show_campaign_details(query, campaign_id)
+        
+        # Refresh the My Campaigns view
+        await self.show_my_campaigns(query)
     
     async def test_campaign(self, query, campaign_id):
         """Test an ad campaign"""

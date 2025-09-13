@@ -99,13 +99,14 @@ class BumpService:
                 cursor.execute('ALTER TABLE ad_campaigns ADD COLUMN target_mode TEXT')
                 logger.info("Added target_mode column to ad_campaigns table")
             
-            # Update existing campaigns with default button data
+            # Update existing campaigns with default button data and ensure they're active
             cursor.execute("UPDATE ad_campaigns SET buttons = ? WHERE buttons IS NULL", (json.dumps([{"text": "Shop Now", "url": "https://t.me/testukassdfdds"}]),))
             cursor.execute("UPDATE ad_campaigns SET target_mode = 'all_groups' WHERE target_mode IS NULL")
+            cursor.execute("UPDATE ad_campaigns SET is_active = 1 WHERE is_active IS NULL OR is_active = 0")
             
             updated_count = cursor.rowcount
             if updated_count > 0:
-                logger.info(f"Updated {updated_count} existing campaigns with default button data")
+                logger.info(f"Updated {updated_count} existing campaigns with default button data and activated them")
             
             # Ad performance tracking
             cursor.execute('''
@@ -223,7 +224,7 @@ class BumpService:
                     'schedule_time': row[7],
                     'buttons': buttons,
                     'target_mode': target_mode,
-                    'is_active': row[10] if len(row) > 10 else row[8],
+                    'is_active': bool(row[10]) if len(row) > 10 else True,  # Default to active
                     'created_at': row[11] if len(row) > 11 else row[9],
                     'last_run': row[12] if len(row) > 12 else row[10],
                     'total_sends': row[13] if len(row) > 13 else row[11],
@@ -294,7 +295,7 @@ class BumpService:
                     'schedule_time': row[7],
                     'buttons': buttons,
                     'target_mode': target_mode,
-                    'is_active': row[10] if len(row) > 10 else row[8],
+                    'is_active': bool(row[10]) if len(row) > 10 else True,  # Default to active
                     'created_at': row[11] if len(row) > 11 else row[9],
                     'last_run': row[12] if len(row) > 12 else row[10],
                     'total_sends': row[13] if len(row) > 13 else row[11],
