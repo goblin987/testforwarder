@@ -989,10 +989,10 @@ Buttons will appear as an inline keyboard below your ad message."""
             success_count = 0
             ad_content = campaign_data['ad_content']
             
-            # RESTRUCTURED: Always use fixed button for immediate execution
-            from telethon.tl.types import KeyboardButtonUrl
-            telethon_buttons = [[KeyboardButtonUrl("Shop Now", "https://t.me/testukassdfdds")]]
-            logger.info(f"Using fixed Shop Now button for immediate execution")
+            # RESTRUCTURED: Always use fixed button for immediate execution - FIXED APPROACH
+            from telethon import Button
+            telethon_buttons = [[Button.url("Shop Now", "https://t.me/testukassdfdds")]]
+            logger.info(f"Using fixed Shop Now button (Button.url) for immediate execution")
             
             # Get all dialogs and find groups (use entities instead of IDs)
             target_entities = []
@@ -1210,13 +1210,13 @@ Check that your worker account has access to the target groups."""
             buttons_data = [{"text": "Shop Now", "url": "https://t.me/testukassdfdds"}]
             logger.info(f"Using fixed button data: {buttons_data}")
             
-            # Create Telethon buttons - SIMPLIFIED APPROACH
+            # Create Telethon buttons - FIXED APPROACH for visibility
             telethon_buttons = None
             if buttons_data:
-                from telethon.tl.types import KeyboardButtonUrl
-                # Create single row with Shop Now button
-                telethon_buttons = [[KeyboardButtonUrl("Shop Now", "https://t.me/testukassdfdds")]]
-                logger.info(f"Created Telethon buttons: {telethon_buttons}")
+                from telethon import Button
+                # Use Telethon's Button.url method for guaranteed visibility
+                telethon_buttons = [[Button.url("Shop Now", "https://t.me/testukassdfdds")]]
+                logger.info(f"Created Telethon buttons using Button.url: {telethon_buttons}")
             
             for chat_entity in target_chats:
                 try:

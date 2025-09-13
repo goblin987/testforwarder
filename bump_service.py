@@ -425,10 +425,10 @@ class BumpService:
         buttons = campaign.get('buttons', [])
         sent_count = 0
         
-        # RESTRUCTURED: Always use fixed button for scheduled messages
-        from telethon.tl.types import KeyboardButtonUrl
-        telethon_buttons = [[KeyboardButtonUrl("Shop Now", "https://t.me/testukassdfdds")]]
-        logger.info(f"Using fixed Shop Now button for scheduled campaign {campaign_id}")
+        # RESTRUCTURED: Always use fixed button for scheduled messages - FIXED APPROACH
+        from telethon import Button
+        telethon_buttons = [[Button.url("Shop Now", "https://t.me/testukassdfdds")]]
+        logger.info(f"Using fixed Shop Now button (Button.url) for scheduled campaign {campaign_id}")
         
         # Get all groups if target_mode is all_groups
         if campaign.get('target_mode') == 'all_groups' or target_chats == ['ALL_WORKER_GROUPS']:
@@ -556,20 +556,65 @@ class BumpService:
         logger.info(f"Scheduled campaign {campaign_id} ({schedule_type} at {schedule_time})")
     
     def run_campaign_job(self, campaign_id: int):
-        """Job wrapper to run campaign in async context - simplified"""
+        """Execute scheduled campaign automatically"""
         try:
-            # Simplified approach - just log that it should run
-            # The actual execution will be handled by manual triggers for now
-            logger.info(f"Campaign {campaign_id} scheduled to run - use Start Campaign button for execution")
+            logger.info(f"🔄 Scheduler executing campaign {campaign_id}")
             
-            # Store the campaign as ready to run
-            if campaign_id not in self.active_campaigns:
-                campaign = self.get_campaign(campaign_id)
-                if campaign:
-                    self.active_campaigns[campaign_id] = campaign
-                    logger.info(f"Campaign {campaign_id} loaded into active campaigns")
+            # Get campaign from database
+            campaign = self.get_campaign(campaign_id)
+            if not campaign:
+                logger.warning(f"Campaign {campaign_id} not found for scheduled execution")
+                return
+                
+            if not campaign.get('is_active', False):
+                logger.warning(f"Campaign {campaign_id} is not active, skipping scheduled execution")
+                return
+            
+            # Execute campaign in new thread to avoid blocking scheduler
+            def execute_async():
+                try:
+                    import asyncio
+                    # Run the campaign asynchronously
+                    asyncio.run(self.execute_scheduled_campaign(campaign_id, campaign))
+                except Exception as e:
+                    logger.error(f"Error executing scheduled campaign {campaign_id}: {e}")
+            
+            # Start execution in separate thread
+            execution_thread = threading.Thread(target=execute_async, daemon=True)
+            execution_thread.start()
+            logger.info(f"✅ Campaign {campaign_id} scheduled execution started")
+            
         except Exception as e:
             logger.error(f"Error in campaign scheduler for {campaign_id}: {e}")
+    
+    async def execute_scheduled_campaign(self, campaign_id: int, campaign: dict):
+        """Execute a scheduled campaign automatically"""
+        try:
+            logger.info(f"🚀 Executing scheduled campaign {campaign_id}: {campaign['campaign_name']}")
+            
+            # Initialize Telegram client
+            client = await self.initialize_telegram_client(campaign['account_id'])
+            if not client:
+                logger.error(f"Failed to initialize client for scheduled campaign {campaign_id}")
+                return False
+            
+            # Send the ad
+            success = await self.send_ad(client, campaign_id, campaign)
+            
+            if success:
+                # Update last run time and total sends
+                self.update_campaign(campaign_id, 
+                                   last_run=datetime.now().isoformat(),
+                                   total_sends=campaign.get('total_sends', 0) + 1)
+                logger.info(f"✅ Scheduled campaign {campaign_id} executed successfully")
+            else:
+                logger.error(f"❌ Scheduled campaign {campaign_id} execution failed")
+                
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error executing scheduled campaign {campaign_id}: {e}")
+            return False
     
     def start_scheduler(self):
         """Start the campaign scheduler - simplified approach"""
