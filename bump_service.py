@@ -376,14 +376,35 @@ class BumpService:
         """Initialize Telegram client - Thread-safe version for scheduler"""
         # Use thread-safe semaphore to prevent simultaneous client initialization
         with self.client_init_semaphore:
-            # Create new event loop for this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
             try:
-                return loop.run_until_complete(self._async_initialize_client(account_id, cache_client))
-            finally:
-                loop.close()
+                # Check if there's already an event loop running
+                try:
+                    loop = asyncio.get_running_loop()
+                    # If there's a running loop, we need to run in a thread
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(self._sync_initialize_client, account_id, cache_client)
+                        return future.result()
+                except RuntimeError:
+                    # No running loop, create a new one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        return loop.run_until_complete(self._async_initialize_client(account_id, cache_client))
+                    finally:
+                        loop.close()
+            except Exception as e:
+                logger.error(f"Failed to initialize client for account {account_id}: {e}")
+                return None
+    
+    def _sync_initialize_client(self, account_id: int, cache_client: bool = False) -> Optional[TelegramClient]:
+        """Synchronous wrapper for client initialization in a new thread"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(self._async_initialize_client(account_id, cache_client))
+        finally:
+            loop.close()
     
     async def _async_initialize_client(self, account_id: int, cache_client: bool = False) -> Optional[TelegramClient]:
         """Async helper for client initialization"""
