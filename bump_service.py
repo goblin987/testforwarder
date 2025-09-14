@@ -58,7 +58,7 @@ class BumpService:
         self.scheduler_thread = None
         self.is_running = False
         self.telegram_clients = {}
-        self.client_init_lock = None  # Will be created in the event loop
+        self.client_init_semaphore = threading.Semaphore(1)  # Thread-safe semaphore
         self.init_bump_database()
     
     def init_bump_database(self):
@@ -372,118 +372,125 @@ class BumpService:
         
         logger.info(f"Campaign {campaign_id} completely cleaned up")
     
-    async def initialize_telegram_client(self, account_id: int, cache_client: bool = False) -> Optional[TelegramClient]:
-        """Initialize Telegram client - EXACT SAME LOGIC AS bot.py execute_immediate_campaign"""
-        # Create lock in the current event loop if it doesn't exist
-        if self.client_init_lock is None:
-            self.client_init_lock = asyncio.Lock()
+    def initialize_telegram_client(self, account_id: int, cache_client: bool = False) -> Optional[TelegramClient]:
+        """Initialize Telegram client - Thread-safe version for scheduler"""
+        # Use thread-safe semaphore to prevent simultaneous client initialization
+        with self.client_init_semaphore:
+            # Create new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            try:
+                return loop.run_until_complete(self._async_initialize_client(account_id, cache_client))
+            finally:
+                loop.close()
+    
+    async def _async_initialize_client(self, account_id: int, cache_client: bool = False) -> Optional[TelegramClient]:
+        """Async helper for client initialization"""
+        # For scheduled executions, always create fresh client to avoid asyncio loop issues
+        if cache_client and account_id in self.telegram_clients:
+            return self.telegram_clients[account_id]
         
-        # Use mutex lock to prevent simultaneous client initialization
-        async with self.client_init_lock:
-            # For scheduled executions, always create fresh client to avoid asyncio loop issues
-            if cache_client and account_id in self.telegram_clients:
-                return self.telegram_clients[account_id]
-            
-            account = self.db.get_account(account_id)
-            if not account:
-                logger.error(f"Account {account_id} not found")
+        account = self.db.get_account(account_id)
+        if not account:
+            logger.error(f"Account {account_id} not found")
+            return None
+        
+        # Use EXACT same session handling as bot.py execute_immediate_campaign
+        from telethon import TelegramClient
+        import base64
+        import os
+        import time
+        import random
+        
+        # Small delay to ensure clean separation between initializations
+        await asyncio.sleep(0.2)
+        
+        # Handle session creation (same as bot.py)
+        temp_session_path = f"bump_session_{account_id}"
+        
+        # Check if we have a valid session (same as bot.py)
+        if not account.get('session_string'):
+            logger.error(f"Account {account_id} has no session string. Please re-authenticate the account.")
+            return None
+        
+        # Handle uploaded sessions vs API credential sessions (EXACT SAME as bot.py)
+        if account['api_id'] == 'uploaded' or account['api_hash'] == 'uploaded':
+            # For uploaded sessions, decode and save the session file
+            try:
+                session_data = base64.b64decode(account['session_string'])
+                with open(f"{temp_session_path}.session", "wb") as f:
+                    f.write(session_data)
+                # Use dummy credentials for uploaded sessions
+                api_id = 123456  
+                api_hash = 'dummy_hash_for_uploaded_sessions'
+            except Exception as e:
+                logger.error(f"Failed to decode uploaded session for account {account_id}: {e}")
                 return None
-            
-            # Use EXACT same session handling as bot.py execute_immediate_campaign
-            from telethon import TelegramClient
-            import base64
-            import os
-            import time
-            import random
-            
-            # Small delay to ensure clean separation between initializations
-            await asyncio.sleep(0.2)
-            
-            # Handle session creation (same as bot.py)
-            temp_session_path = f"bump_session_{account_id}"
-            
-            # Check if we have a valid session (same as bot.py)
-            if not account.get('session_string'):
-                logger.error(f"Account {account_id} has no session string. Please re-authenticate the account.")
+        else:
+            # For API credential accounts with authenticated sessions (EXACT SAME as bot.py)
+            try:
+                api_id = int(account['api_id'])
+                api_hash = account['api_hash']
+                
+                # Session string is base64 encoded session file data
+                # Decode and write it as the session file
+                session_data = base64.b64decode(account['session_string'])
+                with open(f"{temp_session_path}.session", "wb") as f:
+                    f.write(session_data)
+            except (ValueError, TypeError) as e:
+                logger.error(f"Invalid API credentials for account {account_id}: {e}")
                 return None
-            
-            # Handle uploaded sessions vs API credential sessions (EXACT SAME as bot.py)
-            if account['api_id'] == 'uploaded' or account['api_hash'] == 'uploaded':
-                    # For uploaded sessions, decode and save the session file
+            except Exception as e:
+                logger.error(f"Failed to decode session for account {account_id}: {e}")
+                return None
+        
+        # Initialize and start client with retry logic for database locks
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                client = TelegramClient(temp_session_path, api_id, api_hash)
+                await client.start()
+                
+                # Verify the session is valid (EXACT SAME as bot.py)
+                me = await client.get_me()
+                if not me:
+                    logger.error(f"Session invalid for account {account_id}")
+                    await client.disconnect()
+                    return None
+                    
+                logger.info(f"Successfully authenticated as {me.username or me.phone}")
+                break  # Success, exit retry loop
+                
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "database is locked" in error_msg and attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2 + random.uniform(0.5, 1.5)
+                    logger.warning(f"Database locked during client start, retrying in {wait_time:.1f}s (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(wait_time)
+                    
+                    # Clean up any partial session files
                     try:
-                        session_data = base64.b64decode(account['session_string'])
-                        with open(f"{temp_session_path}.session", "wb") as f:
-                            f.write(session_data)
-                        # Use dummy credentials for uploaded sessions
-                        api_id = 123456  
-                        api_hash = 'dummy_hash_for_uploaded_sessions'
-                    except Exception as e:
-                        logger.error(f"Failed to decode uploaded session for account {account_id}: {e}")
-                        return None
-            else:
-                # For API credential accounts with authenticated sessions (EXACT SAME as bot.py)
-                try:
-                    api_id = int(account['api_id'])
-                    api_hash = account['api_hash']
-                    
-                    # Session string is base64 encoded session file data
-                    # Decode and write it as the session file
-                    session_data = base64.b64decode(account['session_string'])
-                    with open(f"{temp_session_path}.session", "wb") as f:
-                        f.write(session_data)
-                except (ValueError, TypeError) as e:
-                    logger.error(f"Invalid API credentials for account {account_id}: {e}")
+                        if os.path.exists(f"{temp_session_path}.session"):
+                            os.remove(f"{temp_session_path}.session")
+                    except:
+                        pass
+                    continue
+                else:
+                    logger.error(f"Failed to start client for account {account_id}: {e}")
+                    # Clean up session file on failure (EXACT SAME as bot.py)
+                    try:
+                        if os.path.exists(f"{temp_session_path}.session"):
+                            os.remove(f"{temp_session_path}.session")
+                    except:
+                        pass
                     return None
-                except Exception as e:
-                    logger.error(f"Failed to decode session for account {account_id}: {e}")
-                    return None
-            
-            # Initialize and start client with retry logic for database locks
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    client = TelegramClient(temp_session_path, api_id, api_hash)
-                    await client.start()
-                    
-                    # Verify the session is valid (EXACT SAME as bot.py)
-                    me = await client.get_me()
-                    if not me:
-                        logger.error(f"Session invalid for account {account_id}")
-                        await client.disconnect()
-                        return None
-                        
-                    logger.info(f"Successfully authenticated as {me.username or me.phone}")
-                    break  # Success, exit retry loop
-                    
-                except Exception as e:
-                    error_msg = str(e).lower()
-                    if "database is locked" in error_msg and attempt < max_retries - 1:
-                        wait_time = (attempt + 1) * 2 + random.uniform(0.5, 1.5)
-                        logger.warning(f"Database locked during client start, retrying in {wait_time:.1f}s (attempt {attempt + 1}/{max_retries})")
-                        await asyncio.sleep(wait_time)
-                        
-                        # Clean up any partial session files
-                        try:
-                            if os.path.exists(f"{temp_session_path}.session"):
-                                os.remove(f"{temp_session_path}.session")
-                        except:
-                            pass
-                        continue
-                    else:
-                        logger.error(f"Failed to start client for account {account_id}: {e}")
-                        # Clean up session file on failure (EXACT SAME as bot.py)
-                        try:
-                            if os.path.exists(f"{temp_session_path}.session"):
-                                os.remove(f"{temp_session_path}.session")
-                        except:
-                            pass
-                        return None
-            
-            # Only cache client if requested (not for scheduled executions)
-            if cache_client:
-                self.telegram_clients[account_id] = client
-            logger.info(f"Telegram client initialized for bump service (Account: {account_id})")
-            return client
+        
+        # Only cache client if requested (not for scheduled executions)
+        if cache_client:
+            self.telegram_clients[account_id] = client
+        logger.info(f"Telegram client initialized for bump service (Account: {account_id})")
+        return client
     
     async def send_ad(self, campaign_id: int):
         """Send ad for a specific campaign with button support"""
