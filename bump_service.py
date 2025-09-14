@@ -693,23 +693,9 @@ class BumpService:
                             else:
                                 final_caption = caption_text
                             
-                            # Try to forward the media using the file_id first (most efficient)
+                            # Download the media file (Bot API file_id not compatible with Telethon)
                             try:
-                                # Use the file_id directly for forwarding
-                                message = await client.send_file(
-                                    chat_entity,
-                                    media_message['file_id'],
-                                    caption=final_caption,
-                                    buttons=telethon_buttons,
-                                    parse_mode='html'  # Preserve formatting
-                                )
-                                logger.info(f"✅ Combined media+text message sent ({media_message['media_type']}) to {chat_entity.title}")
-                                
-                            except Exception as file_id_error:
-                                # If file_id doesn't work, try downloading and re-uploading
-                                logger.warning(f"⚠️ File ID failed for {media_message['media_type']}, trying download method: {file_id_error}")
-                                
-                                # Download the media file
+                                # Download the media file from the original message
                                 media_file = await client.download_media(media_message['file_id'])
                                 
                                 if media_file and os.path.exists(media_file):
@@ -770,21 +756,9 @@ class BumpService:
                         try:
                             caption_text = ad_content.get('caption', ad_content.get('text', ''))
                             
-                            # Try to forward the media using the file_id first
+                            # Download the media file (Bot API file_id not compatible with Telethon)
                             try:
-                                message = await client.send_file(
-                                    chat_entity,
-                                    ad_content['file_id'],
-                                    caption=caption_text,
-                                    buttons=telethon_buttons,
-                                    parse_mode='html'
-                                )
-                                logger.info(f"✅ Single media+text message sent ({ad_content['media_type']}) to {chat_entity.title}")
-                                
-                            except Exception as file_id_error:
-                                # If file_id doesn't work, try downloading and re-uploading
-                                logger.warning(f"⚠️ File ID failed for single media, trying download method: {file_id_error}")
-                                
+                                # Download the media file from the original message
                                 media_file = await client.download_media(ad_content['file_id'])
                                 
                                 if media_file and os.path.exists(media_file):

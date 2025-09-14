@@ -1152,7 +1152,7 @@ Buttons will appear as an inline keyboard below your ad message."""
                                             if hasattr(button, 'url'):
                                                 button_text += f"\n🔗 {button.text}: {button.url}"
                                     
-                                    final_message = message_text + button_text
+                                    final_message = (message_text or "") + button_text
                                     try:
                                         await client.send_message(chat_entity, final_message)
                                         logger.info(f"✅ Sent message with text buttons to {chat_entity.title}")
@@ -1454,7 +1454,7 @@ Status: ❌ Authentication failed or no access to groups
                                             button_text += f"\n\n🔗 {button.text}: {button.url}"
                                 
                                 # Combine message with button text
-                                final_message = message_text + button_text
+                                final_message = (message_text or "") + button_text
                                 
                                 try:
                                     # Try sending with both inline buttons AND text (belt and suspenders approach)
