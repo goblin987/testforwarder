@@ -2872,13 +2872,13 @@ Targets: {len(enhanced_campaign_data['target_chats'])} chat(s)
         # Add handlers for forwarded messages with media
         application.add_handler(MessageHandler(filters.PHOTO, self.handle_message))
         application.add_handler(MessageHandler(filters.VIDEO, self.handle_message))
-        application.add_handler(MessageHandler(filters.ANIMATION, self.handle_message))
-        application.add_handler(MessageHandler(filters.VOICE, self.handle_message))
-        application.add_handler(MessageHandler(filters.VIDEO_NOTE, self.handle_message))
-        application.add_handler(MessageHandler(filters.AUDIO, self.handle_message))
-        application.add_handler(MessageHandler(filters.STICKER, self.handle_message))
+        # application.add_handler(MessageHandler(filters.ANIMATION, self.handle_message))
+        # application.add_handler(MessageHandler(filters.VOICE, self.handle_message))
+        # application.add_handler(MessageHandler(filters.VIDEO_NOTE, self.handle_message))
+        # application.add_handler(MessageHandler(filters.AUDIO, self.handle_message))
+        application.add_handler(MessageHandler(filters.Sticker.ALL, self.handle_message))
         # Add handler for forwarded messages (any type)
-        application.add_handler(MessageHandler(filters.FORWARDED, self.handle_message))
+        # application.add_handler(MessageHandler(filters.FORWARDED, self.handle_message))
         
         # Setup bot commands
         application.post_init = self.setup_bot_commands
