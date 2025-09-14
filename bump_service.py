@@ -784,7 +784,7 @@ class BumpService:
             
             # Initialize Telegram client
             # Use fresh client for scheduled execution to avoid asyncio loop issues
-        client = await self.initialize_telegram_client(campaign['account_id'], cache_client=False)
+            client = await self.initialize_telegram_client(campaign['account_id'], cache_client=False)
             if not client:
                 logger.error(f"Failed to initialize client for scheduled campaign {campaign_id}")
                 logger.error(f"Account '{account.get('account_name', 'Unknown')}' needs to be deleted and re-added with phone verification")
