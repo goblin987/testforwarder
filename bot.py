@@ -72,6 +72,121 @@ class TgcfBot:
         self.bump_service = BumpService()
         self.user_sessions = {}  # Store user session data
     
+    def validate_input(self, text: str, max_length: int = 1000, allowed_chars: str = None) -> tuple[bool, str]:
+        """Validate user input with length and character restrictions"""
+        if not text or not isinstance(text, str):
+            return False, "Input cannot be empty"
+        
+        if len(text) > max_length:
+            return False, f"Input too long (max {max_length} characters)"
+        
+        if allowed_chars:
+            import re
+            if not re.match(f"^[{re.escape(allowed_chars)}]+$", text):
+                return False, f"Input contains invalid characters. Only {allowed_chars} allowed"
+        
+        # Check for potential SQL injection patterns
+        sql_patterns = [
+            r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION|SCRIPT)\b)",
+            r"(--|#|\/\*|\*\/)",
+            r"(\b(OR|AND)\s+\d+\s*=\s*\d+)",
+            r"(\b(OR|AND)\s+'.*'\s*=\s*'.*')",
+            r"(\bUNION\s+SELECT\b)",
+            r"(\bDROP\s+TABLE\b)",
+            r"(\bINSERT\s+INTO\b)",
+            r"(\bDELETE\s+FROM\b)"
+        ]
+        
+        for pattern in sql_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                return False, "Input contains potentially malicious content"
+        
+        return True, ""
+    
+    def sanitize_text(self, text: str) -> str:
+        """Sanitize text input by removing or escaping dangerous characters"""
+        if not text:
+            return ""
+        
+        # Remove null bytes and control characters
+        text = ''.join(char for char in text if ord(char) >= 32 or char in '\n\r\t')
+        
+        # Limit length
+        text = text[:1000]
+        
+        return text.strip()
+    
+    async def handle_error(self, update: Update, context: ContextTypes.DEFAULT_TYPE, error: Exception, operation: str = "Unknown"):
+        """Centralized error handling with user-friendly messages and logging"""
+        user_id = update.effective_user.id if update and update.effective_user else "Unknown"
+        
+        # Log the error with context
+        logger.error(f"Error in {operation} for user {user_id}: {str(error)}", exc_info=True)
+        
+        # Determine user-friendly error message
+        if isinstance(error, ValueError):
+            error_msg = f"❌ **Invalid Input**\n\n{str(error)}\n\nPlease check your input and try again."
+        elif isinstance(error, ConnectionError):
+            error_msg = "❌ **Connection Error**\n\nUnable to connect to Telegram. Please try again in a few moments."
+        elif isinstance(error, TimeoutError):
+            error_msg = "❌ **Timeout Error**\n\nOperation timed out. Please try again."
+        elif isinstance(error, PermissionError):
+            error_msg = "❌ **Permission Error**\n\nYou don't have permission to perform this action."
+        elif isinstance(error, FileNotFoundError):
+            error_msg = "❌ **File Not Found**\n\nRequired file is missing. Please contact support."
+        else:
+            error_msg = "❌ **Unexpected Error**\n\nSomething went wrong. Please try again or contact support if the problem persists."
+        
+        # Send error message to user
+        try:
+            if update and update.message:
+                await update.message.reply_text(error_msg, parse_mode=ParseMode.MARKDOWN)
+            elif update and update.callback_query:
+                await update.callback_query.answer(error_msg, show_alert=True)
+        except Exception as e:
+            logger.error(f"Failed to send error message to user {user_id}: {e}")
+    
+    def create_error_recovery_context(self, operation: str, max_retries: int = 3):
+        """Create a context manager for error recovery with retry logic"""
+        class ErrorRecoveryContext:
+            def __init__(self, operation: str, max_retries: int):
+                self.operation = operation
+                self.max_retries = max_retries
+                self.attempt = 0
+                self.last_error = None
+            
+            def __enter__(self):
+                return self
+            
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                if exc_type is not None:
+                    self.last_error = exc_val
+                    self.attempt += 1
+                    
+                    if self.attempt < self.max_retries:
+                        logger.warning(f"Error in {self.operation} (attempt {self.attempt}/{self.max_retries}): {exc_val}")
+                        # Return True to suppress the exception and retry
+                        return True
+                    else:
+                        logger.error(f"Failed {self.operation} after {self.max_retries} attempts: {exc_val}")
+                        return False
+                
+                return False
+        
+        return ErrorRecoveryContext(operation, max_retries)
+    
+    def cleanup_resources(self):
+        """Clean up all resources before shutdown"""
+        logger.info("Starting bot resource cleanup...")
+        try:
+            # Clean up bump service resources
+            self.bump_service.cleanup_all_resources()
+            logger.info("Bump service cleanup completed")
+        except Exception as e:
+            logger.error(f"Error during bump service cleanup: {e}")
+        
+        logger.info("Bot resource cleanup completed")
+    
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
         user = update.effective_user
@@ -163,7 +278,7 @@ class TgcfBot:
         )
     
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle button callbacks"""
+        """Handle button callbacks with comprehensive error handling"""
         query = update.callback_query
         user_id = query.from_user.id
         data = query.data
@@ -289,11 +404,8 @@ class TgcfBot:
             else:
                 await query.answer("Unknown command!", show_alert=True)
         except Exception as e:
-            logger.error(f"Error handling callback query {data}: {e}")
-            try:
-                await query.answer("An error occurred. Please try again.", show_alert=True)
-            except:
-                pass  # Query might already be answered
+            # Use centralized error handling
+            await self.handle_error(update, context, e, f"button_callback_{data}")
     
     async def show_main_menu(self, query):
         """Show main menu with all core features"""
@@ -632,6 +744,8 @@ Please send me the source chat ID or username.
         ad_data = {
             'message_id': message.message_id,
             'chat_id': message.chat_id,
+            'original_message_id': message.message_id,  # Store for forwarding
+            'original_chat_id': message.chat_id,       # Store for forwarding
             'text': message.text,
             'caption': message.caption,
             'entities': [],
@@ -1717,6 +1831,19 @@ Access the full-featured web interface for advanced configuration:
         session = self.user_sessions[user_id]
         message_text = update.message.text
         
+        # Validate and sanitize text input
+        if message_text:
+            is_valid, error_msg = self.validate_input(message_text, max_length=2000)
+            if not is_valid:
+                await update.message.reply_text(
+                    f"❌ **Invalid Input**\n\n{error_msg}\n\nPlease try again with valid input.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+            
+            # Sanitize the input
+            message_text = self.sanitize_text(message_text)
+        
         # Debug logging
         logger.info(f"Message received from user {user_id}, step: {session.get('step', 'unknown')}, message type: {type(update.message).__name__}")
         logger.info(f"Message has text: {bool(message_text)}, has photo: {bool(update.message.photo)}, has video: {bool(update.message.video)}")
@@ -1734,6 +1861,16 @@ Access the full-featured web interface for advanced configuration:
                 )
             
             elif session['step'] == 'phone_number':
+                # Validate phone number format
+                import re
+                phone_pattern = r'^\+?[1-9]\d{1,14}$'
+                if not re.match(phone_pattern, message_text.replace(' ', '').replace('-', '')):
+                    await update.message.reply_text(
+                        "❌ **Invalid Phone Number**\n\nPlease enter a valid phone number with country code (e.g., +1234567890).",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    return
+                
                 session['account_data']['phone_number'] = message_text
                 session['step'] = 'api_id'
                 
@@ -1743,8 +1880,18 @@ Access the full-featured web interface for advanced configuration:
                 )
             
             elif session['step'] == 'api_id':
+                # Validate API ID (should be numeric)
+                if not message_text.isdigit():
+                    await update.message.reply_text(
+                        "❌ **Invalid API ID**\n\nAPI ID must be a number. Please enter a valid API ID.",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    return
+                
                 try:
                     api_id = int(message_text)
+                    if api_id <= 0:
+                        raise ValueError("API ID must be positive")
                     session['account_data']['api_id'] = str(api_id)
                     session['step'] = 'api_hash'
                     
@@ -1759,6 +1906,15 @@ Access the full-featured web interface for advanced configuration:
                     )
             
             elif session['step'] == 'api_hash':
+                # Validate API Hash format (should be alphanumeric, 32 characters)
+                import re
+                if not re.match(r'^[a-f0-9]{32}$', message_text.lower()):
+                    await update.message.reply_text(
+                        "❌ **Invalid API Hash**\n\nAPI Hash must be 32 characters long and contain only letters and numbers.\n\nPlease enter a valid API Hash from https://my.telegram.org",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    return
+                
                 session['account_data']['api_hash'] = message_text
                 session['step'] = 'authenticating'
                 
@@ -1990,6 +2146,19 @@ Access the full-featured web interface for advanced configuration:
         # Handle campaign creation
         elif 'campaign_data' in session:
             if session['step'] == 'campaign_name':
+                # Validate campaign name
+                is_valid, error_msg = self.validate_input(
+                    message_text, 
+                    max_length=100, 
+                    allowed_chars="a-zA-Z0-9\s\-_.,!?@#$%^&*()+=[]{}|;:'\"<>/\\"
+                )
+                if not is_valid:
+                    await update.message.reply_text(
+                        f"❌ **Invalid Campaign Name**\n\n{error_msg}\n\nPlease enter a valid campaign name (max 100 characters).",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    return
+                
                 session['campaign_data']['campaign_name'] = message_text
                 session['step'] = 'ad_content'
                 

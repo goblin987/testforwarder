@@ -20,6 +20,12 @@ logger = logging.getLogger(__name__)
 
 def signal_handler(signum, frame):
     logger.info(f"Received signal {signum}, shutting down...")
+    # Clean up resources before exiting
+    try:
+        if 'bot' in globals():
+            bot.cleanup_resources()
+    except Exception as e:
+        logger.error(f"Error during cleanup: {e}")
     sys.exit(0)
 
 def main():

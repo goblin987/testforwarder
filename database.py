@@ -41,10 +41,25 @@ class Database:
             os.makedirs(db_dir, exist_ok=True)
         self.init_database()
     
+    def _get_connection(self):
+        """Get database connection with proper configuration"""
+        return sqlite3.connect(
+            self.db_path,
+            timeout=30.0,
+            check_same_thread=False,
+            isolation_level=None
+        )
+    
     def init_database(self):
-        """Initialize database tables"""
-        with sqlite3.connect(self.db_path) as conn:
+        """Initialize database tables with WAL mode for better concurrency"""
+        with self._get_connection() as conn:
             cursor = conn.cursor()
+            
+            # Enable WAL mode for better concurrency
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA cache_size=10000")
+            cursor.execute("PRAGMA temp_store=MEMORY")
             
             # Users table
             cursor.execute('''
@@ -111,7 +126,7 @@ class Database:
     
     def add_user(self, user_id: int, username: str = None, first_name: str = None, last_name: str = None):
         """Add or update user"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT OR REPLACE INTO users (user_id, username, first_name, last_name)
@@ -121,7 +136,7 @@ class Database:
     
     def get_user(self, user_id: int) -> Optional[Dict]:
         """Get user by ID"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
             row = cursor.fetchone()
@@ -139,7 +154,7 @@ class Database:
     def add_telegram_account(self, user_id: int, account_name: str, phone_number: str, 
                            api_id: str, api_hash: str, session_string: str = None) -> int:
         """Add Telegram account"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO telegram_accounts 
@@ -151,7 +166,7 @@ class Database:
     
     def get_user_accounts(self, user_id: int) -> List[Dict]:
         """Get all Telegram accounts for a user"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT * FROM telegram_accounts 
@@ -179,7 +194,7 @@ class Database:
         max_retries = 5
         for attempt in range(max_retries):
             try:
-                with sqlite3.connect(self.db_path, timeout=10.0) as conn:
+                with self._get_connection() as conn:
                     cursor = conn.cursor()
                     cursor.execute('SELECT * FROM telegram_accounts WHERE id = ?', (account_id,))
                     row = cursor.fetchone()
@@ -209,7 +224,7 @@ class Database:
     
     def update_account_session(self, account_id: int, session_string: str):
         """Update account session string"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE telegram_accounts 
@@ -220,7 +235,7 @@ class Database:
     
     def delete_account(self, account_id: int):
         """Delete Telegram account and clean up all related data"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             
             # Get account info before deletion for logging
@@ -250,7 +265,7 @@ class Database:
     def add_forwarding_config(self, user_id: int, account_id: int, source_chat_id: str, 
                             destination_chat_id: str, config_name: str, config_data: Dict) -> int:
         """Add forwarding configuration"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO forwarding_configs 
@@ -262,7 +277,7 @@ class Database:
     
     def get_user_configs(self, user_id: int, account_id: int = None) -> List[Dict]:
         """Get all forwarding configurations for a user"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             if account_id:
                 cursor.execute('''
@@ -296,7 +311,7 @@ class Database:
     
     def update_config(self, config_id: int, config_data: Dict):
         """Update forwarding configuration"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE forwarding_configs 
@@ -307,7 +322,7 @@ class Database:
     
     def delete_config(self, config_id: int):
         """Delete forwarding configuration"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('UPDATE forwarding_configs SET is_active = 0 WHERE id = ?', (config_id,))
             conn.commit()
@@ -315,7 +330,7 @@ class Database:
     def log_message(self, user_id: int, account_id: int, source_message_id: int, 
                    destination_message_id: int, source_chat_id: str, destination_chat_id: str):
         """Log forwarded message"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO message_logs 
@@ -326,7 +341,7 @@ class Database:
     
     def update_campaign_last_run(self, campaign_id: int):
         """Update the last run time for a campaign"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE ad_campaigns 

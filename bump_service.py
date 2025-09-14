@@ -30,8 +30,69 @@ from telethon import TelegramClient
 from database import Database
 import json
 import threading
+import traceback
 
+# Configure structured logging
 logger = logging.getLogger(__name__)
+
+class StructuredLogger:
+    """Enhanced logging with structured data and context"""
+    
+    @staticmethod
+    def log_operation(operation: str, user_id: int = None, campaign_id: int = None, 
+                     account_id: int = None, success: bool = None, details: str = None):
+        """Log operation with structured context"""
+        context = {
+            'operation': operation,
+            'user_id': user_id,
+            'campaign_id': campaign_id,
+            'account_id': account_id,
+            'success': success,
+            'timestamp': datetime.now().isoformat(),
+            'details': details
+        }
+        
+        if success is True:
+            logger.info(f"✅ {operation} completed successfully", extra=context)
+        elif success is False:
+            logger.error(f"❌ {operation} failed", extra=context)
+        else:
+            logger.info(f"🔄 {operation} in progress", extra=context)
+    
+    @staticmethod
+    def log_error(operation: str, error: Exception, user_id: int = None, 
+                 campaign_id: int = None, account_id: int = None):
+        """Log error with full context and stack trace"""
+        context = {
+            'operation': operation,
+            'user_id': user_id,
+            'campaign_id': campaign_id,
+            'account_id': account_id,
+            'error_type': type(error).__name__,
+            'error_message': str(error),
+            'timestamp': datetime.now().isoformat(),
+            'stack_trace': traceback.format_exc()
+        }
+        
+        logger.error(f"💥 {operation} failed: {error}", extra=context, exc_info=True)
+    
+    @staticmethod
+    def log_performance(operation: str, duration: float, user_id: int = None, 
+                       campaign_id: int = None, details: str = None):
+        """Log performance metrics"""
+        context = {
+            'operation': operation,
+            'duration_seconds': duration,
+            'user_id': user_id,
+            'campaign_id': campaign_id,
+            'timestamp': datetime.now().isoformat(),
+            'details': details
+        }
+        
+        if duration > 10:
+            logger.warning(f"⚠️ {operation} took {duration:.2f}s (slow)", extra=context)
+        else:
+            logger.info(f"⏱️ {operation} completed in {duration:.2f}s", extra=context)
 
 @dataclass
 class AdCampaign:
@@ -59,13 +120,115 @@ class BumpService:
         self.is_running = False
         self.telegram_clients = {}
         self.client_init_semaphore = threading.Semaphore(1)  # Thread-safe semaphore
+        self.temp_files = set()  # Track temporary files for cleanup
         self.init_bump_database()
+    
+    def _get_db_connection(self):
+        """Get database connection with proper configuration"""
+        return self.db._get_connection()
+    
+    def _register_temp_file(self, file_path: str):
+        """Register a temporary file for cleanup"""
+        self.temp_files.add(file_path)
+    
+    def _cleanup_temp_file(self, file_path: str):
+        """Clean up a temporary file"""
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logger.debug(f"Cleaned up temporary file: {file_path}")
+        except Exception as e:
+            logger.warning(f"Failed to clean up temporary file {file_path}: {e}")
+        finally:
+            self.temp_files.discard(file_path)
+    
+    def cleanup_all_resources(self):
+        """Clean up all resources (clients, temp files, etc.)"""
+        logger.info("Starting comprehensive resource cleanup...")
+        
+        # Clean up all Telegram clients
+        for account_id, client in list(self.telegram_clients.items()):
+            try:
+                if hasattr(client, 'disconnect'):
+                    # Run disconnect in a separate thread to avoid blocking
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(self._sync_disconnect_client, client)
+                        future.result(timeout=5)  # 5 second timeout
+                logger.info(f"Disconnected client for account {account_id}")
+            except Exception as e:
+                logger.error(f"Error disconnecting client {account_id}: {e}")
+            finally:
+                del self.telegram_clients[account_id]
+        
+        # Clean up all temporary files
+        for temp_file in list(self.temp_files):
+            self._cleanup_temp_file(temp_file)
+        
+        # Clean up any remaining session files
+        self._cleanup_session_files()
+        
+        logger.info("Resource cleanup completed")
+    
+    def _sync_disconnect_client(self, client):
+        """Synchronously disconnect a client"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(client.disconnect())
+            finally:
+                loop.close()
+        except Exception as e:
+            logger.error(f"Failed to disconnect client: {e}")
+    
+    def _cleanup_session_files(self):
+        """Clean up all session files"""
+        import glob
+        try:
+            # Find all session files
+            session_files = glob.glob("bump_session_*.session")
+            for session_file in session_files:
+                try:
+                    if os.path.exists(session_file):
+                        os.remove(session_file)
+                        logger.debug(f"Cleaned up session file: {session_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up session file {session_file}: {e}")
+        except Exception as e:
+            logger.error(f"Error during session file cleanup: {e}")
+    
+    def _format_buttons_as_text(self, telethon_buttons):
+        """Format Telethon buttons as text for fallback display with enhanced styling"""
+        if not telethon_buttons:
+            return ""
+        
+        button_text = "🔗 **Links:**\n"
+        for row in telethon_buttons:
+            for button in row:
+                if hasattr(button, 'text') and hasattr(button, 'url'):
+                    # Enhanced formatting to look more like inline buttons
+                    button_text += f"🔸 **{button.text}**\n   {button.url}\n\n"
+        
+        return button_text.strip()
+    
+    def _add_buttons_to_text(self, text, telethon_buttons):
+        """Add button text to message text"""
+        if not text:
+            return ""
+        
+        if telethon_buttons:
+            button_text = self._format_buttons_as_text(telethon_buttons)
+            if button_text:
+                return text + "\n\n" + button_text
+        
+        return text
     
     def init_bump_database(self):
         """Initialize bump service database tables"""
         import sqlite3
         
-        with sqlite3.connect(self.db.db_path) as conn:
+        with self._get_db_connection() as conn:
             cursor = conn.cursor()
             
             # Ad campaigns table
@@ -131,40 +294,79 @@ class BumpService:
                     schedule_time: str, buttons=None, target_mode='specific') -> int:
         """Add new ad campaign with support for complex content types and buttons"""
         import sqlite3
+        start_time = time.time()
         
-        # Convert ad_content to JSON string if it's a list or dict
-        if isinstance(ad_content, (list, dict)):
-            ad_content_str = json.dumps(ad_content)
-        else:
-            ad_content_str = str(ad_content)
-        
-        # Convert target_chats to JSON string
-        target_chats_str = json.dumps(target_chats) if isinstance(target_chats, list) else str(target_chats)
-        
-        # Convert buttons to JSON string
-        buttons_str = json.dumps(buttons) if buttons else None
-        
-        with sqlite3.connect(self.db.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO ad_campaigns 
-                (user_id, account_id, campaign_name, ad_content, target_chats, schedule_type, schedule_time, buttons, target_mode)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (user_id, account_id, campaign_name, ad_content_str, 
-                 target_chats_str, schedule_type, schedule_time, buttons_str, target_mode))
-            conn.commit()
-            campaign_id = cursor.lastrowid
+        try:
+            StructuredLogger.log_operation(
+                "add_campaign", 
+                user_id=user_id, 
+                campaign_id=None, 
+                account_id=account_id,
+                success=None,
+                details=f"Creating campaign '{campaign_name}' with {len(target_chats)} targets"
+            )
             
-            # Schedule the campaign
-            self.schedule_campaign(campaign_id)
-            logger.info(f"Added campaign {campaign_id}: {campaign_name} with content type: {type(ad_content)}, buttons: {len(buttons) if buttons else 0}")
-            return campaign_id
+            # Convert ad_content to JSON string if it's a list or dict
+            if isinstance(ad_content, (list, dict)):
+                ad_content_str = json.dumps(ad_content)
+            else:
+                ad_content_str = str(ad_content)
+            
+            # Convert target_chats to JSON string
+            target_chats_str = json.dumps(target_chats) if isinstance(target_chats, list) else str(target_chats)
+            
+            # Convert buttons to JSON string
+            buttons_str = json.dumps(buttons) if buttons else None
+            
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO ad_campaigns 
+                    (user_id, account_id, campaign_name, ad_content, target_chats, schedule_type, schedule_time, buttons, target_mode)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (user_id, account_id, campaign_name, ad_content_str, 
+                     target_chats_str, schedule_type, schedule_time, buttons_str, target_mode))
+                conn.commit()
+                campaign_id = cursor.lastrowid
+                
+                # Schedule the campaign
+                self.schedule_campaign(campaign_id)
+                
+                duration = time.time() - start_time
+                StructuredLogger.log_performance(
+                    "add_campaign", 
+                    duration, 
+                    user_id=user_id, 
+                    campaign_id=campaign_id,
+                    details=f"Campaign '{campaign_name}' created and scheduled"
+                )
+                
+                StructuredLogger.log_operation(
+                    "add_campaign", 
+                    user_id=user_id, 
+                    campaign_id=campaign_id, 
+                    account_id=account_id,
+                    success=True,
+                    details=f"Campaign '{campaign_name}' successfully created"
+                )
+                
+                return campaign_id
+                
+        except Exception as e:
+            StructuredLogger.log_error(
+                "add_campaign", 
+                e, 
+                user_id=user_id, 
+                account_id=account_id,
+                details=f"Failed to create campaign '{campaign_name}'"
+            )
+            raise
     
     def get_user_campaigns(self, user_id: int) -> List[Dict]:
         """Get all campaigns for a user"""
         import sqlite3
         
-        with sqlite3.connect(self.db.db_path) as conn:
+        with self._get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT ac.id, ac.user_id, ac.account_id, ac.campaign_name, ac.ad_content, 
@@ -240,7 +442,7 @@ class BumpService:
         """Get specific campaign by ID"""
         import sqlite3
         
-        with sqlite3.connect(self.db.db_path) as conn:
+        with self._get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT ac.id, ac.user_id, ac.account_id, ac.campaign_name, ac.ad_content, 
@@ -311,38 +513,77 @@ class BumpService:
             return None
     
     def update_campaign(self, campaign_id: int, **kwargs):
-        """Update campaign details"""
+        """Update campaign details with SQL injection protection"""
         import sqlite3
         
-        allowed_fields = ['campaign_name', 'ad_content', 'target_chats', 
-                         'schedule_type', 'schedule_time', 'is_active']
+        # Strictly validate allowed fields to prevent SQL injection
+        allowed_fields = {
+            'campaign_name': str,
+            'ad_content': (str, dict, list),
+            'target_chats': (str, list),
+            'schedule_type': str,
+            'schedule_time': str,
+            'is_active': bool
+        }
         
         updates = []
         values = []
         
         for field, value in kwargs.items():
-            if field in allowed_fields:
-                if field == 'target_chats':
-                    value = json.dumps(value)
-                updates.append(f"{field} = ?")
-                values.append(value)
+            # Validate field name
+            if field not in allowed_fields:
+                logger.warning(f"Attempted to update invalid field '{field}' for campaign {campaign_id}")
+                continue
+            
+            # Validate field type
+            expected_type = allowed_fields[field]
+            if not isinstance(value, expected_type):
+                logger.warning(f"Invalid type for field '{field}': expected {expected_type}, got {type(value)}")
+                continue
+            
+            # Sanitize and prepare value
+            if field == 'target_chats' and isinstance(value, list):
+                value = json.dumps(value)
+            elif field == 'ad_content' and isinstance(value, (dict, list)):
+                value = json.dumps(value)
+            elif field == 'is_active' and not isinstance(value, bool):
+                value = bool(value)
+            
+            updates.append(f"{field} = ?")
+            values.append(value)
         
-        if updates:
+        if not updates:
+            logger.warning(f"No valid updates provided for campaign {campaign_id}")
+            return False
+        
+        try:
             values.append(campaign_id)
-            with sqlite3.connect(self.db.db_path) as conn:
+            with self._get_db_connection() as conn:
                 cursor = conn.cursor()
+                # Use parameterized query to prevent SQL injection
                 cursor.execute(f'''
                     UPDATE ad_campaigns 
                     SET {', '.join(updates)}
                     WHERE id = ?
                 ''', values)
                 conn.commit()
+                
+                if cursor.rowcount == 0:
+                    logger.warning(f"No campaign found with ID {campaign_id}")
+                    return False
+                
+                logger.info(f"Successfully updated campaign {campaign_id} with fields: {', '.join([u.split(' = ')[0] for u in updates])}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Failed to update campaign {campaign_id}: {e}")
+            return False
     
     def delete_campaign(self, campaign_id: int):
         """Permanently delete campaign from database and clean up scheduler"""
         import sqlite3
         
-        with sqlite3.connect(self.db.db_path) as conn:
+        with self._get_db_connection() as conn:
             cursor = conn.cursor()
             
             # Delete from ad_performance table first (foreign key constraint)
@@ -377,22 +618,23 @@ class BumpService:
         # Use thread-safe semaphore to prevent simultaneous client initialization
         with self.client_init_semaphore:
             try:
-                # Check if there's already an event loop running
-                try:
-                    loop = asyncio.get_running_loop()
-                    # If there's a running loop, we need to run in a thread
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                # Always run in a separate thread to avoid event loop conflicts
+                import concurrent.futures
+                import threading
+                
+                # Check if we're in the main thread (where the bot runs)
+                current_thread = threading.current_thread()
+                is_main_thread = current_thread == threading.main_thread()
+                
+                if is_main_thread:
+                    # We're in the main thread - use ThreadPoolExecutor to avoid blocking
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                         future = executor.submit(self._sync_initialize_client, account_id, cache_client)
-                        return future.result()
-                except RuntimeError:
-                    # No running loop, create a new one
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        return loop.run_until_complete(self._async_initialize_client(account_id, cache_client))
-                    finally:
-                        loop.close()
+                        return future.result(timeout=30)  # 30 second timeout
+                else:
+                    # We're already in a background thread - run directly
+                    return self._sync_initialize_client(account_id, cache_client)
+                    
             except Exception as e:
                 logger.error(f"Failed to initialize client for account {account_id}: {e}")
                 return None
@@ -429,18 +671,19 @@ class BumpService:
         
         # Handle session creation (same as bot.py)
         temp_session_path = f"bump_session_{account_id}"
+        session_file_path = f"{temp_session_path}.session"
+        
+        # Register for cleanup
+        self._register_temp_file(session_file_path)
         
         # Check if we have a valid session (same as bot.py)
         if not account.get('session_string'):
             logger.error(f"Account {account_id} has no session string. Please re-authenticate the account.")
+            self._cleanup_temp_file(session_file_path)
             return None
         
         # Clean up any existing session file first
-        try:
-            if os.path.exists(f"{temp_session_path}.session"):
-                os.remove(f"{temp_session_path}.session")
-        except:
-            pass
+        self._cleanup_temp_file(session_file_path)
         
         # Handle uploaded sessions vs API credential sessions (EXACT SAME as bot.py)
         if account['api_id'] == 'uploaded' or account['api_hash'] == 'uploaded':
@@ -551,22 +794,22 @@ class BumpService:
     def send_ad(self, campaign_id: int):
         """Send ad for a specific campaign with button support - Thread-safe version"""
         try:
-            # Check if there's already an event loop running
-            try:
-                loop = asyncio.get_running_loop()
-                # If there's a running loop, use ThreadPoolExecutor
+            import threading
+            
+            # Check if we're in the main thread
+            current_thread = threading.current_thread()
+            is_main_thread = current_thread == threading.main_thread()
+            
+            if is_main_thread:
+                # We're in the main thread - use ThreadPoolExecutor to avoid blocking
                 import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                     future = executor.submit(self._sync_send_ad, campaign_id)
-                    return future.result()
-            except RuntimeError:
-                # No running loop, create a new one
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    return loop.run_until_complete(self._async_send_ad(campaign_id))
-                finally:
-                    loop.close()
+                    return future.result(timeout=60)  # 60 second timeout for sending ads
+            else:
+                # We're already in a background thread - run directly
+                return self._sync_send_ad(campaign_id)
+                
         except Exception as e:
             logger.error(f"Failed to send ad for campaign {campaign_id}: {e}")
             return False
@@ -703,34 +946,96 @@ class BumpService:
                             # Combine caption with button text
                             final_caption = (final_caption or "") + button_text
                             
-                            # Download the media file (Bot API file_id not compatible with Telethon)
+                            # Try to preserve custom emojis by using the original message approach
                             try:
-                                # Download the media file from the original message
+                                # First, try to forward the original message to preserve all entities
+                                if 'original_message_id' in media_message and 'original_chat_id' in media_message:
+                                    try:
+                                        # Get the original message and forward it
+                                        original_chat = await client.get_entity(media_message['original_chat_id'])
+                                        original_message = await client.get_messages(original_chat, ids=media_message['original_message_id'])
+                                        
+                                        if original_message:
+                                            # Forward the original message to preserve all entities including custom emojis
+                                            message = await client.forward_messages(
+                                                chat_entity,
+                                                original_message,
+                                                silent=True
+                                            )
+                                            
+                                            # If we have additional text or buttons, send a follow-up message
+                                            if final_caption and final_caption.strip():
+                                                # Send the caption as a separate message with buttons
+                                                follow_up_text = final_caption
+                                                if telethon_buttons:
+                                                    follow_up_text += "\n\n" + self._format_buttons_as_text(telethon_buttons)
+                                                
+                                                await client.send_message(
+                                                    chat_entity,
+                                                    follow_up_text,
+                                                    reply_to=message.id,
+                                                    parse_mode='html'
+                                                )
+                                            
+                                            logger.info(f"✅ Forwarded original message with preserved entities to {chat_entity.title}")
+                                            continue
+                                    except Exception as forward_error:
+                                        logger.warning(f"Failed to forward original message, falling back to download: {forward_error}")
+                                
+                                # Fallback: Download and re-upload (loses custom emojis but preserves basic content)
                                 media_file = await client.download_media(media_message['file_id'])
                                 
                                 if media_file and os.path.exists(media_file):
-                                    # Send the downloaded media file
-                                    message = await client.send_file(
-                                        chat_entity,
-                                        media_file,
-                                        caption=final_caption,
-                                        buttons=telethon_buttons,
-                                        parse_mode='html'  # Preserve formatting
-                                    )
+                                    # Register for cleanup
+                                    self._register_temp_file(media_file)
+                                    
+                            # Send the downloaded media file with inline buttons (try first, fallback to text)
+                            try:
+                                # Try with inline buttons first (works in channels and some groups)
+                                message = await client.send_file(
+                                    chat_entity,
+                                    media_file,
+                                    caption=final_caption,
+                                    buttons=telethon_buttons,
+                                    parse_mode='html'
+                                )
+                                logger.info(f"✅ Media sent with inline buttons to {chat_entity.title}")
+                            except Exception as button_error:
+                                # Fallback: Send without buttons, then send buttons as text
+                                logger.warning(f"Inline buttons failed, using text fallback: {button_error}")
+                                message = await client.send_file(
+                                    chat_entity,
+                                    media_file,
+                                    caption=final_caption,
+                                    parse_mode='html'
+                                )
+                                
+                                # Send buttons as a follow-up message
+                                if telethon_buttons:
+                                    button_text = self._format_buttons_as_text(telethon_buttons)
+                                    if button_text:
+                                        await client.send_message(
+                                            chat_entity,
+                                            button_text,
+                                            reply_to=message.id,
+                                            parse_mode='html'
+                                        )
                                     logger.info(f"✅ Combined media+text sent via download ({media_message['media_type']}) to {chat_entity.title}")
                                     
                                     # Clean up downloaded file
-                                    try:
-                                        os.remove(media_file)
-                                    except:
-                                        pass
+                                    self._cleanup_temp_file(media_file)
                                 else:
                                     # Fallback to text if media download fails
                                     if final_caption:
+                                        # Add buttons as text to the message
+                                        final_caption_with_buttons = final_caption
+                                        if telethon_buttons:
+                                            final_caption_with_buttons += "\n\n" + self._format_buttons_as_text(telethon_buttons)
+                                        
                                         message = await client.send_message(
                                             chat_entity,
-                                            final_caption,
-                                            buttons=telethon_buttons
+                                            final_caption_with_buttons,
+                                            parse_mode='html'
                                         )
                                         logger.warning(f"⚠️ Media download failed, sent as text to {chat_entity.title}")
                                     else:
@@ -740,10 +1045,15 @@ class BumpService:
                                 logger.error(f"❌ Failed to send combined media+text to {chat_entity.title}: {media_error}")
                                 # Fallback to text message
                                 if final_caption:
+                                    # Add buttons as text to the message
+                                    final_caption_with_buttons = final_caption
+                                    if telethon_buttons:
+                                        final_caption_with_buttons += "\n\n" + self._format_buttons_as_text(telethon_buttons)
+                                    
                                     message = await client.send_message(
                                         chat_entity,
-                                        final_caption,
-                                        buttons=telethon_buttons
+                                        final_caption_with_buttons,
+                                        parse_mode='html'
                                     )
                                     logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
                                 else:
@@ -752,11 +1062,23 @@ class BumpService:
                             logger.error(f"❌ Failed to send combined media+text to {chat_entity.title}: {e}")
                             # Fallback to text message
                             if combined_text:
-                                message = await client.send_message(
-                                    chat_entity,
-                                    combined_text,
-                                    buttons=telethon_buttons
-                                )
+                                # Try with inline buttons first, fallback to text
+                                try:
+                                    message = await client.send_message(
+                                        chat_entity,
+                                        combined_text,
+                                        buttons=telethon_buttons,
+                                        parse_mode='html'
+                                    )
+                                    logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
+                                except Exception as button_error:
+                                    # Fallback: Send with buttons as text
+                                    logger.warning(f"Inline buttons failed for text, using text fallback: {button_error}")
+                                    message = await client.send_message(
+                                        chat_entity,
+                                        self._add_buttons_to_text(combined_text, telethon_buttons),
+                                        parse_mode='html'
+                                    )
                                 logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
                             else:
                                 continue  # Skip if no text content
@@ -764,10 +1086,15 @@ class BumpService:
                         # No media, just send combined text as one message
                         try:
                             if combined_text:
+                                # Add buttons as text to the message
+                                combined_text_with_buttons = combined_text
+                                if telethon_buttons:
+                                    combined_text_with_buttons += "\n\n" + self._format_buttons_as_text(telethon_buttons)
+                                
                                 message = await client.send_message(
                                     chat_entity,
-                                    combined_text,
-                                    buttons=telethon_buttons
+                                    combined_text_with_buttons,
+                                    parse_mode='html'
                                 )
                                 logger.info(f"✅ Combined text message sent to {chat_entity.title}")
                             else:
@@ -779,11 +1106,23 @@ class BumpService:
                             logger.error(f"❌ Failed to send combined media+text to {chat_entity.title}: {e}")
                             # Fallback to text message
                             if combined_text:
-                                message = await client.send_message(
-                                    chat_entity,
-                                    combined_text,
-                                    buttons=telethon_buttons
-                                )
+                                # Try with inline buttons first, fallback to text
+                                try:
+                                    message = await client.send_message(
+                                        chat_entity,
+                                        combined_text,
+                                        buttons=telethon_buttons,
+                                        parse_mode='html'
+                                    )
+                                    logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
+                                except Exception as button_error:
+                                    # Fallback: Send with buttons as text
+                                    logger.warning(f"Inline buttons failed for text, using text fallback: {button_error}")
+                                    message = await client.send_message(
+                                        chat_entity,
+                                        self._add_buttons_to_text(combined_text, telethon_buttons),
+                                        parse_mode='html'
+                                    )
                                 logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
                             else:
                                 continue  # Skip if no text content
@@ -810,28 +1149,63 @@ class BumpService:
                                 media_file = await client.download_media(ad_content['file_id'])
                                 
                                 if media_file and os.path.exists(media_file):
-                                    message = await client.send_file(
-                                        chat_entity,
-                                        media_file,
-                                        caption=caption_text,
-                                        buttons=telethon_buttons,
-                                        parse_mode='html'
-                                    )
+                                    # Register for cleanup
+                                    self._register_temp_file(media_file)
+                                    
+                                    # Try with inline buttons first, fallback to text
+                                    try:
+                                        message = await client.send_file(
+                                            chat_entity,
+                                            media_file,
+                                            caption=caption_text,
+                                            buttons=telethon_buttons,
+                                            parse_mode='html'
+                                        )
+                                        logger.info(f"✅ Single media sent with inline buttons to {chat_entity.title}")
+                                    except Exception as button_error:
+                                        # Fallback: Send without buttons, then send buttons as text
+                                        logger.warning(f"Inline buttons failed for single media, using text fallback: {button_error}")
+                                        message = await client.send_file(
+                                            chat_entity,
+                                            media_file,
+                                            caption=caption_text,
+                                            parse_mode='html'
+                                        )
+                                        
+                                        # Send buttons as a follow-up message
+                                        if telethon_buttons:
+                                            button_text = self._format_buttons_as_text(telethon_buttons)
+                                            if button_text:
+                                                await client.send_message(
+                                                    chat_entity,
+                                                    button_text,
+                                                    reply_to=message.id,
+                                                    parse_mode='html'
+                                                )
                                     logger.info(f"✅ Single media+text sent via download ({ad_content['media_type']}) to {chat_entity.title}")
                                     
                                     # Clean up downloaded file
-                                    try:
-                                        os.remove(media_file)
-                                    except:
-                                        pass
+                                    self._cleanup_temp_file(media_file)
                                 else:
                                     # Fallback to text if media download fails
                                     if caption_text:
-                                        message = await client.send_message(
-                                            chat_entity,
-                                            caption_text,
-                                            buttons=telethon_buttons
-                                        )
+                                        # Try with inline buttons first, fallback to text
+                                        try:
+                                            message = await client.send_message(
+                                                chat_entity,
+                                                caption_text,
+                                                buttons=telethon_buttons,
+                                                parse_mode='html'
+                                            )
+                                            logger.info(f"✅ Caption sent with inline buttons to {chat_entity.title}")
+                                        except Exception as button_error:
+                                            # Fallback: Send with buttons as text
+                                            logger.warning(f"Inline buttons failed for caption, using text fallback: {button_error}")
+                                            message = await client.send_message(
+                                                chat_entity,
+                                                self._add_buttons_to_text(caption_text, telethon_buttons),
+                                                parse_mode='html'
+                                            )
                                         logger.warning(f"⚠️ Single media download failed, sent as text to {chat_entity.title}")
                                     else:
                                         continue
@@ -842,7 +1216,7 @@ class BumpService:
                                     message = await client.send_message(
                                         chat_entity,
                                         caption_text,
-                                        buttons=telethon_buttons
+                                        parse_mode='html'
                                     )
                                     logger.warning(f"⚠️ Single media download failed, sent as text to {chat_entity.title}")
                                 else:
@@ -852,11 +1226,23 @@ class BumpService:
                             # Fallback to text message
                             caption_text = ad_content.get('caption', ad_content.get('text', ''))
                             if caption_text:
-                                message = await client.send_message(
-                                    chat_entity,
-                                    caption_text,
-                                    buttons=telethon_buttons
-                                )
+                                # Try with inline buttons first, fallback to text
+                                try:
+                                    message = await client.send_message(
+                                        chat_entity,
+                                        caption_text,
+                                        buttons=telethon_buttons,
+                                        parse_mode='html'
+                                    )
+                                    logger.info(f"✅ Caption sent with inline buttons to {chat_entity.title}")
+                                except Exception as button_error:
+                                    # Fallback: Send with buttons as text
+                                    logger.warning(f"Inline buttons failed for caption, using text fallback: {button_error}")
+                                    message = await client.send_message(
+                                        chat_entity,
+                                        self._add_buttons_to_text(caption_text, telethon_buttons),
+                                        parse_mode='html'
+                                    )
                                 logger.info(f"📝 Single media sent as text fallback to {chat_entity.title}")
                             else:
                                 continue
@@ -916,7 +1302,7 @@ class BumpService:
         """Log ad performance"""
         import sqlite3
         
-        with sqlite3.connect(self.db.db_path) as conn:
+        with self._get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO ad_performance 
@@ -929,7 +1315,7 @@ class BumpService:
         """Update campaign statistics"""
         import sqlite3
         
-        with sqlite3.connect(self.db.db_path) as conn:
+        with self._get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE ad_campaigns 
@@ -1183,7 +1569,7 @@ class BumpService:
         """Load and schedule existing active campaigns"""
         import sqlite3
         
-        with sqlite3.connect(self.db.db_path) as conn:
+        with self._get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT id, campaign_name, schedule_time FROM ad_campaigns WHERE is_active = 1')
             rows = cursor.fetchall()
@@ -1201,7 +1587,7 @@ class BumpService:
         """Get performance statistics for a campaign"""
         import sqlite3
         
-        with sqlite3.connect(self.db.db_path) as conn:
+        with self._get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT 
