@@ -58,7 +58,7 @@ class BumpService:
         self.scheduler_thread = None
         self.is_running = False
         self.telegram_clients = {}
-        self.client_init_lock = asyncio.Lock()  # Mutex to prevent simultaneous client initialization
+        self.client_init_lock = None  # Will be created in the event loop
         self.init_bump_database()
     
     def init_bump_database(self):
@@ -374,6 +374,10 @@ class BumpService:
     
     async def initialize_telegram_client(self, account_id: int, cache_client: bool = False) -> Optional[TelegramClient]:
         """Initialize Telegram client - EXACT SAME LOGIC AS bot.py execute_immediate_campaign"""
+        # Create lock in the current event loop if it doesn't exist
+        if self.client_init_lock is None:
+            self.client_init_lock = asyncio.Lock()
+        
         # Use mutex lock to prevent simultaneous client initialization
         async with self.client_init_lock:
             # For scheduled executions, always create fresh client to avoid asyncio loop issues
