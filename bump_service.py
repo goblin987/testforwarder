@@ -200,18 +200,116 @@ class BumpService:
             logger.error(f"Error during session file cleanup: {e}")
     
     def _format_buttons_as_text(self, telethon_buttons):
-        """Format Telethon buttons as text for fallback display with enhanced styling"""
+        """Format Telethon buttons as text for guaranteed display everywhere"""
         if not telethon_buttons:
             return ""
         
-        button_text = "🔗 **Links:**\n"
+        button_text = "🔗 **LINKS:**\n"
         for row in telethon_buttons:
             for button in row:
                 if hasattr(button, 'text') and hasattr(button, 'url'):
-                    # Enhanced formatting to look more like inline buttons
-                    button_text += f"🔸 **{button.text}**\n   {button.url}\n\n"
+                    # Simple, guaranteed format that works everywhere
+                    button_text += f"▶️ {button.text}: {button.url}\n"
         
         return button_text.strip()
+    
+    def _reconstruct_text_with_entities(self, text, entities):
+        """Reconstruct text with custom emojis using entity data"""
+        if not text or not entities:
+            return text or ""
+        
+        logger.info(f"Reconstructing text with {len(entities)} entities")
+        
+        # Sort entities by offset to process them in order
+        sorted_entities = sorted(entities, key=lambda x: x.get('offset', 0))
+        
+        reconstructed = ""
+        last_offset = 0
+        
+        for entity in sorted_entities:
+            entity_type = entity.get('type', '')
+            offset = entity.get('offset', 0)
+            length = entity.get('length', 0)
+            
+            # Add text before this entity
+            if offset > last_offset:
+                reconstructed += text[last_offset:offset]
+            
+            # Get the entity text
+            entity_text = text[offset:offset + length]
+            
+            if entity_type == 'custom_emoji' and entity.get('custom_emoji_id'):
+                # For custom emojis, we'll use a special format that Telethon can understand
+                custom_emoji_id = entity.get('custom_emoji_id')
+                # Use the original text but mark it for custom emoji
+                reconstructed += entity_text  # Keep original emoji text
+                logger.info(f"Preserved custom emoji: {entity_text} (ID: {custom_emoji_id})")
+            else:
+                # For other entities, just add the text
+                reconstructed += entity_text
+            
+            last_offset = offset + length
+        
+        # Add remaining text
+        if last_offset < len(text):
+            reconstructed += text[last_offset:]
+        
+        logger.info(f"Text reconstruction complete: {len(reconstructed)} chars")
+        return reconstructed
+    
+    def _convert_to_telethon_entities(self, entities, text):
+        """Convert Bot API entities to Telethon entities for premium emoji support"""
+        if not entities:
+            return []
+        
+        try:
+            from telethon.tl.types import (
+                MessageEntityCustomEmoji, MessageEntityBold, MessageEntityItalic,
+                MessageEntityTextUrl, MessageEntityHashtag
+            )
+            
+            telethon_entities = []
+            
+            for entity in entities:
+                entity_type = entity.get('type', '')
+                offset = entity.get('offset', 0)
+                length = entity.get('length', 0)
+                
+                # Skip if offset/length would be out of bounds
+                if offset + length > len(text):
+                    continue
+                
+                if entity_type == 'custom_emoji' and entity.get('custom_emoji_id'):
+                    # This is the key for premium emojis!
+                    custom_emoji_id = int(entity.get('custom_emoji_id'))
+                    telethon_entity = MessageEntityCustomEmoji(
+                        offset=offset,
+                        length=length,
+                        document_id=custom_emoji_id
+                    )
+                    telethon_entities.append(telethon_entity)
+                    logger.info(f"Converted custom emoji entity: offset={offset}, length={length}, id={custom_emoji_id}")
+                
+                elif entity_type == 'bold':
+                    telethon_entities.append(MessageEntityBold(offset=offset, length=length))
+                
+                elif entity_type == 'italic':
+                    telethon_entities.append(MessageEntityItalic(offset=offset, length=length))
+                
+                elif entity_type == 'text_link' and entity.get('url'):
+                    telethon_entities.append(MessageEntityTextUrl(
+                        offset=offset, length=length, url=entity.get('url')
+                    ))
+                
+                elif entity_type == 'hashtag':
+                    telethon_entities.append(MessageEntityHashtag(offset=offset, length=length))
+            
+            logger.info(f"Converted {len(telethon_entities)} entities for Telethon")
+            return telethon_entities
+            
+        except Exception as e:
+            logger.error(f"Failed to convert entities to Telethon format: {e}")
+            return []
     
     def _add_buttons_to_text(self, text, telethon_buttons):
         """Add button text to message text"""
@@ -952,47 +1050,70 @@ class BumpService:
                                 final_caption = final_caption[:4000] + "..."
                                 logger.warning(f"Message truncated to fit Telegram limits (was {len(final_caption)} chars)")
                             
-                            # Try to preserve custom emojis by using the original message approach
+                            # DEFINITIVE SOLUTION: Reconstruct message with entities for premium emojis
+                            logger.info(f"Reconstructing message with premium emojis and guaranteed buttons")
+                            
+                            # Get the media file first
+                            media_file = None
                             try:
-                                # First, try to forward the original message to preserve all entities
-                                if 'original_message_id' in media_message and 'original_chat_id' in media_message:
-                                    logger.info(f"Attempting to forward original message {media_message['original_message_id']} from chat {media_message['original_chat_id']}")
-                                    try:
-                                        # Get the original message and forward it
-                                        original_chat = await client.get_entity(media_message['original_chat_id'])
-                                        original_message = await client.get_messages(original_chat, ids=media_message['original_message_id'])
-                                        
-                                        if original_message:
-                                            logger.info(f"Found original message, forwarding to preserve entities")
-                                            # Forward the original message to preserve all entities including custom emojis
-                                            message = await client.forward_messages(
-                                                chat_entity,
-                                                original_message,
-                                                silent=True
-                                            )
-                                            
-                                            # If we have additional text or buttons, send a follow-up message
-                                            if final_caption and final_caption.strip():
-                                                # Send the caption as a separate message with buttons
-                                                follow_up_text = final_caption
-                                                if telethon_buttons:
-                                                    follow_up_text += "\n\n" + self._format_buttons_as_text(telethon_buttons)
-                                                
-                                                await client.send_message(
-                                                    chat_entity,
-                                                    follow_up_text,
-                                                    reply_to=message.id,
-                                                    parse_mode='html'
-                                                )
-                                            
-                                            logger.info(f"✅ Forwarded original message with preserved entities to {chat_entity.title}")
-                                            continue
-                                        else:
-                                            logger.warning(f"Original message not found, falling back to download")
-                                    except Exception as forward_error:
-                                        logger.warning(f"Failed to forward original message, falling back to download: {forward_error}")
-                                else:
-                                    logger.warning(f"Missing original message data, falling back to download")
+                                logger.info(f"Downloading media file: {media_message['file_id']}")
+                                media_file = await client.download_media(media_message['file_id'])
+                                logger.info(f"Media download result: {media_file}")
+                                if media_file:
+                                    self._register_temp_file(media_file)
+                            except Exception as download_error:
+                                logger.error(f"Media download failed: {download_error}")
+                            
+                            # Reconstruct the message text with entities for premium emojis
+                            reconstructed_text = self._reconstruct_text_with_entities(
+                                media_message.get('caption', ''),
+                                media_message.get('caption_entities', [])
+                            )
+                            
+                            # Add button text (guaranteed to work everywhere)
+                            button_text = ""
+                            if telethon_buttons:
+                                button_text = "\n\n" + self._format_buttons_as_text(telethon_buttons)
+                            
+                            final_text = reconstructed_text + button_text
+                            
+                            # Truncate if too long
+                            if len(final_text) > 4000:
+                                final_text = final_text[:4000] + "..."
+                            
+                            # Send media with reconstructed text and Telethon entities
+                            if media_file and os.path.exists(media_file):
+                                try:
+                                    # Convert our entity data to Telethon entities for premium emojis
+                                    telethon_entities = self._convert_to_telethon_entities(
+                                        media_message.get('caption_entities', []),
+                                        final_text
+                                    )
+                                    
+                                    if telethon_entities:
+                                        # Send with proper Telethon entities for premium emojis
+                                        message = await client.send_file(
+                                            chat_entity,
+                                            media_file,
+                                            caption=final_text,
+                                            formatting_entities=telethon_entities
+                                        )
+                                        logger.info(f"✅ Media sent with Telethon entities (premium emojis preserved) to {chat_entity.title}")
+                                    else:
+                                        # Fallback without entities
+                                        message = await client.send_file(
+                                            chat_entity,
+                                            media_file,
+                                            caption=final_text
+                                        )
+                                        logger.info(f"✅ Media sent with text buttons to {chat_entity.title}")
+                                    
+                                    self._cleanup_temp_file(media_file)
+                                    continue
+                                except Exception as send_error:
+                                    logger.error(f"Failed to send media with entities: {send_error}")
+                                    self._cleanup_temp_file(media_file)
+                                    # Continue to fallback
                                 
                                 # Fallback: Download and re-upload (loses custom emojis but preserves basic content)
                                 logger.info(f"Downloading media file: {media_message['file_id']}")
@@ -1147,24 +1268,25 @@ class BumpService:
                 else:
                     # Single message - check if it has media or is just text
                     if isinstance(ad_content, dict) and ad_content.get('media_type'):
-                        # Single message with media - send as ONE combined message
+                        # Single message with media - DEFINITIVE SOLUTION for premium emojis and buttons
                         try:
-                            caption_text = ad_content.get('caption', ad_content.get('text', ''))
+                            logger.info(f"Processing single media message with premium emoji preservation")
                             
-                            # ALWAYS add button URLs as text for single media messages (inline buttons don't work in regular groups)
+                            # Reconstruct text with entities for premium emojis
+                            original_text = ad_content.get('caption', ad_content.get('text', ''))
+                            entities = ad_content.get('caption_entities', [])
+                            
+                            # Add guaranteed button text
                             button_text = ""
-                            for button_row in telethon_buttons:
-                                for button in button_row:
-                                    if hasattr(button, 'url'):
-                                        button_text += f"\n\n🔗 {button.text}: {button.url}"
+                            if telethon_buttons:
+                                button_text = "\n\n" + self._format_buttons_as_text(telethon_buttons)
                             
-                            # Combine caption with button text
-                            caption_text = (caption_text or "") + button_text
+                            final_text = original_text + button_text
                             
-                            # Truncate message if too long (Telegram limit is 4096 characters)
-                            if len(caption_text) > 4000:  # Leave some room for safety
-                                caption_text = caption_text[:4000] + "..."
-                                logger.warning(f"Single media message truncated to fit Telegram limits (was {len(caption_text)} chars)")
+                            # Truncate message if too long
+                            if len(final_text) > 4000:
+                                final_text = final_text[:4000] + "..."
+                                logger.warning(f"Single media message truncated to fit Telegram limits")
 
                             # Download the media file (Bot API file_id not compatible with Telethon)
                             try:
@@ -1180,48 +1302,44 @@ class BumpService:
                                 # Register for cleanup
                                 self._register_temp_file(media_file)
                                 
-                                # Try with inline buttons first, fallback to text
+                                # DEFINITIVE SOLUTION: Send with Telethon entities for premium emojis
                                 try:
-                                    message = await client.send_file(
-                                        chat_entity,
-                                        media_file,
-                                        caption=caption_text,
-                                        buttons=telethon_buttons,
-                                        parse_mode='html'
-                                    )
-                                    logger.info(f"✅ Single media sent with inline buttons to {chat_entity.title}")
-                                except Exception as button_error:
-                                    # Fallback: Send without buttons, then send buttons as text
-                                    logger.warning(f"Inline buttons failed for single media, using text fallback: {button_error}")
-                                    message = await client.send_file(
-                                        chat_entity,
-                                        media_file,
-                                        caption=caption_text,
-                                        parse_mode='html'
-                                    )
+                                    # Convert entities to Telethon format for premium emoji support
+                                    telethon_entities = self._convert_to_telethon_entities(entities, final_text)
                                     
-                                    # Send buttons as a follow-up message
-                                    if telethon_buttons:
-                                        button_text = self._format_buttons_as_text(telethon_buttons)
-                                        if button_text:
-                                            await client.send_message(
-                                                chat_entity,
-                                                button_text,
-                                                reply_to=message.id,
-                                                parse_mode='html'
-                                            )
-                                logger.info(f"✅ Single media+text sent via download ({ad_content['media_type']}) to {chat_entity.title}")
-                                
-                                # Clean up downloaded file
-                                self._cleanup_temp_file(media_file)
+                                    if telethon_entities:
+                                        # Send with proper entities for premium emojis
+                                        message = await client.send_file(
+                                            chat_entity,
+                                            media_file,
+                                            caption=final_text,
+                                            formatting_entities=telethon_entities
+                                        )
+                                        logger.info(f"✅ Single media sent with premium emojis and buttons to {chat_entity.title}")
+                                    else:
+                                        # Fallback without entities but with buttons as text
+                                        message = await client.send_file(
+                                            chat_entity,
+                                            media_file,
+                                            caption=final_text
+                                        )
+                                        logger.info(f"✅ Single media sent with guaranteed buttons to {chat_entity.title}")
+                                    
+                                    # Clean up downloaded file
+                                    self._cleanup_temp_file(media_file)
+                                    continue
+                                    
+                                except Exception as send_error:
+                                    logger.error(f"Failed to send single media with entities: {send_error}")
+                                    self._cleanup_temp_file(media_file)
                             else:
                                 # Fallback to text if media download fails
-                                if caption_text:
+                                if final_text:
                                     # Try with inline buttons first, fallback to text
                                     try:
                                         message = await client.send_message(
                                             chat_entity,
-                                            caption_text,
+                                            final_text,
                                             buttons=telethon_buttons,
                                             parse_mode='html'
                                         )
