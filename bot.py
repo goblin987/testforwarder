@@ -3142,16 +3142,32 @@ This name will help you identify the campaign in your dashboard.
         # Create the campaign with enhanced data structure
         try:
             # Prepare enhanced campaign data
-            enhanced_campaign_data = {
-                'campaign_name': campaign_data['campaign_name'],
-                'ad_content': campaign_data.get('ad_messages', [campaign_data.get('ad_content', '')]),
-                'target_chats': campaign_data['target_chats'],
-                'schedule_type': campaign_data['schedule_type'],
-                'schedule_time': campaign_data['schedule_time'],
-                'buttons': campaign_data.get('buttons', []),
-                'target_mode': campaign_data.get('target_mode', 'specific'),
-                'immediate_start': True  # Flag for immediate execution
-            }
+            # Handle single message with media vs multiple messages
+            ad_messages = campaign_data.get('ad_messages', [])
+            if len(ad_messages) == 1 and ad_messages[0].get('media_type'):
+                # Single message with media - use it directly
+                enhanced_campaign_data = {
+                    'campaign_name': campaign_data['campaign_name'],
+                    'ad_content': ad_messages[0],  # Single message object, not wrapped in list
+                    'target_chats': campaign_data['target_chats'],
+                    'schedule_type': campaign_data['schedule_type'],
+                    'schedule_time': campaign_data['schedule_time'],
+                    'buttons': campaign_data.get('buttons', []),
+                    'target_mode': campaign_data.get('target_mode', 'specific'),
+                    'immediate_start': True  # Flag for immediate execution
+                }
+            else:
+                # Multiple messages or no media - use as list
+                enhanced_campaign_data = {
+                    'campaign_name': campaign_data['campaign_name'],
+                    'ad_content': ad_messages if ad_messages else [campaign_data.get('ad_content', '')],
+                    'target_chats': campaign_data['target_chats'],
+                    'schedule_type': campaign_data['schedule_type'],
+                    'schedule_time': campaign_data['schedule_time'],
+                    'buttons': campaign_data.get('buttons', []),
+                    'target_mode': campaign_data.get('target_mode', 'specific'),
+                    'immediate_start': True  # Flag for immediate execution
+                }
             
             logger.info(f"Creating campaign with data: {enhanced_campaign_data}")
             
