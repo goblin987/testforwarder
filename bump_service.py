@@ -1235,20 +1235,8 @@ class BumpService:
                                             parse_mode='html'
                                         )
                                         logger.warning(f"⚠️ Single media download failed, sent as text to {chat_entity.title}")
-                                    else:
-                                        continue
-                            except Exception as e:
-                                logger.error(f"❌ Failed to download media for single message: {e}")
-                                # Fallback to text if media download fails
-                                if caption_text:
-                                    message = await client.send_message(
-                                        chat_entity,
-                                        caption_text,
-                                        parse_mode='html'
-                                    )
-                                    logger.warning(f"⚠️ Single media download failed, sent as text to {chat_entity.title}")
                                 else:
-                                    continue
+                                    continue  # Skip if no text content
                         except Exception as media_error:
                             logger.error(f"❌ Failed to send single media to {chat_entity.title}: {media_error}")
                             # Fallback to text message
