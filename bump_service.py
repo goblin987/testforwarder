@@ -371,9 +371,10 @@ class BumpService:
         
         logger.info(f"Campaign {campaign_id} completely cleaned up")
     
-    async def initialize_telegram_client(self, account_id: int) -> Optional[TelegramClient]:
+    async def initialize_telegram_client(self, account_id: int, cache_client: bool = False) -> Optional[TelegramClient]:
         """Initialize Telegram client - EXACT SAME LOGIC AS bot.py execute_immediate_campaign"""
-        if account_id in self.telegram_clients:
+        # For scheduled executions, always create fresh client to avoid asyncio loop issues
+        if cache_client and account_id in self.telegram_clients:
             return self.telegram_clients[account_id]
         
         account = self.db.get_account(account_id)
@@ -449,7 +450,9 @@ class BumpService:
                 pass
             return None
         
-        self.telegram_clients[account_id] = client
+        # Only cache client if requested (not for scheduled executions)
+        if cache_client:
+            self.telegram_clients[account_id] = client
         logger.info(f"Telegram client initialized for bump service (Account: {account_id})")
         return client
     
@@ -466,7 +469,8 @@ class BumpService:
         
         logger.info(f"🚀 Starting campaign {campaign['campaign_name']} using {account_name}")
         
-        client = await self.initialize_telegram_client(campaign['account_id'])
+        # Use fresh client for scheduled execution to avoid asyncio loop issues
+        client = await self.initialize_telegram_client(campaign['account_id'], cache_client=False)
         if not client:
             logger.error(f"❌ Failed to initialize {account_name} for campaign {campaign_id}")
             logger.error(f"💡 Solution: Re-add {account_name} with API credentials instead of uploaded session")
@@ -600,6 +604,13 @@ class BumpService:
         # Update campaign statistics
         self.update_campaign_stats(campaign_id, sent_count)
         logger.info(f"Scheduled campaign {campaign['campaign_name']} completed: {sent_count}/{len(target_entities)} ads sent with buttons")
+        
+        # Disconnect client after scheduled execution to prevent asyncio loop issues
+        try:
+            await client.disconnect()
+            logger.info(f"Disconnected client for scheduled campaign {campaign_id}")
+        except Exception as e:
+            logger.warning(f"Failed to disconnect client for campaign {campaign_id}: {e}")
     
     def log_ad_performance(self, campaign_id: int, user_id: int, target_chat: str, 
                           message_id: Optional[int], status: str = 'sent'):
@@ -772,7 +783,8 @@ class BumpService:
                 return False
             
             # Initialize Telegram client
-            client = await self.initialize_telegram_client(campaign['account_id'])
+            # Use fresh client for scheduled execution to avoid asyncio loop issues
+        client = await self.initialize_telegram_client(campaign['account_id'], cache_client=False)
             if not client:
                 logger.error(f"Failed to initialize client for scheduled campaign {campaign_id}")
                 logger.error(f"Account '{account.get('account_name', 'Unknown')}' needs to be deleted and re-added with phone verification")
@@ -885,7 +897,8 @@ class BumpService:
         if not campaign:
             return False
         
-        client = await self.initialize_telegram_client(campaign['account_id'])
+        # Use fresh client for scheduled execution to avoid asyncio loop issues
+        client = await self.initialize_telegram_client(campaign['account_id'], cache_client=False)
         if not client:
             return False
         
@@ -897,6 +910,13 @@ class BumpService:
         except Exception as e:
             logger.error(f"Test ad failed for campaign {campaign_id}: {e}")
             return False
+        finally:
+            # Always disconnect client after test
+            try:
+                await client.disconnect()
+                logger.info(f"Disconnected test client for campaign {campaign_id}")
+            except Exception as e:
+                logger.warning(f"Failed to disconnect test client for campaign {campaign_id}: {e}")
     
     async def close(self):
         """Close all connections"""
