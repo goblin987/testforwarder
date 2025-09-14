@@ -738,17 +738,45 @@ class BumpService:
                                     logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
                                 else:
                                     continue  # Skip if no text content
+                        except Exception as e:
+                            logger.error(f"❌ Failed to send combined media+text to {chat_entity.title}: {e}")
+                            # Fallback to text message
+                            if combined_text:
+                                message = await client.send_message(
+                                    chat_entity,
+                                    combined_text,
+                                    buttons=telethon_buttons
+                                )
+                                logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
+                            else:
+                                continue  # Skip if no text content
                     else:
                         # No media, just send combined text as one message
-                        if combined_text:
-                            message = await client.send_message(
-                                chat_entity,
-                                combined_text,
-                                buttons=telethon_buttons
-                            )
-                            logger.info(f"✅ Combined text message sent to {chat_entity.title}")
-                        else:
-                            continue  # Skip if no content
+                        try:
+                            if combined_text:
+                                message = await client.send_message(
+                                    chat_entity,
+                                    combined_text,
+                                    buttons=telethon_buttons
+                                )
+                                logger.info(f"✅ Combined text message sent to {chat_entity.title}")
+                            else:
+                                continue  # Skip if no content
+                        except Exception as e:
+                            logger.error(f"❌ Failed to send text message to {chat_entity.title}: {e}")
+                            continue
+                        except Exception as e:
+                            logger.error(f"❌ Failed to send combined media+text to {chat_entity.title}: {e}")
+                            # Fallback to text message
+                            if combined_text:
+                                message = await client.send_message(
+                                    chat_entity,
+                                    combined_text,
+                                    buttons=telethon_buttons
+                                )
+                                logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
+                            else:
+                                continue  # Skip if no text content
                 else:
                     # Single message - check if it has media or is just text
                     if isinstance(ad_content, dict) and ad_content.get('media_type'):
@@ -787,7 +815,18 @@ class BumpService:
                                         logger.warning(f"⚠️ Single media download failed, sent as text to {chat_entity.title}")
                                     else:
                                         continue
-                                        
+                            except Exception as e:
+                                logger.error(f"❌ Failed to download media for single message: {e}")
+                                # Fallback to text if media download fails
+                                if caption_text:
+                                    message = await client.send_message(
+                                        chat_entity,
+                                        caption_text,
+                                        buttons=telethon_buttons
+                                    )
+                                    logger.warning(f"⚠️ Single media download failed, sent as text to {chat_entity.title}")
+                                else:
+                                    continue
                         except Exception as media_error:
                             logger.error(f"❌ Failed to send single media to {chat_entity.title}: {media_error}")
                             # Fallback to text message
