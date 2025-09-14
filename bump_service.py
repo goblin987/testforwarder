@@ -947,16 +947,23 @@ class BumpService:
                             # Combine caption with button text
                             final_caption = (final_caption or "") + button_text
                             
+                            # Truncate message if too long (Telegram limit is 4096 characters)
+                            if len(final_caption) > 4000:  # Leave some room for safety
+                                final_caption = final_caption[:4000] + "..."
+                                logger.warning(f"Message truncated to fit Telegram limits (was {len(final_caption)} chars)")
+                            
                             # Try to preserve custom emojis by using the original message approach
                             try:
                                 # First, try to forward the original message to preserve all entities
                                 if 'original_message_id' in media_message and 'original_chat_id' in media_message:
+                                    logger.info(f"Attempting to forward original message {media_message['original_message_id']} from chat {media_message['original_chat_id']}")
                                     try:
                                         # Get the original message and forward it
                                         original_chat = await client.get_entity(media_message['original_chat_id'])
                                         original_message = await client.get_messages(original_chat, ids=media_message['original_message_id'])
                                         
                                         if original_message:
+                                            logger.info(f"Found original message, forwarding to preserve entities")
                                             # Forward the original message to preserve all entities including custom emojis
                                             message = await client.forward_messages(
                                                 chat_entity,
@@ -980,11 +987,21 @@ class BumpService:
                                             
                                             logger.info(f"✅ Forwarded original message with preserved entities to {chat_entity.title}")
                                             continue
+                                        else:
+                                            logger.warning(f"Original message not found, falling back to download")
                                     except Exception as forward_error:
                                         logger.warning(f"Failed to forward original message, falling back to download: {forward_error}")
+                                else:
+                                    logger.warning(f"Missing original message data, falling back to download")
                                 
                                 # Fallback: Download and re-upload (loses custom emojis but preserves basic content)
-                                media_file = await client.download_media(media_message['file_id'])
+                                logger.info(f"Downloading media file: {media_message['file_id']}")
+                                try:
+                                    media_file = await client.download_media(media_message['file_id'])
+                                    logger.info(f"Media download result: {media_file}")
+                                except Exception as download_error:
+                                    logger.error(f"Media download failed: {download_error}")
+                                    media_file = None
                                 
                                 if media_file and os.path.exists(media_file):
                                     # Register for cleanup
@@ -1143,13 +1160,23 @@ class BumpService:
                             
                             # Combine caption with button text
                             caption_text = (caption_text or "") + button_text
+                            
+                            # Truncate message if too long (Telegram limit is 4096 characters)
+                            if len(caption_text) > 4000:  # Leave some room for safety
+                                caption_text = caption_text[:4000] + "..."
+                                logger.warning(f"Single media message truncated to fit Telegram limits (was {len(caption_text)} chars)")
 
                             # Download the media file (Bot API file_id not compatible with Telethon)
                             try:
                                 # Download the media file from the original message
+                                logger.info(f"Downloading single media file: {ad_content['file_id']}")
                                 media_file = await client.download_media(ad_content['file_id'])
+                                logger.info(f"Single media download result: {media_file}")
+                            except Exception as download_error:
+                                logger.error(f"Single media download failed: {download_error}")
+                                media_file = None
                                 
-                                if media_file and os.path.exists(media_file):
+                            if media_file and os.path.exists(media_file):
                                     # Register for cleanup
                                     self._register_temp_file(media_file)
                                     
