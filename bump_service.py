@@ -398,26 +398,42 @@ class BumpService:
             client = TelegramClient(session_name, api_id, api_hash)
             
             if account['session_string']:
-                # All session strings are base64 encoded session file data
+                # Use the same session handling logic as bot.py for consistency
                 try:
                     import base64
                     import os
                     session_file = f"{session_name}.session"
                     
-                    # Decode the session string and write to file
-                    session_data = base64.b64decode(account['session_string'])
-                    with open(session_file, "wb") as f:
-                        f.write(session_data)
+                    # Handle uploaded sessions vs API credential sessions (same as bot.py)
+                    if account['api_id'] == 'uploaded' or account['api_hash'] == 'uploaded':
+                        # For uploaded sessions, decode and save the session file
+                        session_data = base64.b64decode(account['session_string'])
+                        with open(session_file, "wb") as f:
+                            f.write(session_data)
+                    else:
+                        # For API credential accounts with authenticated sessions
+                        # Session string is base64 encoded session file data
+                        session_data = base64.b64decode(account['session_string'])
+                        with open(session_file, "wb") as f:
+                            f.write(session_data)
                     
                     # Start the client with the session file
                     await client.start()
-                    logger.info(f"Successfully started session for account {account_id}")
+                    
+                    # Verify the session is valid (same as bot.py)
+                    me = await client.get_me()
+                    if not me:
+                        logger.error(f"Session invalid for account {account_id}")
+                        await client.disconnect()
+                        return None
+                        
+                    logger.info(f"Successfully authenticated as {me.username or me.phone}")
+                    
                 except Exception as e:
                     logger.error(f"Failed to start session for account {account_id}: {e}")
                     logger.error(f"Account {account_id} needs to be re-added with fresh credentials")
                     
                     # Clean up corrupted session file
-                    import os
                     try:
                         if os.path.exists(session_file):
                             os.remove(session_file)
