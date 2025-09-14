@@ -289,7 +289,7 @@ class TgcfBot:
             await query.answer()
         except Exception as e:
             logger.error(f"Failed to answer callback query: {e}")
-            return
+            # Don't return here, continue with the handler to provide user feedback
         
         try:
             if data == "main_menu":
@@ -2150,20 +2150,39 @@ Access the full-featured web interface for advanced configuration:
         elif 'campaign_data' in session:
             if session['step'] == 'campaign_name':
                 # Validate campaign name
-                is_valid, error_msg = self.validate_input(
-                    message_text, 
-                    max_length=100, 
-                    allowed_chars=r"a-zA-Z0-9\s\-_.,!?@#$%^&*()+=[]{}|;:'\"<>/\\"
-                )
+                logger.info(f"Validating campaign name: '{message_text}'")
+                # Simplified validation for campaign names - just check length and basic safety
+                if len(message_text) > 100:
+                    is_valid, error_msg = False, f"Campaign name too long (max 100 characters, got {len(message_text)})"
+                elif not message_text.strip():
+                    is_valid, error_msg = False, "Campaign name cannot be empty"
+                else:
+                    # Basic safety check - no SQL injection patterns
+                    import re
+                    sql_patterns = [
+                        r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION|SCRIPT)\b)",
+                        r"(--|#|\/\*|\*\/)", r"(\b(OR|AND)\s+\d+\s*=\s*\d+)", r"(\b(OR|AND)\s+'.*'\s*=\s*'.*')",
+                        r"(\bUNION\s+SELECT\b)", r"(\bDROP\s+TABLE\b)", r"(\bINSERT\s+INTO\b)", r"(\bDELETE\s+FROM\b)"
+                    ]
+                    is_safe = True
+                    for pattern in sql_patterns:
+                        if re.search(pattern, message_text, re.IGNORECASE):
+                            is_safe = False
+                            break
+                    is_valid, error_msg = is_safe, "Campaign name contains potentially malicious content" if not is_safe else ""
+                logger.info(f"Validation result: is_valid={is_valid}, error_msg='{error_msg}'")
+                
                 if not is_valid:
                     # Escape the error message to prevent Markdown parsing issues
                     safe_error_msg = self.escape_markdown(error_msg)
+                    logger.info(f"Sending error message: {safe_error_msg}")
                     await update.message.reply_text(
                         f"❌ **Invalid Campaign Name**\n\n{safe_error_msg}\n\nPlease enter a valid campaign name (max 100 characters).",
                         parse_mode=ParseMode.MARKDOWN
                     )
                     return
                 
+                logger.info(f"Campaign name '{message_text}' is valid, proceeding to ad_content step")
                 session['campaign_data']['campaign_name'] = message_text
                 session['step'] = 'ad_content'
                 
