@@ -386,6 +386,11 @@ class BumpService:
         from telethon import TelegramClient
         import base64
         import os
+        import time
+        import random
+        
+        # Add small random delay to prevent database lock conflicts
+        await asyncio.sleep(random.uniform(0.1, 0.5))
         
         # Handle session creation (same as bot.py)
         temp_session_path = f"bump_session_{account_id}"
@@ -667,9 +672,12 @@ class BumpService:
                     campaign = self.get_campaign(campaign_id)
                     if campaign and campaign.get('is_active', False):
                         logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
+                        # Add staggered delay to prevent database conflicts
+                        import random
+                        delay = random.uniform(0.5, 2.0)  # Random delay between 0.5-2 seconds
                         # Run in a separate thread to avoid blocking
                         import threading
-                        threading.Thread(target=lambda: self.run_campaign_job(campaign_id), daemon=True).start()
+                        threading.Thread(target=lambda: (time.sleep(delay), self.run_campaign_job(campaign_id)), daemon=True).start()
                     
                     logger.info(f"📅 Campaign {campaign_id} scheduled every {hours} hours")
                 elif 'minute' in schedule_time.lower():
@@ -693,9 +701,12 @@ class BumpService:
                     campaign = self.get_campaign(campaign_id)
                     if campaign and campaign.get('is_active', False):
                         logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
+                        # Add staggered delay to prevent database conflicts
+                        import random
+                        delay = random.uniform(0.5, 2.0)  # Random delay between 0.5-2 seconds
                         # Run in a separate thread to avoid blocking
                         import threading
-                        threading.Thread(target=lambda: self.run_campaign_job(campaign_id), daemon=True).start()
+                        threading.Thread(target=lambda: (time.sleep(delay), self.run_campaign_job(campaign_id)), daemon=True).start()
                     
                     logger.info(f"📅 Campaign {campaign_id} scheduled every {minutes} minutes")
                 elif schedule_time.isdigit():
@@ -707,9 +718,12 @@ class BumpService:
                     campaign = self.get_campaign(campaign_id)
                     if campaign and campaign.get('is_active', False):
                         logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
+                        # Add staggered delay to prevent database conflicts
+                        import random
+                        delay = random.uniform(0.5, 2.0)  # Random delay between 0.5-2 seconds
                         # Run in a separate thread to avoid blocking
                         import threading
-                        threading.Thread(target=lambda: self.run_campaign_job(campaign_id), daemon=True).start()
+                        threading.Thread(target=lambda: (time.sleep(delay), self.run_campaign_job(campaign_id)), daemon=True).start()
                     
                     logger.info(f"📅 Campaign {campaign_id} scheduled every {minutes} minutes")
                 else:
