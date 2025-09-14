@@ -859,7 +859,10 @@ Please send me the source chat ID or username.
         # Show preview and ask about buttons
         emoji_info = ""
         if ad_data['has_custom_emojis']:
-            emoji_info = "\n✨ **Custom emojis detected and preserved!**"
+            emoji_info = "\n✨ **Custom emojis detected!**"
+            if ad_data.get('has_premium_emojis'):
+                emoji_info += "\n⚠️ **Premium emojis detected** - Bot needs Telegram Premium to send them correctly"
+                emoji_info += "\n💡 **Tip:** Upgrade your bot account to Premium for full emoji support"
         
         media_info = ""
         if ad_data['media_type']:

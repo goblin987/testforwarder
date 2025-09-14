@@ -1297,6 +1297,18 @@ class BumpService:
                                     else:
                                         original_text = ad_content.get('caption', '')
                                         logger.info(f"Method 1: Fallback to stored caption")
+                                    
+                                    # Check if bot has premium (can send premium emojis)
+                                    try:
+                                        me = await client.get_me()
+                                        bot_has_premium = getattr(me, 'premium', False)
+                                        logger.info(f"Bot premium status: {bot_has_premium}")
+                                        
+                                        if not bot_has_premium and ad_content.get('has_custom_emojis'):
+                                            logger.warning(f"⚠️ Bot account doesn't have Premium - premium emojis will show as regular emojis")
+                                            logger.info(f"💡 To preserve premium emojis, upgrade bot account to Telegram Premium")
+                                    except Exception as premium_check_error:
+                                        logger.error(f"Could not check bot premium status: {premium_check_error}")
                                 else:
                                     logger.warning(f"Method 1 FAILED: No media in original message")
                                     
