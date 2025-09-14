@@ -2240,7 +2240,7 @@ Access the full-featured web interface for advanced configuration:
         )
     
     async def delete_account(self, query, account_id):
-        """Delete a Telegram account"""
+        """Delete a Telegram account and clean up all related data"""
         user_id = query.from_user.id
         account = self.db.get_account(account_id)
         
@@ -2248,10 +2248,40 @@ Access the full-featured web interface for advanced configuration:
             await query.answer("Account not found!", show_alert=True)
             return
         
-        # Delete the account
+        account_name = account.get('account_name', 'Unknown')
+        
+        # Get campaigns using this account before deletion
+        campaigns = self.bump_service.get_user_campaigns(user_id)
+        campaigns_to_delete = [c for c in campaigns if c['account_id'] == account_id]
+        
+        # Clean up campaigns in bump service first
+        for campaign in campaigns_to_delete:
+            logger.info(f"Cleaning up campaign {campaign['id']} for deleted account {account_name}")
+            self.bump_service.delete_campaign(campaign['id'])
+        
+        # Delete the account and all related data
         self.db.delete_account(account_id)
         
-        await query.answer("Account deleted!", show_alert=True)
+        # Clean up any session files
+        import os
+        try:
+            session_files = [
+                f"temp_session_{account_id}.session",
+                f"bump_session_{account_id}.session",
+                f"account_{user_id}_{account_id}.session"
+            ]
+            for session_file in session_files:
+                if os.path.exists(session_file):
+                    os.remove(session_file)
+                    logger.info(f"Cleaned up session file: {session_file}")
+        except Exception as e:
+            logger.warning(f"Could not clean up session files: {e}")
+        
+        success_msg = f"✅ Account '{account_name}' completely deleted!"
+        if campaigns_to_delete:
+            success_msg += f"\n🗑️ Also deleted {len(campaigns_to_delete)} related campaigns"
+        
+        await query.answer(success_msg, show_alert=True)
         await self.show_manage_accounts(query)
     
     # Bump Service Methods

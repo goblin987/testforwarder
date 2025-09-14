@@ -203,11 +203,33 @@ class Database:
             conn.commit()
     
     def delete_account(self, account_id: int):
-        """Delete Telegram account"""
+        """Delete Telegram account and clean up all related data"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute('UPDATE telegram_accounts SET is_active = 0 WHERE id = ?', (account_id,))
+            
+            # Get account info before deletion for logging
+            cursor.execute('SELECT account_name, phone_number FROM telegram_accounts WHERE id = ?', (account_id,))
+            account_info = cursor.fetchone()
+            
+            # Completely remove the account record (not just deactivate)
+            cursor.execute('DELETE FROM telegram_accounts WHERE id = ?', (account_id,))
+            
+            # Also clean up related data
+            # Delete any forwarding configs using this account
+            cursor.execute('DELETE FROM forwarding_configs WHERE account_id = ?', (account_id,))
+            
+            # Delete any campaigns using this account
+            cursor.execute('DELETE FROM ad_campaigns WHERE account_id = ?', (account_id,))
+            
+            # Delete any message logs for this account
+            cursor.execute('DELETE FROM message_logs WHERE account_id = ?', (account_id,))
+            
             conn.commit()
+            
+            if account_info:
+                print(f"✅ Completely deleted account '{account_info[0]}' ({account_info[1]}) and all related data")
+            else:
+                print(f"✅ Deleted account {account_id} and all related data")
     
     def add_forwarding_config(self, user_id: int, account_id: int, source_chat_id: str, 
                             destination_chat_id: str, config_name: str, config_data: Dict) -> int:
