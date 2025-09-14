@@ -2032,16 +2032,6 @@ Access the full-featured web interface for advanced configuration:
             elif session['step'] == 'schedule_time':
                 session['campaign_data']['schedule_time'] = message_text
                 session['step'] = 'account_selection'
-            
-            # Edit campaign functionality
-            elif session['step'] == 'edit_text_content':
-                await self.handle_edit_text_content(update, session)
-            
-            elif session['step'] == 'edit_media':
-                await self.handle_edit_media(update, session)
-            
-            elif session['step'] == 'edit_buttons':
-                await self.handle_edit_buttons(update, session)
                 
                 # Show account selection
                 accounts = self.db.get_user_accounts(user_id)
@@ -2055,9 +2045,26 @@ Access the full-featured web interface for advanced configuration:
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 await update.message.reply_text(
-                    "✅ **Schedule set!**\n\n**Step 5/6: Select Account**\n\nWhich Telegram account should be used to post these ads?",
+                    f"✅ **Schedule set!**\n\n**Step 5/6: Select Account**\n\n**Schedule:** {message_text}\n\nChoose which account to use for this campaign:",
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=reply_markup
+                )
+            
+            # Edit campaign functionality
+            elif session['step'] == 'edit_text_content':
+                await self.handle_edit_text_content(update, session)
+            
+            elif session['step'] == 'edit_media':
+                await self.handle_edit_media(update, session)
+            
+            elif session['step'] == 'edit_buttons':
+                await self.handle_edit_buttons(update, session)
+            
+            elif session['step'] == 'account_selection':
+                # Account selection is handled via callback buttons, not text messages
+                await update.message.reply_text(
+                    "Please use the buttons above to select an account for your campaign.",
+                    parse_mode=ParseMode.MARKDOWN
                 )
         
         # Handle forwarding configuration creation
