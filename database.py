@@ -172,24 +172,40 @@ class Database:
             } for row in rows]
     
     def get_account(self, account_id: int) -> Optional[Dict]:
-        """Get account by ID"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM telegram_accounts WHERE id = ?', (account_id,))
-            row = cursor.fetchone()
-            if row:
-                return {
-                    'id': row[0],
-                    'user_id': row[1],
-                    'account_name': row[2],
-                    'phone_number': row[3],
-                    'api_id': row[4],
-                    'api_hash': row[5],
-                    'session_string': row[6],
-                    'is_active': row[7],
-                    'created_at': row[8]
-                }
-            return None
+        """Get account by ID with retry logic for database locks"""
+        import time
+        import random
+        
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                with sqlite3.connect(self.db_path, timeout=10.0) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('SELECT * FROM telegram_accounts WHERE id = ?', (account_id,))
+                    row = cursor.fetchone()
+                    if row:
+                        return {
+                            'id': row[0],
+                            'user_id': row[1],
+                            'account_name': row[2],
+                            'phone_number': row[3],
+                            'api_id': row[4],
+                            'api_hash': row[5],
+                            'session_string': row[6],
+                            'is_active': row[7],
+                            'created_at': row[8]
+                        }
+                    return None
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    # Wait with exponential backoff + jitter
+                    wait_time = (2 ** attempt) + random.uniform(0.1, 0.5)
+                    print(f"Database locked, retrying in {wait_time:.2f}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    raise
+        return None
     
     def update_account_session(self, account_id: int, session_string: str):
         """Update account session string"""

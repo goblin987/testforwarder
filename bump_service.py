@@ -389,8 +389,8 @@ class BumpService:
         import time
         import random
         
-        # Add small random delay to prevent database lock conflicts
-        await asyncio.sleep(random.uniform(0.1, 0.5))
+        # Add larger random delay to prevent database lock conflicts
+        await asyncio.sleep(random.uniform(0.5, 2.0))
         
         # Handle session creation (same as bot.py)
         temp_session_path = f"bump_session_{account_id}"
