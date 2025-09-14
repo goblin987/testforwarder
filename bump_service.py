@@ -989,37 +989,37 @@ class BumpService:
                                     # Register for cleanup
                                     self._register_temp_file(media_file)
                                     
-                            # Send the downloaded media file with inline buttons (try first, fallback to text)
-                            try:
-                                # Try with inline buttons first (works in channels and some groups)
-                                message = await client.send_file(
-                                    chat_entity,
-                                    media_file,
-                                    caption=final_caption,
-                                    buttons=telethon_buttons,
-                                    parse_mode='html'
-                                )
-                                logger.info(f"✅ Media sent with inline buttons to {chat_entity.title}")
-                            except Exception as button_error:
-                                # Fallback: Send without buttons, then send buttons as text
-                                logger.warning(f"Inline buttons failed, using text fallback: {button_error}")
-                                message = await client.send_file(
-                                    chat_entity,
-                                    media_file,
-                                    caption=final_caption,
-                                    parse_mode='html'
-                                )
-                                
-                                # Send buttons as a follow-up message
-                                if telethon_buttons:
-                                    button_text = self._format_buttons_as_text(telethon_buttons)
-                                    if button_text:
-                                        await client.send_message(
+                                    # Send the downloaded media file with inline buttons (try first, fallback to text)
+                                    try:
+                                        # Try with inline buttons first (works in channels and some groups)
+                                        message = await client.send_file(
                                             chat_entity,
-                                            button_text,
-                                            reply_to=message.id,
+                                            media_file,
+                                            caption=final_caption,
+                                            buttons=telethon_buttons,
                                             parse_mode='html'
                                         )
+                                        logger.info(f"✅ Media sent with inline buttons to {chat_entity.title}")
+                                    except Exception as button_error:
+                                        # Fallback: Send without buttons, then send buttons as text
+                                        logger.warning(f"Inline buttons failed, using text fallback: {button_error}")
+                                        message = await client.send_file(
+                                            chat_entity,
+                                            media_file,
+                                            caption=final_caption,
+                                            parse_mode='html'
+                                        )
+                                        
+                                        # Send buttons as a follow-up message
+                                        if telethon_buttons:
+                                            button_text = self._format_buttons_as_text(telethon_buttons)
+                                            if button_text:
+                                                await client.send_message(
+                                                    chat_entity,
+                                                    button_text,
+                                                    reply_to=message.id,
+                                                    parse_mode='html'
+                                                )
                                     logger.info(f"✅ Combined media+text sent via download ({media_message['media_type']}) to {chat_entity.title}")
                                     
                                     # Clean up downloaded file

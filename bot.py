@@ -2150,7 +2150,7 @@ Access the full-featured web interface for advanced configuration:
                 is_valid, error_msg = self.validate_input(
                     message_text, 
                     max_length=100, 
-                    allowed_chars="a-zA-Z0-9\s\-_.,!?@#$%^&*()+=[]{}|;:'\"<>/\\"
+                    allowed_chars=r"a-zA-Z0-9\s\-_.,!?@#$%^&*()+=[]{}|;:'\"<>/\\"
                 )
                 if not is_valid:
                     await update.message.reply_text(
