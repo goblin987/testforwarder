@@ -650,31 +650,66 @@ Please send me the source chat ID or username.
                 if entity.type == 'custom_emoji':
                     ad_data['has_custom_emojis'] = True
         
-        # Handle different media types
+        # Handle different media types with detailed information
         if message.photo:
             ad_data['media_type'] = 'photo'
             ad_data['file_id'] = message.photo[-1].file_id  # Get highest resolution
+            ad_data['file_unique_id'] = message.photo[-1].file_unique_id
+            ad_data['file_size'] = getattr(message.photo[-1], 'file_size', None)
+            ad_data['width'] = getattr(message.photo[-1], 'width', None)
+            ad_data['height'] = getattr(message.photo[-1], 'height', None)
         elif message.video:
             ad_data['media_type'] = 'video'
             ad_data['file_id'] = message.video.file_id
+            ad_data['file_unique_id'] = message.video.file_unique_id
+            ad_data['file_size'] = getattr(message.video, 'file_size', None)
+            ad_data['duration'] = getattr(message.video, 'duration', None)
+            ad_data['width'] = getattr(message.video, 'width', None)
+            ad_data['height'] = getattr(message.video, 'height', None)
         elif message.document:
             ad_data['media_type'] = 'document'
             ad_data['file_id'] = message.document.file_id
-        elif message.animation:
+            ad_data['file_unique_id'] = message.document.file_unique_id
+            ad_data['file_size'] = getattr(message.document, 'file_size', None)
+            ad_data['mime_type'] = getattr(message.document, 'mime_type', None)
+            ad_data['file_name'] = getattr(message.document, 'file_name', None)
+        elif message.animation:  # GIFs
             ad_data['media_type'] = 'animation'
             ad_data['file_id'] = message.animation.file_id
+            ad_data['file_unique_id'] = message.animation.file_unique_id
+            ad_data['file_size'] = getattr(message.animation, 'file_size', None)
+            ad_data['duration'] = getattr(message.animation, 'duration', None)
+            ad_data['width'] = getattr(message.animation, 'width', None)
+            ad_data['height'] = getattr(message.animation, 'height', None)
         elif message.voice:
             ad_data['media_type'] = 'voice'
             ad_data['file_id'] = message.voice.file_id
-        elif message.video_note:
+            ad_data['file_unique_id'] = message.voice.file_unique_id
+            ad_data['file_size'] = getattr(message.voice, 'file_size', None)
+            ad_data['duration'] = getattr(message.voice, 'duration', None)
+        elif message.video_note:  # Round videos
             ad_data['media_type'] = 'video_note'
             ad_data['file_id'] = message.video_note.file_id
+            ad_data['file_unique_id'] = message.video_note.file_unique_id
+            ad_data['file_size'] = getattr(message.video_note, 'file_size', None)
+            ad_data['duration'] = getattr(message.video_note, 'duration', None)
+            ad_data['length'] = getattr(message.video_note, 'length', None)
         elif message.sticker:
             ad_data['media_type'] = 'sticker'
             ad_data['file_id'] = message.sticker.file_id
+            ad_data['file_unique_id'] = message.sticker.file_unique_id
+            ad_data['file_size'] = getattr(message.sticker, 'file_size', None)
+            ad_data['width'] = getattr(message.sticker, 'width', None)
+            ad_data['height'] = getattr(message.sticker, 'height', None)
+            ad_data['emoji'] = getattr(message.sticker, 'emoji', None)
         elif message.audio:
             ad_data['media_type'] = 'audio'
             ad_data['file_id'] = message.audio.file_id
+            ad_data['file_unique_id'] = message.audio.file_unique_id
+            ad_data['file_size'] = getattr(message.audio, 'file_size', None)
+            ad_data['duration'] = getattr(message.audio, 'duration', None)
+            ad_data['performer'] = getattr(message.audio, 'performer', None)
+            ad_data['title'] = getattr(message.audio, 'title', None)
         
         # Store the ad data
         if 'ad_messages' not in session['campaign_data']:
@@ -688,7 +723,17 @@ Please send me the source chat ID or username.
         
         media_info = ""
         if ad_data['media_type']:
-            media_info = f"\n📎 **Media:** {ad_data['media_type'].title()}"
+            media_details = []
+            if ad_data.get('file_size'):
+                size_mb = ad_data['file_size'] / (1024 * 1024)
+                media_details.append(f"{size_mb:.1f}MB")
+            if ad_data.get('duration'):
+                media_details.append(f"{ad_data['duration']}s")
+            if ad_data.get('width') and ad_data.get('height'):
+                media_details.append(f"{ad_data['width']}x{ad_data['height']}")
+            
+            details_str = f" ({', '.join(media_details)})" if media_details else ""
+            media_info = f"\n📎 **Media:** {ad_data['media_type'].title()}{details_str}"
         
         text = f"""✅ **Ad content received!**{emoji_info}{media_info}
 

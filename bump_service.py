@@ -672,13 +672,71 @@ class BumpService:
                         buttons_for_message = telethon_buttons if i == len(ad_content) - 1 else None
                         
                         if message_data.get('media_type'):
-                            # Send media message
-                            message = await client.send_file(
-                                chat_entity,
-                                message_data['file_id'],
-                                caption=message_data.get('caption', message_data.get('text', '')),
-                                buttons=buttons_for_message
-                            )
+                            # Send media message with proper handling for different media types
+                            try:
+                                # Handle media forwarding with proper error handling
+                                caption_text = message_data.get('caption', message_data.get('text', ''))
+                                
+                                # Try to forward the media using the file_id first (most efficient)
+                                try:
+                                    # Use the file_id directly for forwarding
+                                    message = await client.send_file(
+                                        chat_entity,
+                                        message_data['file_id'],
+                                        caption=caption_text,
+                                        buttons=buttons_for_message,
+                                        parse_mode='html'  # Preserve formatting
+                                    )
+                                    logger.info(f"✅ Media forwarded ({message_data['media_type']}) to {chat_entity.title}")
+                                    
+                                except Exception as file_id_error:
+                                    # If file_id doesn't work, try downloading and re-uploading
+                                    logger.warning(f"⚠️ File ID failed for {message_data['media_type']}, trying download method: {file_id_error}")
+                                    
+                                    # Download the media file
+                                    media_file = await client.download_media(message_data['file_id'])
+                                    
+                                    if media_file and os.path.exists(media_file):
+                                        # Send the downloaded media file
+                                        message = await client.send_file(
+                                            chat_entity,
+                                            media_file,
+                                            caption=caption_text,
+                                            buttons=buttons_for_message,
+                                            parse_mode='html'  # Preserve formatting
+                                        )
+                                        logger.info(f"✅ Media sent via download ({message_data['media_type']}) to {chat_entity.title}")
+                                        
+                                        # Clean up downloaded file
+                                        try:
+                                            os.remove(media_file)
+                                        except:
+                                            pass
+                                    else:
+                                        # Fallback to text if media download fails
+                                        if caption_text:
+                                            message = await client.send_message(
+                                                chat_entity,
+                                                caption_text,
+                                                buttons=buttons_for_message
+                                            )
+                                            logger.warning(f"⚠️ Media download failed, sent as text to {chat_entity.title}")
+                                        else:
+                                            continue  # Skip if no text content
+                                        
+                            except Exception as media_error:
+                                logger.error(f"❌ Failed to send media ({message_data['media_type']}) to {chat_entity.title}: {media_error}")
+                                # Fallback to text message
+                                caption_text = message_data.get('caption', message_data.get('text', ''))
+                                if caption_text:
+                                    message = await client.send_message(
+                                        chat_entity,
+                                        caption_text,
+                                        buttons=buttons_for_message
+                                    )
+                                    logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
+                                else:
+                                    continue  # Skip if no text content
                         else:
                             # Send text message with buttons
                             message = await client.send_message(
