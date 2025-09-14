@@ -372,7 +372,7 @@ class BumpService:
         logger.info(f"Campaign {campaign_id} completely cleaned up")
     
     async def initialize_telegram_client(self, account_id: int) -> Optional[TelegramClient]:
-        """Initialize Telegram client for ad posting"""
+        """Initialize Telegram client - EXACT SAME LOGIC AS bot.py execute_immediate_campaign"""
         if account_id in self.telegram_clients:
             return self.telegram_clients[account_id]
         
@@ -381,78 +381,77 @@ class BumpService:
             logger.error(f"Account {account_id} not found")
             return None
         
-        try:
-            # Handle uploaded sessions (no API credentials needed)
-            if account['api_id'] == 'uploaded' or account['api_hash'] == 'uploaded':
-                api_id = 123456  # Dummy API ID
-                api_hash = 'dummy_hash_for_uploaded_sessions'  # Dummy API Hash
-            else:
-                try:
-                    api_id = int(account['api_id'])
-                    api_hash = account['api_hash']
-                except ValueError:
-                    logger.error(f"Invalid API credentials for account {account_id}: api_id={account['api_id']}, api_hash={account['api_hash']}")
-                    return None
-            
-            session_name = f'bump_session_{account_id}'
-            client = TelegramClient(session_name, api_id, api_hash)
-            
-            if account['session_string']:
-                # Use the same session handling logic as bot.py for consistency
-                try:
-                    import base64
-                    import os
-                    session_file = f"{session_name}.session"
-                    
-                    # Handle uploaded sessions vs API credential sessions (same as bot.py)
-                    if account['api_id'] == 'uploaded' or account['api_hash'] == 'uploaded':
-                        # For uploaded sessions, decode and save the session file
-                        session_data = base64.b64decode(account['session_string'])
-                        with open(session_file, "wb") as f:
-                            f.write(session_data)
-                    else:
-                        # For API credential accounts with authenticated sessions
-                        # Session string is base64 encoded session file data
-                        session_data = base64.b64decode(account['session_string'])
-                        with open(session_file, "wb") as f:
-                            f.write(session_data)
-                    
-                    # Start the client with the session file
-                    await client.start()
-                    
-                    # Verify the session is valid (same as bot.py)
-                    me = await client.get_me()
-                    if not me:
-                        logger.error(f"Session invalid for account {account_id}")
-                        await client.disconnect()
-                        return None
-                        
-                    logger.info(f"Successfully authenticated as {me.username or me.phone}")
-                    
-                except Exception as e:
-                    logger.error(f"Failed to start session for account {account_id}: {e}")
-                    logger.error(f"Account {account_id} needs to be re-added with fresh credentials")
-                    
-                    # Clean up corrupted session file
-                    try:
-                        if os.path.exists(session_file):
-                            os.remove(session_file)
-                            logger.info(f"Cleaned up corrupted session file for account {account_id}")
-                    except:
-                        pass
-                    
-                    return None
-            else:
-                logger.error(f"Account {account_id} has no session string. Please authenticate the account.")
+        # Use EXACT same session handling as bot.py execute_immediate_campaign
+        from telethon import TelegramClient
+        import base64
+        import os
+        
+        # Handle session creation (same as bot.py)
+        temp_session_path = f"bump_session_{account_id}"
+        
+        # Check if we have a valid session (same as bot.py)
+        if not account.get('session_string'):
+            logger.error(f"Account {account_id} has no session string. Please re-authenticate the account.")
+            return None
+        
+        # Handle uploaded sessions vs API credential sessions (EXACT SAME as bot.py)
+        if account['api_id'] == 'uploaded' or account['api_hash'] == 'uploaded':
+            # For uploaded sessions, decode and save the session file
+            try:
+                session_data = base64.b64decode(account['session_string'])
+                with open(f"{temp_session_path}.session", "wb") as f:
+                    f.write(session_data)
+                # Use dummy credentials for uploaded sessions
+                api_id = 123456  
+                api_hash = 'dummy_hash_for_uploaded_sessions'
+            except Exception as e:
+                logger.error(f"Failed to decode uploaded session for account {account_id}: {e}")
                 return None
+        else:
+            # For API credential accounts with authenticated sessions (EXACT SAME as bot.py)
+            try:
+                api_id = int(account['api_id'])
+                api_hash = account['api_hash']
+                
+                # Session string is base64 encoded session file data
+                # Decode and write it as the session file
+                session_data = base64.b64decode(account['session_string'])
+                with open(f"{temp_session_path}.session", "wb") as f:
+                    f.write(session_data)
+            except (ValueError, TypeError) as e:
+                logger.error(f"Invalid API credentials for account {account_id}: {e}")
+                return None
+            except Exception as e:
+                logger.error(f"Failed to decode session for account {account_id}: {e}")
+                return None
+        
+        # Initialize and start client (EXACT SAME as bot.py)
+        try:
+            client = TelegramClient(temp_session_path, api_id, api_hash)
+            await client.start()
             
-            self.telegram_clients[account_id] = client
-            logger.info(f"Telegram client initialized for bump service (Account: {account_id})")
-            return client
+            # Verify the session is valid (EXACT SAME as bot.py)
+            me = await client.get_me()
+            if not me:
+                logger.error(f"Session invalid for account {account_id}")
+                await client.disconnect()
+                return None
+                
+            logger.info(f"Successfully authenticated as {me.username or me.phone}")
             
         except Exception as e:
-            logger.error(f"Failed to initialize client for account {account_id}: {e}")
+            logger.error(f"Failed to start client for account {account_id}: {e}")
+            # Clean up session file on failure (EXACT SAME as bot.py)
+            try:
+                if os.path.exists(f"{temp_session_path}.session"):
+                    os.remove(f"{temp_session_path}.session")
+            except:
+                pass
             return None
+        
+        self.telegram_clients[account_id] = client
+        logger.info(f"Telegram client initialized for bump service (Account: {account_id})")
+        return client
     
     async def send_ad(self, campaign_id: int):
         """Send ad for a specific campaign with button support"""
