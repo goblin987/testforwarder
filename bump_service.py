@@ -666,55 +666,62 @@ class BumpService:
             try:
                 # Handle different content types
                 if isinstance(ad_content, list) and ad_content:
-                    # Separate media and text messages to ensure proper order
-                    media_messages = []
-                    text_messages = []
+                    # Find the main media message and combine all text content
+                    media_message = None
+                    combined_text = ""
                     
                     for message_data in ad_content:
-                        if message_data.get('media_type'):
-                            media_messages.append(message_data)
-                        else:
-                            text_messages.append(message_data)
+                        if message_data.get('media_type') and not media_message:
+                            # Use the first media message as the main one
+                            media_message = message_data
+                        elif message_data.get('text'):
+                            # Collect all text content
+                            if combined_text:
+                                combined_text += "\n\n" + message_data.get('text', '')
+                            else:
+                                combined_text = message_data.get('text', '')
                     
-                    # Send media messages FIRST (above text)
-                    for i, message_data in enumerate(media_messages):
-                        # Only add buttons to the last message overall
-                        is_last_message = (i == len(media_messages) - 1 and len(text_messages) == 0)
-                        buttons_for_message = telethon_buttons if is_last_message else None
-                        
+                    if media_message:
+                        # Send ONE message with media + combined text + buttons
                         try:
-                            # Handle media forwarding with proper error handling
-                            caption_text = message_data.get('caption', message_data.get('text', ''))
+                            # Combine caption with additional text
+                            caption_text = media_message.get('caption', '')
+                            if caption_text and combined_text:
+                                final_caption = caption_text + "\n\n" + combined_text
+                            elif combined_text:
+                                final_caption = combined_text
+                            else:
+                                final_caption = caption_text
                             
                             # Try to forward the media using the file_id first (most efficient)
                             try:
                                 # Use the file_id directly for forwarding
                                 message = await client.send_file(
                                     chat_entity,
-                                    message_data['file_id'],
-                                    caption=caption_text,
-                                    buttons=buttons_for_message,
+                                    media_message['file_id'],
+                                    caption=final_caption,
+                                    buttons=telethon_buttons,
                                     parse_mode='html'  # Preserve formatting
                                 )
-                                logger.info(f"✅ Media forwarded ({message_data['media_type']}) to {chat_entity.title}")
+                                logger.info(f"✅ Combined media+text message sent ({media_message['media_type']}) to {chat_entity.title}")
                                 
                             except Exception as file_id_error:
                                 # If file_id doesn't work, try downloading and re-uploading
-                                logger.warning(f"⚠️ File ID failed for {message_data['media_type']}, trying download method: {file_id_error}")
+                                logger.warning(f"⚠️ File ID failed for {media_message['media_type']}, trying download method: {file_id_error}")
                                 
                                 # Download the media file
-                                media_file = await client.download_media(message_data['file_id'])
+                                media_file = await client.download_media(media_message['file_id'])
                                 
                                 if media_file and os.path.exists(media_file):
                                     # Send the downloaded media file
                                     message = await client.send_file(
                                         chat_entity,
                                         media_file,
-                                        caption=caption_text,
-                                        buttons=buttons_for_message,
+                                        caption=final_caption,
+                                        buttons=telethon_buttons,
                                         parse_mode='html'  # Preserve formatting
                                     )
-                                    logger.info(f"✅ Media sent via download ({message_data['media_type']}) to {chat_entity.title}")
+                                    logger.info(f"✅ Combined media+text sent via download ({media_message['media_type']}) to {chat_entity.title}")
                                     
                                     # Clean up downloaded file
                                     try:
@@ -723,46 +730,43 @@ class BumpService:
                                         pass
                                 else:
                                     # Fallback to text if media download fails
-                                    if caption_text:
+                                    if final_caption:
                                         message = await client.send_message(
                                             chat_entity,
-                                            caption_text,
-                                            buttons=buttons_for_message
+                                            final_caption,
+                                            buttons=telethon_buttons
                                         )
                                         logger.warning(f"⚠️ Media download failed, sent as text to {chat_entity.title}")
                                     else:
                                         continue  # Skip if no text content
                                     
                         except Exception as media_error:
-                            logger.error(f"❌ Failed to send media ({message_data['media_type']}) to {chat_entity.title}: {media_error}")
+                            logger.error(f"❌ Failed to send combined media+text to {chat_entity.title}: {media_error}")
                             # Fallback to text message
-                            caption_text = message_data.get('caption', message_data.get('text', ''))
-                            if caption_text:
+                            if final_caption:
                                 message = await client.send_message(
                                     chat_entity,
-                                    caption_text,
-                                    buttons=buttons_for_message
+                                    final_caption,
+                                    buttons=telethon_buttons
                                 )
                                 logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
                             else:
                                 continue  # Skip if no text content
-                    
-                    # Send text messages AFTER media (below media)
-                    for i, message_data in enumerate(text_messages):
-                        # Only add buttons to the last message overall
-                        is_last_message = (i == len(text_messages) - 1)
-                        buttons_for_message = telethon_buttons if is_last_message else None
-                        
-                        # Send text message with buttons
-                        message = await client.send_message(
-                            chat_entity,
-                            message_data.get('text', ''),
-                            buttons=buttons_for_message
-                        )
+                    else:
+                        # No media, just send combined text as one message
+                        if combined_text:
+                            message = await client.send_message(
+                                chat_entity,
+                                combined_text,
+                                buttons=telethon_buttons
+                            )
+                            logger.info(f"✅ Combined text message sent to {chat_entity.title}")
+                        else:
+                            continue  # Skip if no content
                 else:
                     # Single message - check if it has media or is just text
                     if isinstance(ad_content, dict) and ad_content.get('media_type'):
-                        # Single message with media - send media first, then text if any
+                        # Single message with media - send as ONE combined message
                         try:
                             caption_text = ad_content.get('caption', ad_content.get('text', ''))
                             
@@ -775,7 +779,7 @@ class BumpService:
                                     buttons=telethon_buttons,
                                     parse_mode='html'
                                 )
-                                logger.info(f"✅ Single media message sent ({ad_content['media_type']}) to {chat_entity.title}")
+                                logger.info(f"✅ Single media+text message sent ({ad_content['media_type']}) to {chat_entity.title}")
                                 
                             except Exception as file_id_error:
                                 # If file_id doesn't work, try downloading and re-uploading
@@ -791,7 +795,7 @@ class BumpService:
                                         buttons=telethon_buttons,
                                         parse_mode='html'
                                     )
-                                    logger.info(f"✅ Single media sent via download ({ad_content['media_type']}) to {chat_entity.title}")
+                                    logger.info(f"✅ Single media+text sent via download ({ad_content['media_type']}) to {chat_entity.title}")
                                     
                                     # Clean up downloaded file
                                     try:
