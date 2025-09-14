@@ -1089,30 +1089,15 @@ class BumpService:
                                     if media_file and os.path.exists(media_file):
                                         self._register_temp_file(media_file)
                                         
-                                        # REAL FIX: Send media with original caption (preserves emojis) + separate button message
-                                        # First send the media with original caption to preserve emojis
+                                        # REAL FIX: Send media with original caption AND inline buttons
+                                        # Send media with original caption to preserve emojis + inline buttons
                                         message = await client.send_file(
                                             chat_entity,
                                             media_file,
-                                            caption=original_text  # Use original text to preserve emojis
+                                            caption=original_text,  # Use original text to preserve emojis
+                                            buttons=telethon_buttons  # Add inline buttons directly to media
                                         )
-                                        logger.info(f"✅ Media sent with preserved emojis to {chat_entity.title}")
-                                        
-                                        # Then send buttons as a separate, nicely formatted message
-                                        if telethon_buttons:
-                                            button_message = "🔗 **BUTTONS:**\n"
-                                            for row in telethon_buttons:
-                                                for button in row:
-                                                    if hasattr(button, 'text') and hasattr(button, 'url'):
-                                                        button_message += f"▶️ [{button.text}]({button.url})\n"
-                                            
-                                            await client.send_message(
-                                                chat_entity,
-                                                button_message,
-                                                parse_mode='md',
-                                                reply_to=message.id  # Reply to the media message
-                                            )
-                                            logger.info(f"✅ Button message sent to {chat_entity.title}")
+                                        logger.info(f"✅ Media sent with preserved emojis and inline buttons to {chat_entity.title}")
                                         self._cleanup_temp_file(media_file)
                                         continue
                                     else:
@@ -1309,31 +1294,16 @@ class BumpService:
                                 # Register for cleanup
                                 self._register_temp_file(media_file)
                                 
-                                # REAL FIX: Send media with original caption (preserves emojis) + separate button message
+                                # REAL FIX: Send media with original caption AND inline buttons
                                 try:
-                                    # First send the media with original caption to preserve emojis
+                                    # Send media with original caption to preserve emojis + inline buttons
                                     message = await client.send_file(
                                         chat_entity,
                                         media_file,
-                                        caption=original_text  # Use original text to preserve emojis
+                                        caption=original_text,  # Use original text to preserve emojis
+                                        buttons=telethon_buttons  # Add inline buttons directly to media
                                     )
-                                    logger.info(f"✅ Single media sent with preserved emojis to {chat_entity.title}")
-                                    
-                                    # Then send buttons as a separate, nicely formatted message
-                                    if telethon_buttons:
-                                        button_message = "🔗 **BUTTONS:**\n"
-                                        for row in telethon_buttons:
-                                            for button in row:
-                                                if hasattr(button, 'text') and hasattr(button, 'url'):
-                                                    button_message += f"▶️ [{button.text}]({button.url})\n"
-                                        
-                                        await client.send_message(
-                                            chat_entity,
-                                            button_message,
-                                            parse_mode='md',
-                                            reply_to=message.id  # Reply to the media message
-                                        )
-                                        logger.info(f"✅ Button message sent to {chat_entity.title}")
+                                    logger.info(f"✅ Single media sent with preserved emojis and inline buttons to {chat_entity.title}")
                                     
                                     # Clean up downloaded file
                                     self._cleanup_temp_file(media_file)
@@ -1394,33 +1364,16 @@ class BumpService:
                         # Single text message with buttons
                         message_text = ad_content if isinstance(ad_content, str) else str(ad_content)
                         
-                        # ALWAYS add button URLs as text for groups (inline buttons don't work in regular groups)
-                        button_text = ""
-                        for button_row in telethon_buttons:
-                            for button in button_row:
-                                if hasattr(button, 'url'):
-                                    button_text += f"\n\n🔗 {button.text}: {button.url}"
+                        # Prepare message text (no button text needed - using inline buttons)
                         
-                        # Combine message with button text
-                        final_message = message_text + button_text
-                        
-                        # WORKING SOLUTION: Guaranteed button display for text messages
+                        # REAL FIX: Send text message with inline buttons (no text buttons)
                         try:
-                            # Add guaranteed button text to the message
-                            if telethon_buttons:
-                                button_text = "\n\n🔗 **BUTTONS:**\n"
-                                for row in telethon_buttons:
-                                    for button in row:
-                                        if hasattr(button, 'text') and hasattr(button, 'url'):
-                                            button_text += f"▶️ **{button.text}**: {button.url}\n"
-                                final_message += button_text
-                            
                             message = await client.send_message(
                                 chat_entity,
-                                final_message,
-                                parse_mode='md'  # Use markdown for button formatting
+                                message_text,  # Send original text without button text
+                                buttons=telethon_buttons  # Add inline buttons directly
                             )
-                            logger.info(f"✅ Text message sent with guaranteed buttons to {chat_entity.title}")
+                            logger.info(f"✅ Text message sent with inline buttons to {chat_entity.title}")
                         except Exception as send_error:
                             logger.error(f"Failed to send text message: {send_error}")
                             continue
