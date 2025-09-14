@@ -415,6 +415,16 @@ class BumpService:
                 except Exception as e:
                     logger.error(f"Failed to start session for account {account_id}: {e}")
                     logger.error(f"Account {account_id} needs to be re-added with fresh credentials")
+                    
+                    # Clean up corrupted session file
+                    import os
+                    try:
+                        if os.path.exists(session_file):
+                            os.remove(session_file)
+                            logger.info(f"Cleaned up corrupted session file for account {account_id}")
+                    except:
+                        pass
+                    
                     return None
             else:
                 logger.error(f"Account {account_id} has no session string. Please authenticate the account.")
@@ -735,10 +745,22 @@ class BumpService:
         try:
             logger.info(f"🚀 Executing scheduled campaign {campaign_id}: {campaign['campaign_name']}")
             
+            # Check account status first
+            account = self.db.get_account(campaign['account_id'])
+            if not account:
+                logger.error(f"Account {campaign['account_id']} not found for campaign {campaign_id}")
+                return False
+            
+            if not account.get('session_string'):
+                logger.error(f"Account {campaign['account_id']} ({account.get('account_name', 'Unknown')}) has no session string")
+                logger.error(f"Please re-add account '{account.get('account_name', 'Unknown')}' with phone verification")
+                return False
+            
             # Initialize Telegram client
             client = await self.initialize_telegram_client(campaign['account_id'])
             if not client:
                 logger.error(f"Failed to initialize client for scheduled campaign {campaign_id}")
+                logger.error(f"Account '{account.get('account_name', 'Unknown')}' needs to be deleted and re-added with phone verification")
                 return False
             
             # Send the ad (send_ad method doesn't need client parameter)
