@@ -126,7 +126,7 @@ class TgcfBot:
         
         # Determine user-friendly error message
         if isinstance(error, ValueError):
-            error_msg = f"❌ **Invalid Input**\n\n{str(error)}\n\nPlease check your input and try again."
+            error_msg = f"❌ **Invalid Input**\n\n{self.escape_markdown(str(error))}\n\nPlease check your input and try again."
         elif isinstance(error, ConnectionError):
             error_msg = "❌ **Connection Error**\n\nUnable to connect to Telegram. Please try again in a few moments."
         elif isinstance(error, TimeoutError):
@@ -1836,8 +1836,10 @@ Access the full-featured web interface for advanced configuration:
         if message_text:
             is_valid, error_msg = self.validate_input(message_text, max_length=2000)
             if not is_valid:
+                # Escape the error message to prevent Markdown parsing issues
+                safe_error_msg = self.escape_markdown(error_msg)
                 await update.message.reply_text(
-                    f"❌ **Invalid Input**\n\n{error_msg}\n\nPlease try again with valid input.",
+                    f"❌ **Invalid Input**\n\n{safe_error_msg}\n\nPlease try again with valid input.",
                     parse_mode=ParseMode.MARKDOWN
                 )
                 return
@@ -2154,8 +2156,10 @@ Access the full-featured web interface for advanced configuration:
                     allowed_chars=r"a-zA-Z0-9\s\-_.,!?@#$%^&*()+=[]{}|;:'\"<>/\\"
                 )
                 if not is_valid:
+                    # Escape the error message to prevent Markdown parsing issues
+                    safe_error_msg = self.escape_markdown(error_msg)
                     await update.message.reply_text(
-                        f"❌ **Invalid Campaign Name**\n\n{error_msg}\n\nPlease enter a valid campaign name (max 100 characters).",
+                        f"❌ **Invalid Campaign Name**\n\n{safe_error_msg}\n\nPlease enter a valid campaign name (max 100 characters).",
                         parse_mode=ParseMode.MARKDOWN
                     )
                     return
