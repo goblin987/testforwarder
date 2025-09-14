@@ -625,7 +625,16 @@ class BumpService:
             try:
                 if 'hour' in schedule_time.lower():
                     hours = int(schedule_time.split()[1])
-                    schedule.every(hours).hours.do(self.run_campaign_job, campaign_id)
+                    job = schedule.every(hours).hours.do(self.run_campaign_job, campaign_id)
+                    
+                    # IMPORTANT: Run the job immediately for the first time if campaign is active
+                    campaign = self.get_campaign(campaign_id)
+                    if campaign and campaign.get('is_active', False):
+                        logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
+                        # Run in a separate thread to avoid blocking
+                        import threading
+                        threading.Thread(target=lambda: self.run_campaign_job(campaign_id), daemon=True).start()
+                    
                     logger.info(f"📅 Campaign {campaign_id} scheduled every {hours} hours")
                 elif 'minute' in schedule_time.lower():
                     # Handle formats like "3 minutes", "every 3 minutes"
@@ -640,12 +649,32 @@ class BumpService:
                             minutes = 10  # default
                     else:
                         minutes = 10  # default
-                    schedule.every(minutes).minutes.do(self.run_campaign_job, campaign_id)
+                    
+                    # Schedule the job to run every X minutes
+                    job = schedule.every(minutes).minutes.do(self.run_campaign_job, campaign_id)
+                    
+                    # IMPORTANT: Run the job immediately for the first time if campaign is active
+                    campaign = self.get_campaign(campaign_id)
+                    if campaign and campaign.get('is_active', False):
+                        logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
+                        # Run in a separate thread to avoid blocking
+                        import threading
+                        threading.Thread(target=lambda: self.run_campaign_job(campaign_id), daemon=True).start()
+                    
                     logger.info(f"📅 Campaign {campaign_id} scheduled every {minutes} minutes")
                 elif schedule_time.isdigit():
                     # If just a number, assume minutes
                     minutes = int(schedule_time)
-                    schedule.every(minutes).minutes.do(self.run_campaign_job, campaign_id)
+                    job = schedule.every(minutes).minutes.do(self.run_campaign_job, campaign_id)
+                    
+                    # IMPORTANT: Run the job immediately for the first time if campaign is active
+                    campaign = self.get_campaign(campaign_id)
+                    if campaign and campaign.get('is_active', False):
+                        logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
+                        # Run in a separate thread to avoid blocking
+                        import threading
+                        threading.Thread(target=lambda: self.run_campaign_job(campaign_id), daemon=True).start()
+                    
                     logger.info(f"📅 Campaign {campaign_id} scheduled every {minutes} minutes")
                 else:
                     logger.warning(f"⚠️ Unknown custom schedule format: {schedule_time}")
@@ -745,8 +774,13 @@ class BumpService:
                     if current_time - last_log_time >= 60:
                         jobs = schedule.get_jobs()
                         logger.info(f"⏰ Scheduler status: {len(jobs)} active jobs, {len(self.active_campaigns)} active campaigns")
+                        # Log details about each job
+                        for job in jobs:
+                            next_run = job.next_run.strftime("%H:%M:%S") if job.next_run else "Not scheduled"
+                            logger.info(f"  📅 Job scheduled for: {next_run}")
                         last_log_time = current_time
                     
+                    # Run pending scheduled jobs
                     schedule.run_pending()
                     time.sleep(1)  # Check every second
                 except Exception as e:
@@ -773,11 +807,14 @@ class BumpService:
         
         with sqlite3.connect(self.db.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT id FROM ad_campaigns WHERE is_active = 1')
+            cursor.execute('SELECT id, campaign_name, schedule_time FROM ad_campaigns WHERE is_active = 1')
             rows = cursor.fetchall()
             
             for row in rows:
                 campaign_id = row[0]
+                campaign_name = row[1]
+                schedule_time = row[2]
+                logger.info(f"Loading campaign {campaign_id}: {campaign_name} (schedule: {schedule_time})")
                 self.schedule_campaign(campaign_id)
         
         logger.info(f"Loaded {len(rows)} existing campaigns")
