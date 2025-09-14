@@ -1623,7 +1623,17 @@ Status: ❌ Authentication failed or no access to groups
                                 message_sent = True
                     else:
                         # Single text message with buttons
-                        message_text = ad_content if isinstance(ad_content, str) else str(ad_content)
+                        if isinstance(ad_content, dict):
+                            # Extract caption from media message
+                            message_text = ad_content.get('caption', ad_content.get('text', ''))
+                        else:
+                            message_text = str(ad_content)
+                        
+                        # Truncate if too long (Telegram limit is 4096 chars)
+                        if len(message_text) > 4000:
+                            message_text = message_text[:4000] + "..."
+                            logger.warning(f"Message truncated to fit Telegram limits")
+                        
                         logger.info(f"Sending single message with Shop Now button")
                         await client.send_message(
                             chat_entity, 

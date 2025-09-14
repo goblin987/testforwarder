@@ -1268,27 +1268,56 @@ class BumpService:
                                 final_text = final_text[:4000] + "..."
                                 logger.warning(f"Single media message truncated to fit Telegram limits")
 
-                            # REAL FIX: Get media from original message using Telethon
+                            # ULTIMATE FIX: Try multiple approaches to get media with premium emojis
+                            media_file = None
                             try:
-                                # Get the original message using Telethon to access media properly
+                                # Method 1: Try to get original message using Telethon
                                 original_chat_id = ad_content.get('original_chat_id') or ad_content.get('chat_id')
                                 original_message_id = ad_content.get('original_message_id') or ad_content.get('message_id')
                                 
-                                logger.info(f"Getting original message: chat_id={original_chat_id}, message_id={original_message_id}")
+                                logger.info(f"Trying Method 1 - Getting original message: chat_id={original_chat_id}, message_id={original_message_id}")
                                 
                                 # Get the original message with media
                                 original_message = await client.get_messages(original_chat_id, ids=original_message_id)
-                                if original_message and original_message.media:
-                                    logger.info(f"Found original message with media: {type(original_message.media)}")
+                                logger.info(f"Method 1: Retrieved message: {original_message}")
+                                logger.info(f"Method 1: Message has media: {hasattr(original_message, 'media') and original_message.media}")
+                                
+                                if original_message and hasattr(original_message, 'media') and original_message.media:
+                                    logger.info(f"Method 1 SUCCESS: Found media {type(original_message.media)}")
                                     media_file = await client.download_media(original_message.media)
-                                    logger.info(f"Media download result: {media_file}")
-                                else:
-                                    logger.warning(f"No media found in original message")
-                                    media_file = None
+                                    logger.info(f"Method 1: Media downloaded: {media_file}")
                                     
-                            except Exception as download_error:
-                                logger.error(f"Media download failed: {download_error}")
-                                media_file = None
+                                    # CRITICAL: Get the original message text with entities for premium emojis
+                                    if original_message.text:
+                                        original_text = original_message.text
+                                        logger.info(f"Method 1: Using original message text with entities preserved")
+                                    elif hasattr(original_message, 'message'):
+                                        original_text = original_message.message
+                                        logger.info(f"Method 1: Using original message.message with entities preserved")
+                                    else:
+                                        original_text = ad_content.get('caption', '')
+                                        logger.info(f"Method 1: Fallback to stored caption")
+                                else:
+                                    logger.warning(f"Method 1 FAILED: No media in original message")
+                                    
+                            except Exception as method1_error:
+                                logger.error(f"Method 1 failed: {method1_error}")
+                            
+                            # Method 2: If Method 1 failed, try Bot API approach with entity reconstruction
+                            if not media_file:
+                                try:
+                                    logger.info(f"Trying Method 2 - Bot API file_id with entity reconstruction")
+                                    
+                                    # Try to download using Bot API file_id (might work in some cases)
+                                    media_file = await client.download_media(ad_content['file_id'])
+                                    if media_file:
+                                        logger.info(f"Method 2 SUCCESS: Downloaded via file_id: {media_file}")
+                                    else:
+                                        logger.warning(f"Method 2 FAILED: file_id download returned None")
+                                        
+                                except Exception as method2_error:
+                                    logger.error(f"Method 2 failed: {method2_error}")
+                                    media_file = None
                                 
                             if media_file and os.path.exists(media_file):
                                 # Register for cleanup
