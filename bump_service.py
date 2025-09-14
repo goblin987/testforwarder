@@ -1071,25 +1071,55 @@ class BumpService:
                             if len(final_text) > 4000:
                                 final_text = final_text[:4000] + "..."
                             
-                            # Download and send media with simple text (this actually works)
+                            # REAL FIX: Get media from original message using Telethon
                             try:
-                                logger.info(f"Downloading media file: {media_message['file_id']}")
-                                media_file = await client.download_media(media_message['file_id'])
-                                if media_file and os.path.exists(media_file):
-                                    self._register_temp_file(media_file)
+                                # Get the original message using Telethon to access media properly
+                                original_chat_id = media_message.get('original_chat_id') or media_message.get('chat_id')
+                                original_message_id = media_message.get('original_message_id') or media_message.get('message_id')
+                                
+                                logger.info(f"Getting original message: chat_id={original_chat_id}, message_id={original_message_id}")
+                                
+                                # Get the original message with media
+                                original_message = await client.get_messages(original_chat_id, ids=original_message_id)
+                                if original_message and original_message.media:
+                                    logger.info(f"Found original message with media: {type(original_message.media)}")
+                                    media_file = await client.download_media(original_message.media)
+                                    logger.info(f"Media download result: {media_file}")
                                     
-                                    # Send with simple caption - this preserves original emojis better than complex entity manipulation
-                                    message = await client.send_file(
-                                        chat_entity,
-                                        media_file,
-                                        caption=final_text,
-                                        parse_mode='md'  # Use markdown for button formatting
-                                    )
-                                    logger.info(f"✅ Media sent with guaranteed buttons to {chat_entity.title}")
-                                    self._cleanup_temp_file(media_file)
-                                    continue
+                                    if media_file and os.path.exists(media_file):
+                                        self._register_temp_file(media_file)
+                                        
+                                        # REAL FIX: Send media with original caption (preserves emojis) + separate button message
+                                        # First send the media with original caption to preserve emojis
+                                        message = await client.send_file(
+                                            chat_entity,
+                                            media_file,
+                                            caption=original_text  # Use original text to preserve emojis
+                                        )
+                                        logger.info(f"✅ Media sent with preserved emojis to {chat_entity.title}")
+                                        
+                                        # Then send buttons as a separate, nicely formatted message
+                                        if telethon_buttons:
+                                            button_message = "🔗 **BUTTONS:**\n"
+                                            for row in telethon_buttons:
+                                                for button in row:
+                                                    if hasattr(button, 'text') and hasattr(button, 'url'):
+                                                        button_message += f"▶️ [{button.text}]({button.url})\n"
+                                            
+                                            await client.send_message(
+                                                chat_entity,
+                                                button_message,
+                                                parse_mode='md',
+                                                reply_to=message.id  # Reply to the media message
+                                            )
+                                            logger.info(f"✅ Button message sent to {chat_entity.title}")
+                                        self._cleanup_temp_file(media_file)
+                                        continue
+                                    else:
+                                        logger.warning(f"Media file not found: {media_file}")
                                 else:
-                                    logger.warning(f"Media download failed for {media_message['file_id']}")
+                                    logger.warning(f"No media found in original message")
+                                    
                             except Exception as send_error:
                                 logger.error(f"Failed to send media: {send_error}")
                                 if 'media_file' in locals() and media_file:
@@ -1253,30 +1283,57 @@ class BumpService:
                                 final_text = final_text[:4000] + "..."
                                 logger.warning(f"Single media message truncated to fit Telegram limits")
 
-                            # Download the media file (Bot API file_id not compatible with Telethon)
+                            # REAL FIX: Get media from original message using Telethon
                             try:
-                                # Download the media file from the original message
-                                logger.info(f"Downloading single media file: {ad_content['file_id']}")
-                                media_file = await client.download_media(ad_content['file_id'])
-                                logger.info(f"Single media download result: {media_file}")
+                                # Get the original message using Telethon to access media properly
+                                original_chat_id = ad_content.get('original_chat_id') or ad_content.get('chat_id')
+                                original_message_id = ad_content.get('original_message_id') or ad_content.get('message_id')
+                                
+                                logger.info(f"Getting original message: chat_id={original_chat_id}, message_id={original_message_id}")
+                                
+                                # Get the original message with media
+                                original_message = await client.get_messages(original_chat_id, ids=original_message_id)
+                                if original_message and original_message.media:
+                                    logger.info(f"Found original message with media: {type(original_message.media)}")
+                                    media_file = await client.download_media(original_message.media)
+                                    logger.info(f"Media download result: {media_file}")
+                                else:
+                                    logger.warning(f"No media found in original message")
+                                    media_file = None
+                                    
                             except Exception as download_error:
-                                logger.error(f"Single media download failed: {download_error}")
+                                logger.error(f"Media download failed: {download_error}")
                                 media_file = None
                                 
                             if media_file and os.path.exists(media_file):
                                 # Register for cleanup
                                 self._register_temp_file(media_file)
                                 
-                                # WORKING SOLUTION: Simple send that preserves emojis better
+                                # REAL FIX: Send media with original caption (preserves emojis) + separate button message
                                 try:
-                                    # Send with simple caption - this works better than complex entity manipulation
+                                    # First send the media with original caption to preserve emojis
                                     message = await client.send_file(
                                         chat_entity,
                                         media_file,
-                                        caption=final_text,
-                                        parse_mode='md'  # Use markdown for button formatting
+                                        caption=original_text  # Use original text to preserve emojis
                                     )
-                                    logger.info(f"✅ Single media sent with guaranteed buttons to {chat_entity.title}")
+                                    logger.info(f"✅ Single media sent with preserved emojis to {chat_entity.title}")
+                                    
+                                    # Then send buttons as a separate, nicely formatted message
+                                    if telethon_buttons:
+                                        button_message = "🔗 **BUTTONS:**\n"
+                                        for row in telethon_buttons:
+                                            for button in row:
+                                                if hasattr(button, 'text') and hasattr(button, 'url'):
+                                                    button_message += f"▶️ [{button.text}]({button.url})\n"
+                                        
+                                        await client.send_message(
+                                            chat_entity,
+                                            button_message,
+                                            parse_mode='md',
+                                            reply_to=message.id  # Reply to the media message
+                                        )
+                                        logger.info(f"✅ Button message sent to {chat_entity.title}")
                                     
                                     # Clean up downloaded file
                                     self._cleanup_temp_file(media_file)
