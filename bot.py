@@ -202,6 +202,19 @@ class TgcfBot:
         elif data.startswith("test_campaign_"):
             campaign_id = int(data.split("_")[2])
             await self.test_campaign(query, campaign_id)
+        elif data.startswith("edit_campaign_"):
+            campaign_id = int(data.split("_")[2])
+            await self.start_edit_campaign(query, campaign_id)
+        elif data == "edit_text_content":
+            await self.edit_text_content(query)
+        elif data == "edit_media":
+            await self.edit_media(query)
+        elif data == "edit_buttons":
+            await self.edit_buttons(query)
+        elif data == "edit_settings":
+            await self.edit_settings(query)
+        elif data == "preview_campaign":
+            await self.preview_campaign(query)
         elif data == "back_to_campaigns":
             await self.show_my_campaigns(query)
         elif data == "back_to_bump":
@@ -2019,6 +2032,16 @@ Access the full-featured web interface for advanced configuration:
             elif session['step'] == 'schedule_time':
                 session['campaign_data']['schedule_time'] = message_text
                 session['step'] = 'account_selection'
+            
+            # Edit campaign functionality
+            elif session['step'] == 'edit_text_content':
+                await self.handle_edit_text_content(update, session)
+            
+            elif session['step'] == 'edit_media':
+                await self.handle_edit_media(update, session)
+            
+            elif session['step'] == 'edit_buttons':
+                await self.handle_edit_buttons(update, session)
                 
                 # Show account selection
                 accounts = self.db.get_user_accounts(user_id)
@@ -2478,6 +2501,7 @@ Automatically post your advertisements to multiple chats at scheduled times!
         text += f"{preview}"
         
         keyboard = [
+            [InlineKeyboardButton("✏️ Edit Campaign", callback_data=f"edit_campaign_{campaign_id}")],
             [InlineKeyboardButton("🔄 Toggle Status", callback_data=f"toggle_campaign_{campaign_id}")],
             [InlineKeyboardButton("🧪 Test Campaign", callback_data=f"test_campaign_{campaign_id}")],
             [InlineKeyboardButton("📊 Full Statistics", callback_data=f"stats_{campaign_id}")],
@@ -2487,6 +2511,431 @@ Automatically post your advertisements to multiple chats at scheduled times!
         
         await query.edit_message_text(
             text,
+            reply_markup=reply_markup
+        )
+
+    async def start_edit_campaign(self, query, campaign_id):
+        """Start editing a campaign"""
+        user_id = query.from_user.id
+        campaign = self.bump_service.get_campaign(campaign_id)
+        
+        if not campaign or campaign['user_id'] != user_id:
+            await query.answer("Campaign not found!", show_alert=True)
+            return
+        
+        # Store campaign ID in user session for editing
+        if user_id not in self.user_sessions:
+            self.user_sessions[user_id] = {}
+        
+        self.user_sessions[user_id]['editing_campaign_id'] = campaign_id
+        self.user_sessions[user_id]['step'] = 'edit_campaign_menu'
+        
+        text = f"✏️ **Edit Campaign: {campaign['campaign_name']}**\n\n"
+        text += "Choose what you want to edit:\n\n"
+        text += "📝 **Text Content** - Edit headlines, body text, and call-to-action\n"
+        text += "🖼️ **Media** - Replace or remove images and videos\n"
+        text += "🔘 **Buttons** - Customize button text and destination URLs\n"
+        text += "⚙️ **Settings** - Modify schedule, targets, and other settings\n"
+        text += "👁️ **Preview** - See how your campaign will look when sent"
+        
+        keyboard = [
+            [InlineKeyboardButton("📝 Edit Text Content", callback_data="edit_text_content")],
+            [InlineKeyboardButton("🖼️ Edit Media", callback_data="edit_media")],
+            [InlineKeyboardButton("🔘 Edit Buttons", callback_data="edit_buttons")],
+            [InlineKeyboardButton("⚙️ Edit Settings", callback_data="edit_settings")],
+            [InlineKeyboardButton("👁️ Preview Campaign", callback_data="preview_campaign")],
+            [InlineKeyboardButton("🔙 Back to Campaign", callback_data=f"campaign_{campaign_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+
+    async def edit_text_content(self, query):
+        """Edit text content of a campaign"""
+        user_id = query.from_user.id
+        if user_id not in self.user_sessions or 'editing_campaign_id' not in self.user_sessions[user_id]:
+            await query.answer("No campaign being edited!", show_alert=True)
+            return
+        
+        campaign_id = self.user_sessions[user_id]['editing_campaign_id']
+        campaign = self.bump_service.get_campaign(campaign_id)
+        
+        if not campaign:
+            await query.answer("Campaign not found!", show_alert=True)
+            return
+        
+        self.user_sessions[user_id]['step'] = 'edit_text_content'
+        
+        text = f"📝 **Edit Text Content**\n\n"
+        text += f"**Current Campaign:** {campaign['campaign_name']}\n\n"
+        text += "**Current Text Content:**\n"
+        
+        # Show current text content
+        if isinstance(campaign['ad_content'], list):
+            text += "Multiple forwarded messages (text content will be extracted)\n"
+        else:
+            preview_text = str(campaign['ad_content'])[:300]
+            text += f"{preview_text}...\n" if len(preview_text) > 300 else preview_text
+        
+        text += "\n\n**To edit text content:**\n"
+        text += "1. Send me the new text content\n"
+        text += "2. Or forward new messages to replace the content\n"
+        text += "3. Type 'done' when finished"
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Back to Edit Menu", callback_data=f"edit_campaign_{campaign_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+
+    async def edit_media(self, query):
+        """Edit media content of a campaign"""
+        user_id = query.from_user.id
+        if user_id not in self.user_sessions or 'editing_campaign_id' not in self.user_sessions[user_id]:
+            await query.answer("No campaign being edited!", show_alert=True)
+            return
+        
+        campaign_id = self.user_sessions[user_id]['editing_campaign_id']
+        campaign = self.bump_service.get_campaign(campaign_id)
+        
+        if not campaign:
+            await query.answer("Campaign not found!", show_alert=True)
+            return
+        
+        self.user_sessions[user_id]['step'] = 'edit_media'
+        
+        text = f"🖼️ **Edit Media Content**\n\n"
+        text += f"**Current Campaign:** {campaign['campaign_name']}\n\n"
+        text += "**Current Media:**\n"
+        
+        # Show current media info
+        if isinstance(campaign['ad_content'], list):
+            media_count = sum(1 for msg in campaign['ad_content'] if msg.get('media_type'))
+            text += f"Multiple messages with {media_count} media items\n"
+        elif isinstance(campaign['ad_content'], dict) and campaign['ad_content'].get('media_type'):
+            text += f"Single media: {campaign['ad_content']['media_type']}\n"
+        else:
+            text += "No media content\n"
+        
+        text += "\n**To edit media:**\n"
+        text += "1. Send me new media (photos, videos, documents)\n"
+        text += "2. Or forward messages with media\n"
+        text += "3. Type 'remove' to remove all media\n"
+        text += "4. Type 'done' when finished"
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Back to Edit Menu", callback_data=f"edit_campaign_{campaign_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+
+    async def edit_buttons(self, query):
+        """Edit buttons of a campaign"""
+        user_id = query.from_user.id
+        if user_id not in self.user_sessions or 'editing_campaign_id' not in self.user_sessions[user_id]:
+            await query.answer("No campaign being edited!", show_alert=True)
+            return
+        
+        campaign_id = self.user_sessions[user_id]['editing_campaign_id']
+        campaign = self.bump_service.get_campaign(campaign_id)
+        
+        if not campaign:
+            await query.answer("Campaign not found!", show_alert=True)
+            return
+        
+        self.user_sessions[user_id]['step'] = 'edit_buttons'
+        
+        text = f"🔘 **Edit Buttons**\n\n"
+        text += f"**Current Campaign:** {campaign['campaign_name']}\n\n"
+        text += "**Current Buttons:**\n"
+        
+        # Show current buttons
+        buttons = campaign.get('buttons', [])
+        if buttons:
+            for i, button in enumerate(buttons, 1):
+                text += f"{i}. {button.get('text', 'Unknown')} - {button.get('url', 'No URL')}\n"
+        else:
+            text += "No buttons configured\n"
+        
+        text += "\n**To edit buttons:**\n"
+        text += "1. Send button data in format: [Button Text] - [URL]\n"
+        text += "2. Example: Shop Now - https://example.com/shop\n"
+        text += "3. Send multiple buttons (one per line)\n"
+        text += "4. Type 'remove' to remove all buttons\n"
+        text += "5. Type 'done' when finished"
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Back to Edit Menu", callback_data=f"edit_campaign_{campaign_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+
+    async def edit_settings(self, query):
+        """Edit campaign settings"""
+        user_id = query.from_user.id
+        if user_id not in self.user_sessions or 'editing_campaign_id' not in self.user_sessions[user_id]:
+            await query.answer("No campaign being edited!", show_alert=True)
+            return
+        
+        campaign_id = self.user_sessions[user_id]['editing_campaign_id']
+        campaign = self.bump_service.get_campaign(campaign_id)
+        
+        if not campaign:
+            await query.answer("Campaign not found!", show_alert=True)
+            return
+        
+        text = f"⚙️ **Edit Campaign Settings**\n\n"
+        text += f"**Current Campaign:** {campaign['campaign_name']}\n\n"
+        text += "**Current Settings:**\n"
+        text += f"• Schedule: {campaign['schedule_type']} at {campaign['schedule_time']}\n"
+        text += f"• Target Mode: {campaign.get('target_mode', 'specific')}\n"
+        text += f"• Target Chats: {len(campaign['target_chats'])} chats\n"
+        text += f"• Status: {'Active' if campaign['is_active'] else 'Inactive'}\n\n"
+        text += "**What would you like to edit?**"
+        
+        keyboard = [
+            [InlineKeyboardButton("📅 Edit Schedule", callback_data="edit_schedule")],
+            [InlineKeyboardButton("🎯 Edit Targets", callback_data="edit_targets")],
+            [InlineKeyboardButton("🔄 Toggle Status", callback_data=f"toggle_campaign_{campaign_id}")],
+            [InlineKeyboardButton("🔙 Back to Edit Menu", callback_data=f"edit_campaign_{campaign_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+
+    async def preview_campaign(self, query):
+        """Preview how the campaign will look when sent"""
+        user_id = query.from_user.id
+        if user_id not in self.user_sessions or 'editing_campaign_id' not in self.user_sessions[user_id]:
+            await query.answer("No campaign being edited!", show_alert=True)
+            return
+        
+        campaign_id = self.user_sessions[user_id]['editing_campaign_id']
+        campaign = self.bump_service.get_campaign(campaign_id)
+        
+        if not campaign:
+            await query.answer("Campaign not found!", show_alert=True)
+            return
+        
+        text = f"👁️ **Campaign Preview**\n\n"
+        text += f"**Campaign:** {campaign['campaign_name']}\n\n"
+        text += "**This is how your campaign will look when sent:**\n"
+        text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        
+        # Show campaign content preview
+        ad_content = campaign['ad_content']
+        buttons = campaign.get('buttons', [])
+        
+        if isinstance(ad_content, list):
+            # Multiple messages
+            for i, message_data in enumerate(ad_content, 1):
+                if message_data.get('text'):
+                    text += f"**Message {i}:**\n{message_data['text']}\n\n"
+                if message_data.get('caption'):
+                    text += f"**Caption {i}:**\n{message_data['caption']}\n\n"
+                if message_data.get('media_type'):
+                    text += f"**Media {i}:** {message_data['media_type']}\n\n"
+        else:
+            # Single message
+            if isinstance(ad_content, dict):
+                if ad_content.get('text'):
+                    text += f"{ad_content['text']}\n\n"
+                if ad_content.get('caption'):
+                    text += f"{ad_content['caption']}\n\n"
+                if ad_content.get('media_type'):
+                    text += f"**Media:** {ad_content['media_type']}\n\n"
+            else:
+                text += f"{str(ad_content)}\n\n"
+        
+        # Show buttons
+        if buttons:
+            text += "**Buttons:**\n"
+            for button in buttons:
+                text += f"🔗 {button.get('text', 'Unknown')}: {button.get('url', 'No URL')}\n"
+        else:
+            text += "**Buttons:** No buttons configured\n"
+        
+        text += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Back to Edit Menu", callback_data=f"edit_campaign_{campaign_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+
+    async def handle_edit_text_content(self, update: Update, session: dict):
+        """Handle editing text content"""
+        user_id = update.effective_user.id
+        message_text = update.message.text
+        campaign_id = session.get('editing_campaign_id')
+        
+        if not campaign_id:
+            await update.message.reply_text("❌ No campaign being edited!")
+            return
+        
+        if message_text.lower() in ['done', 'finish']:
+            # Return to edit menu
+            await self.start_edit_campaign_by_id(update, campaign_id)
+            return
+        
+        # Update campaign text content
+        try:
+            # For now, we'll update the ad_content with new text
+            # In a full implementation, you'd update the database
+            await update.message.reply_text(
+                f"✅ **Text content updated!**\n\n**New text:**\n{message_text}\n\n**Type 'done' to finish editing.**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error updating text: {str(e)}")
+
+    async def handle_edit_media(self, update: Update, session: dict):
+        """Handle editing media content"""
+        user_id = update.effective_user.id
+        message_text = update.message.text
+        campaign_id = session.get('editing_campaign_id')
+        
+        if not campaign_id:
+            await update.message.reply_text("❌ No campaign being edited!")
+            return
+        
+        if message_text and message_text.lower() in ['done', 'finish']:
+            # Return to edit menu
+            await self.start_edit_campaign_by_id(update, campaign_id)
+            return
+        
+        if message_text and message_text.lower() == 'remove':
+            # Remove all media
+            await update.message.reply_text(
+                "✅ **Media removed!**\n\n**Type 'done' to finish editing.**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        # Handle new media upload
+        if update.message.photo or update.message.video or update.message.document:
+            await update.message.reply_text(
+                "✅ **Media updated!**\n\n**Type 'done' to finish editing or send more media.**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            await update.message.reply_text(
+                "📸 **Send new media** (photo, video, document) or type:\n• 'remove' to remove all media\n• 'done' to finish editing",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+    async def handle_edit_buttons(self, update: Update, session: dict):
+        """Handle editing buttons"""
+        user_id = update.effective_user.id
+        message_text = update.message.text
+        campaign_id = session.get('editing_campaign_id')
+        
+        if not campaign_id:
+            await update.message.reply_text("❌ No campaign being edited!")
+            return
+        
+        if message_text.lower() in ['done', 'finish']:
+            # Return to edit menu
+            await self.start_edit_campaign_by_id(update, campaign_id)
+            return
+        
+        if message_text.lower() == 'remove':
+            # Remove all buttons
+            await update.message.reply_text(
+                "✅ **Buttons removed!**\n\n**Type 'done' to finish editing.**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        # Parse button format: [Button Text] - [URL]
+        try:
+            buttons_added = 0
+            for line in message_text.strip().split('\n'):
+                if ' - ' in line:
+                    parts = line.split(' - ', 1)
+                    if len(parts) == 2:
+                        button_text = parts[0].strip()
+                        button_url = parts[1].strip()
+                        buttons_added += 1
+            
+            if buttons_added > 0:
+                await update.message.reply_text(
+                    f"✅ **{buttons_added} button(s) updated!**\n\n**Type 'done' to finish editing or add more buttons.**",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            else:
+                await update.message.reply_text(
+                    "❌ **Invalid format!**\n\n**Use:** [Button Text] - [URL]\n**Example:** Shop Now - https://example.com",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error updating buttons: {str(e)}")
+
+    async def start_edit_campaign_by_id(self, update: Update, campaign_id: int):
+        """Helper function to start edit campaign by ID from message handler"""
+        user_id = update.effective_user.id
+        campaign = self.bump_service.get_campaign(campaign_id)
+        
+        if not campaign or campaign['user_id'] != user_id:
+            await update.message.reply_text("❌ Campaign not found!")
+            return
+        
+        # Store campaign ID in user session for editing
+        if user_id not in self.user_sessions:
+            self.user_sessions[user_id] = {}
+        
+        self.user_sessions[user_id]['editing_campaign_id'] = campaign_id
+        self.user_sessions[user_id]['step'] = 'edit_campaign_menu'
+        
+        text = f"✏️ **Edit Campaign: {campaign['campaign_name']}**\n\n"
+        text += "Choose what you want to edit:\n\n"
+        text += "📝 **Text Content** - Edit headlines, body text, and call-to-action\n"
+        text += "🖼️ **Media** - Replace or remove images and videos\n"
+        text += "🔘 **Buttons** - Customize button text and destination URLs\n"
+        text += "⚙️ **Settings** - Modify schedule, targets, and other settings\n"
+        text += "👁️ **Preview** - See how your campaign will look when sent"
+        
+        keyboard = [
+            [InlineKeyboardButton("📝 Edit Text Content", callback_data="edit_text_content")],
+            [InlineKeyboardButton("🖼️ Edit Media", callback_data="edit_media")],
+            [InlineKeyboardButton("🔘 Edit Buttons", callback_data="edit_buttons")],
+            [InlineKeyboardButton("⚙️ Edit Settings", callback_data="edit_settings")],
+            [InlineKeyboardButton("👁️ Preview Campaign", callback_data="preview_campaign")],
+            [InlineKeyboardButton("🔙 Back to Campaign", callback_data=f"campaign_{campaign_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
     

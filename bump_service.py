@@ -693,6 +693,16 @@ class BumpService:
                             else:
                                 final_caption = caption_text
                             
+                            # ALWAYS add button URLs as text for media messages (inline buttons don't work in regular groups)
+                            button_text = ""
+                            for button_row in telethon_buttons:
+                                for button in button_row:
+                                    if hasattr(button, 'url'):
+                                        button_text += f"\n\n🔗 {button.text}: {button.url}"
+                            
+                            # Combine caption with button text
+                            final_caption = (final_caption or "") + button_text
+                            
                             # Download the media file (Bot API file_id not compatible with Telethon)
                             try:
                                 # Download the media file from the original message
@@ -784,6 +794,16 @@ class BumpService:
                         try:
                             caption_text = ad_content.get('caption', ad_content.get('text', ''))
                             
+                            # ALWAYS add button URLs as text for single media messages (inline buttons don't work in regular groups)
+                            button_text = ""
+                            for button_row in telethon_buttons:
+                                for button in button_row:
+                                    if hasattr(button, 'url'):
+                                        button_text += f"\n\n🔗 {button.text}: {button.url}"
+                            
+                            # Combine caption with button text
+                            caption_text = (caption_text or "") + button_text
+
                             # Download the media file (Bot API file_id not compatible with Telethon)
                             try:
                                 # Download the media file from the original message
