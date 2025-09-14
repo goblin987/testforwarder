@@ -661,7 +661,9 @@ class BumpService:
     def run_campaign_job(self, campaign_id: int):
         """Execute scheduled campaign automatically"""
         try:
-            logger.info(f"🔄 Scheduler executing campaign {campaign_id}")
+            import datetime
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            logger.info(f"🔄 Scheduler executing campaign {campaign_id} at {current_time}")
             
             # Get campaign from database
             campaign = self.get_campaign(campaign_id)
@@ -678,6 +680,9 @@ class BumpService:
                 if campaign_id in self.active_campaigns:
                     del self.active_campaigns[campaign_id]
                 return
+            
+            # Log next scheduled run
+            logger.info(f"📅 Next run for campaign {campaign_id} will be in {campaign['schedule_time']}")
             
             # Execute campaign in new thread to avoid blocking scheduler
             def execute_async():
@@ -732,8 +737,16 @@ class BumpService:
         def scheduler_worker():
             """Background worker that runs scheduled campaigns"""
             logger.info("📅 Scheduler worker thread started")
+            last_log_time = time.time()
             while self.is_running:
                 try:
+                    # Log scheduler status every 60 seconds
+                    current_time = time.time()
+                    if current_time - last_log_time >= 60:
+                        jobs = schedule.get_jobs()
+                        logger.info(f"⏰ Scheduler status: {len(jobs)} active jobs, {len(self.active_campaigns)} active campaigns")
+                        last_log_time = current_time
+                    
                     schedule.run_pending()
                     time.sleep(1)  # Check every second
                 except Exception as e:

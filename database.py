@@ -285,3 +285,15 @@ class Database:
                 VALUES (?, ?, ?, ?, ?, ?)
             ''', (user_id, account_id, source_message_id, destination_message_id, source_chat_id, destination_chat_id))
             conn.commit()
+    
+    def update_campaign_last_run(self, campaign_id: int):
+        """Update the last run time for a campaign"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE ad_campaigns 
+                SET last_run = CURRENT_TIMESTAMP,
+                    total_sends = total_sends + 1
+                WHERE id = ?
+            ''', (campaign_id,))
+            conn.commit()
