@@ -666,110 +666,189 @@ class BumpService:
             try:
                 # Handle different content types
                 if isinstance(ad_content, list) and ad_content:
-                    # Multiple messages (forwarded content)
-                    for i, message_data in enumerate(ad_content):
-                        # Only add buttons to the last message
-                        buttons_for_message = telethon_buttons if i == len(ad_content) - 1 else None
-                        
+                    # Separate media and text messages to ensure proper order
+                    media_messages = []
+                    text_messages = []
+                    
+                    for message_data in ad_content:
                         if message_data.get('media_type'):
-                            # Send media message with proper handling for different media types
+                            media_messages.append(message_data)
+                        else:
+                            text_messages.append(message_data)
+                    
+                    # Send media messages FIRST (above text)
+                    for i, message_data in enumerate(media_messages):
+                        # Only add buttons to the last message overall
+                        is_last_message = (i == len(media_messages) - 1 and len(text_messages) == 0)
+                        buttons_for_message = telethon_buttons if is_last_message else None
+                        
+                        try:
+                            # Handle media forwarding with proper error handling
+                            caption_text = message_data.get('caption', message_data.get('text', ''))
+                            
+                            # Try to forward the media using the file_id first (most efficient)
                             try:
-                                # Handle media forwarding with proper error handling
-                                caption_text = message_data.get('caption', message_data.get('text', ''))
+                                # Use the file_id directly for forwarding
+                                message = await client.send_file(
+                                    chat_entity,
+                                    message_data['file_id'],
+                                    caption=caption_text,
+                                    buttons=buttons_for_message,
+                                    parse_mode='html'  # Preserve formatting
+                                )
+                                logger.info(f"✅ Media forwarded ({message_data['media_type']}) to {chat_entity.title}")
                                 
-                                # Try to forward the media using the file_id first (most efficient)
-                                try:
-                                    # Use the file_id directly for forwarding
+                            except Exception as file_id_error:
+                                # If file_id doesn't work, try downloading and re-uploading
+                                logger.warning(f"⚠️ File ID failed for {message_data['media_type']}, trying download method: {file_id_error}")
+                                
+                                # Download the media file
+                                media_file = await client.download_media(message_data['file_id'])
+                                
+                                if media_file and os.path.exists(media_file):
+                                    # Send the downloaded media file
                                     message = await client.send_file(
                                         chat_entity,
-                                        message_data['file_id'],
+                                        media_file,
                                         caption=caption_text,
                                         buttons=buttons_for_message,
                                         parse_mode='html'  # Preserve formatting
                                     )
-                                    logger.info(f"✅ Media forwarded ({message_data['media_type']}) to {chat_entity.title}")
+                                    logger.info(f"✅ Media sent via download ({message_data['media_type']}) to {chat_entity.title}")
                                     
-                                except Exception as file_id_error:
-                                    # If file_id doesn't work, try downloading and re-uploading
-                                    logger.warning(f"⚠️ File ID failed for {message_data['media_type']}, trying download method: {file_id_error}")
-                                    
-                                    # Download the media file
-                                    media_file = await client.download_media(message_data['file_id'])
-                                    
-                                    if media_file and os.path.exists(media_file):
-                                        # Send the downloaded media file
-                                        message = await client.send_file(
-                                            chat_entity,
-                                            media_file,
-                                            caption=caption_text,
-                                            buttons=buttons_for_message,
-                                            parse_mode='html'  # Preserve formatting
-                                        )
-                                        logger.info(f"✅ Media sent via download ({message_data['media_type']}) to {chat_entity.title}")
-                                        
-                                        # Clean up downloaded file
-                                        try:
-                                            os.remove(media_file)
-                                        except:
-                                            pass
-                                    else:
-                                        # Fallback to text if media download fails
-                                        if caption_text:
-                                            message = await client.send_message(
-                                                chat_entity,
-                                                caption_text,
-                                                buttons=buttons_for_message
-                                            )
-                                            logger.warning(f"⚠️ Media download failed, sent as text to {chat_entity.title}")
-                                        else:
-                                            continue  # Skip if no text content
-                                        
-                            except Exception as media_error:
-                                logger.error(f"❌ Failed to send media ({message_data['media_type']}) to {chat_entity.title}: {media_error}")
-                                # Fallback to text message
-                                caption_text = message_data.get('caption', message_data.get('text', ''))
-                                if caption_text:
-                                    message = await client.send_message(
-                                        chat_entity,
-                                        caption_text,
-                                        buttons=buttons_for_message
-                                    )
-                                    logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
+                                    # Clean up downloaded file
+                                    try:
+                                        os.remove(media_file)
+                                    except:
+                                        pass
                                 else:
-                                    continue  # Skip if no text content
-                        else:
-                            # Send text message with buttons
-                            message = await client.send_message(
-                                chat_entity,
-                                message_data.get('text', ''),
-                                buttons=buttons_for_message
-                            )
-                else:
-                    # Single text message with buttons
-                    message_text = ad_content if isinstance(ad_content, str) else str(ad_content)
+                                    # Fallback to text if media download fails
+                                    if caption_text:
+                                        message = await client.send_message(
+                                            chat_entity,
+                                            caption_text,
+                                            buttons=buttons_for_message
+                                        )
+                                        logger.warning(f"⚠️ Media download failed, sent as text to {chat_entity.title}")
+                                    else:
+                                        continue  # Skip if no text content
+                                    
+                        except Exception as media_error:
+                            logger.error(f"❌ Failed to send media ({message_data['media_type']}) to {chat_entity.title}: {media_error}")
+                            # Fallback to text message
+                            caption_text = message_data.get('caption', message_data.get('text', ''))
+                            if caption_text:
+                                message = await client.send_message(
+                                    chat_entity,
+                                    caption_text,
+                                    buttons=buttons_for_message
+                                )
+                                logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
+                            else:
+                                continue  # Skip if no text content
                     
-                    # ALWAYS add button URLs as text for groups (inline buttons don't work in regular groups)
-                    button_text = ""
-                    for button_row in telethon_buttons:
-                        for button in button_row:
-                            if hasattr(button, 'url'):
-                                button_text += f"\n\n🔗 {button.text}: {button.url}"
-                    
-                    # Combine message with button text
-                    final_message = message_text + button_text
-                    
-                    # Try sending with both inline buttons AND text
-                    try:
+                    # Send text messages AFTER media (below media)
+                    for i, message_data in enumerate(text_messages):
+                        # Only add buttons to the last message overall
+                        is_last_message = (i == len(text_messages) - 1)
+                        buttons_for_message = telethon_buttons if is_last_message else None
+                        
+                        # Send text message with buttons
                         message = await client.send_message(
                             chat_entity,
-                            final_message,  # Message includes button URLs as text
-                            buttons=telethon_buttons  # Also try inline buttons for channels
+                            message_data.get('text', ''),
+                            buttons=buttons_for_message
                         )
-                        logger.info(f"✅ Message sent with buttons (inline + text) to {chat_entity.title}")
-                    except Exception as send_error:
-                        # If that fails, try without inline buttons
-                        message = await client.send_message(chat_entity, final_message)
-                        logger.info(f"✅ Message sent with text buttons to {chat_entity.title}")
+                else:
+                    # Single message - check if it has media or is just text
+                    if isinstance(ad_content, dict) and ad_content.get('media_type'):
+                        # Single message with media - send media first, then text if any
+                        try:
+                            caption_text = ad_content.get('caption', ad_content.get('text', ''))
+                            
+                            # Try to forward the media using the file_id first
+                            try:
+                                message = await client.send_file(
+                                    chat_entity,
+                                    ad_content['file_id'],
+                                    caption=caption_text,
+                                    buttons=telethon_buttons,
+                                    parse_mode='html'
+                                )
+                                logger.info(f"✅ Single media message sent ({ad_content['media_type']}) to {chat_entity.title}")
+                                
+                            except Exception as file_id_error:
+                                # If file_id doesn't work, try downloading and re-uploading
+                                logger.warning(f"⚠️ File ID failed for single media, trying download method: {file_id_error}")
+                                
+                                media_file = await client.download_media(ad_content['file_id'])
+                                
+                                if media_file and os.path.exists(media_file):
+                                    message = await client.send_file(
+                                        chat_entity,
+                                        media_file,
+                                        caption=caption_text,
+                                        buttons=telethon_buttons,
+                                        parse_mode='html'
+                                    )
+                                    logger.info(f"✅ Single media sent via download ({ad_content['media_type']}) to {chat_entity.title}")
+                                    
+                                    # Clean up downloaded file
+                                    try:
+                                        os.remove(media_file)
+                                    except:
+                                        pass
+                                else:
+                                    # Fallback to text if media download fails
+                                    if caption_text:
+                                        message = await client.send_message(
+                                            chat_entity,
+                                            caption_text,
+                                            buttons=telethon_buttons
+                                        )
+                                        logger.warning(f"⚠️ Single media download failed, sent as text to {chat_entity.title}")
+                                    else:
+                                        continue
+                                        
+                        except Exception as media_error:
+                            logger.error(f"❌ Failed to send single media to {chat_entity.title}: {media_error}")
+                            # Fallback to text message
+                            caption_text = ad_content.get('caption', ad_content.get('text', ''))
+                            if caption_text:
+                                message = await client.send_message(
+                                    chat_entity,
+                                    caption_text,
+                                    buttons=telethon_buttons
+                                )
+                                logger.info(f"📝 Single media sent as text fallback to {chat_entity.title}")
+                            else:
+                                continue
+                    else:
+                        # Single text message with buttons
+                        message_text = ad_content if isinstance(ad_content, str) else str(ad_content)
+                        
+                        # ALWAYS add button URLs as text for groups (inline buttons don't work in regular groups)
+                        button_text = ""
+                        for button_row in telethon_buttons:
+                            for button in button_row:
+                                if hasattr(button, 'url'):
+                                    button_text += f"\n\n🔗 {button.text}: {button.url}"
+                        
+                        # Combine message with button text
+                        final_message = message_text + button_text
+                        
+                        # Try sending with both inline buttons AND text
+                        try:
+                            message = await client.send_message(
+                                chat_entity,
+                                final_message,  # Message includes button URLs as text
+                                buttons=telethon_buttons  # Also try inline buttons for channels
+                            )
+                            logger.info(f"✅ Message sent with buttons (inline + text) to {chat_entity.title}")
+                        except Exception as send_error:
+                            # If that fails, try without inline buttons
+                            message = await client.send_message(chat_entity, final_message)
+                            logger.info(f"✅ Message sent with text buttons to {chat_entity.title}")
                 
                 # Log the performance
                 if message:
