@@ -527,7 +527,7 @@ class BumpService:
         logger.info(f"🚀 Starting campaign {campaign['campaign_name']} using {account_name}")
         
         # Use fresh client for scheduled execution to avoid asyncio loop issues
-        client = await self.initialize_telegram_client(campaign['account_id'], cache_client=False)
+        client = self.initialize_telegram_client(campaign['account_id'], cache_client=False)
         if not client:
             logger.error(f"❌ Failed to initialize {account_name} for campaign {campaign_id}")
             logger.error(f"💡 Solution: Re-add {account_name} with API credentials instead of uploaded session")
@@ -850,7 +850,7 @@ class BumpService:
             
             # Initialize Telegram client
             # Use fresh client for scheduled execution to avoid asyncio loop issues
-            client = await self.initialize_telegram_client(campaign['account_id'], cache_client=False)
+            client = self.initialize_telegram_client(campaign['account_id'], cache_client=False)
             if not client:
                 logger.error(f"Failed to initialize client for scheduled campaign {campaign_id}")
                 logger.error(f"Account '{account.get('account_name', 'Unknown')}' needs to be deleted and re-added with phone verification")
@@ -964,7 +964,7 @@ class BumpService:
             return False
         
         # Use fresh client for scheduled execution to avoid asyncio loop issues
-        client = await self.initialize_telegram_client(campaign['account_id'], cache_client=False)
+        client = self.initialize_telegram_client(campaign['account_id'], cache_client=False)
         if not client:
             return False
         
