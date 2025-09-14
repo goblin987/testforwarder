@@ -513,8 +513,40 @@ class BumpService:
         logger.info(f"Telegram client initialized for bump service (Account: {account_id})")
         return client
     
-    async def send_ad(self, campaign_id: int):
-        """Send ad for a specific campaign with button support"""
+    def send_ad(self, campaign_id: int):
+        """Send ad for a specific campaign with button support - Thread-safe version"""
+        try:
+            # Check if there's already an event loop running
+            try:
+                loop = asyncio.get_running_loop()
+                # If there's a running loop, use ThreadPoolExecutor
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(self._sync_send_ad, campaign_id)
+                    return future.result()
+            except RuntimeError:
+                # No running loop, create a new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    return loop.run_until_complete(self._async_send_ad(campaign_id))
+                finally:
+                    loop.close()
+        except Exception as e:
+            logger.error(f"Failed to send ad for campaign {campaign_id}: {e}")
+            return False
+    
+    def _sync_send_ad(self, campaign_id: int):
+        """Synchronous wrapper for send_ad in a new thread"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(self._async_send_ad(campaign_id))
+        finally:
+            loop.close()
+    
+    async def _async_send_ad(self, campaign_id: int):
+        """Async helper for send_ad"""
         campaign = self.get_campaign(campaign_id)
         if not campaign or not campaign['is_active']:
             logger.warning(f"Campaign {campaign_id} not found or inactive")
@@ -527,7 +559,8 @@ class BumpService:
         logger.info(f"🚀 Starting campaign {campaign['campaign_name']} using {account_name}")
         
         # Use fresh client for scheduled execution to avoid asyncio loop issues
-        client = self.initialize_telegram_client(campaign['account_id'], cache_client=False)
+        # Note: We need to call the async version here since we're in async context
+        client = await self._async_initialize_client(campaign['account_id'], cache_client=False)
         if not client:
             logger.error(f"❌ Failed to initialize {account_name} for campaign {campaign_id}")
             logger.error(f"💡 Solution: Re-add {account_name} with API credentials instead of uploaded session")
@@ -857,7 +890,7 @@ class BumpService:
                 return False
             
             # Send the ad (send_ad method doesn't need client parameter)
-            await self.send_ad(campaign_id)
+            self.send_ad(campaign_id)
             logger.info(f"✅ Scheduled campaign {campaign_id} executed successfully")
                 
             return True
