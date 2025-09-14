@@ -431,29 +431,46 @@ class BumpService:
                 logger.error(f"Failed to decode session for account {account_id}: {e}")
                 return None
         
-        # Initialize and start client (EXACT SAME as bot.py)
-        try:
-            client = TelegramClient(temp_session_path, api_id, api_hash)
-            await client.start()
-            
-            # Verify the session is valid (EXACT SAME as bot.py)
-            me = await client.get_me()
-            if not me:
-                logger.error(f"Session invalid for account {account_id}")
-                await client.disconnect()
-                return None
-                
-            logger.info(f"Successfully authenticated as {me.username or me.phone}")
-            
-        except Exception as e:
-            logger.error(f"Failed to start client for account {account_id}: {e}")
-            # Clean up session file on failure (EXACT SAME as bot.py)
+        # Initialize and start client with retry logic for database locks
+        max_retries = 3
+        for attempt in range(max_retries):
             try:
-                if os.path.exists(f"{temp_session_path}.session"):
-                    os.remove(f"{temp_session_path}.session")
-            except:
-                pass
-            return None
+                client = TelegramClient(temp_session_path, api_id, api_hash)
+                await client.start()
+                
+                # Verify the session is valid (EXACT SAME as bot.py)
+                me = await client.get_me()
+                if not me:
+                    logger.error(f"Session invalid for account {account_id}")
+                    await client.disconnect()
+                    return None
+                    
+                logger.info(f"Successfully authenticated as {me.username or me.phone}")
+                break  # Success, exit retry loop
+                
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "database is locked" in error_msg and attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2 + random.uniform(0.5, 1.5)
+                    logger.warning(f"Database locked during client start, retrying in {wait_time:.1f}s (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(wait_time)
+                    
+                    # Clean up any partial session files
+                    try:
+                        if os.path.exists(f"{temp_session_path}.session"):
+                            os.remove(f"{temp_session_path}.session")
+                    except:
+                        pass
+                    continue
+                else:
+                    logger.error(f"Failed to start client for account {account_id}: {e}")
+                    # Clean up session file on failure (EXACT SAME as bot.py)
+                    try:
+                        if os.path.exists(f"{temp_session_path}.session"):
+                            os.remove(f"{temp_session_path}.session")
+                    except:
+                        pass
+                    return None
         
         # Only cache client if requested (not for scheduled executions)
         if cache_client:
