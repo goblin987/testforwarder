@@ -1179,24 +1179,6 @@ class BumpService:
                                         logger.warning(f"⚠️ Media download failed, sent as text to {chat_entity.title}")
                                     else:
                                         continue  # Skip if no text content
-                                    
-                            except Exception as media_error:
-                                logger.error(f"❌ Failed to send combined media+text to {chat_entity.title}: {media_error}")
-                                # Fallback to text message
-                                if final_caption:
-                                    # Add buttons as text to the message
-                                    final_caption_with_buttons = final_caption
-                                    if telethon_buttons:
-                                        final_caption_with_buttons += "\n\n" + self._format_buttons_as_text(telethon_buttons)
-                                    
-                                    message = await client.send_message(
-                                        chat_entity,
-                                        final_caption_with_buttons,
-                                        parse_mode='html'
-                                    )
-                                    logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
-                                else:
-                                    continue  # Skip if no text content
                         except Exception as e:
                             logger.error(f"❌ Failed to send combined media+text to {chat_entity.title}: {e}")
                             # Fallback to text message
