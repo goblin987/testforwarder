@@ -74,6 +74,8 @@ class TgcfBot:
     
     def validate_input(self, text: str, max_length: int = 1000, allowed_chars: str = None) -> tuple[bool, str]:
         """Validate user input with length and character restrictions"""
+        import re  # Import at the top of the function
+        
         if not text or not isinstance(text, str):
             return False, "Input cannot be empty"
         
@@ -81,7 +83,6 @@ class TgcfBot:
             return False, f"Input too long (max {max_length} characters)"
         
         if allowed_chars:
-            import re
             if not re.match(f"^[{re.escape(allowed_chars)}]+$", text):
                 return False, f"Input contains invalid characters. Only {allowed_chars} allowed"
         
