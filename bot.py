@@ -165,123 +165,135 @@ class TgcfBot:
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle button callbacks"""
         query = update.callback_query
-        await query.answer()
-        
         user_id = query.from_user.id
         data = query.data
         
-        if data == "main_menu":
-            await self.show_main_menu(query)
-        elif data == "manage_accounts":
-            await self.show_manage_accounts(query)
-        elif data == "add_account":
-            await self.start_add_account(query)
-        elif data == "my_configs":
-            await self.show_my_configs(query)
-        elif data == "add_forwarding":
-            await self.start_add_forwarding(query)
-        elif data == "settings":
-            await self.show_settings(query)
-        elif data == "help":
-            await self.show_help(query)
-        elif data == "bump_service":
-            await self.show_bump_service(query)
-        elif data == "add_campaign":
-            await self.start_add_campaign(query)
-        elif data == "my_campaigns":
-            await self.show_my_campaigns(query)
-        elif data.startswith("campaign_"):
-            campaign_id = int(data.split("_")[1])
-            await self.show_campaign_details(query, campaign_id)
-        elif data.startswith("delete_campaign_"):
-            campaign_id = int(data.split("_")[2])
-            await self.delete_campaign(query, campaign_id)
-        elif data.startswith("toggle_campaign_"):
-            campaign_id = int(data.split("_")[2])
-            await self.toggle_campaign(query, campaign_id)
-        elif data.startswith("test_campaign_"):
-            campaign_id = int(data.split("_")[2])
-            await self.test_campaign(query, campaign_id)
-        elif data.startswith("edit_campaign_"):
-            campaign_id = int(data.split("_")[2])
-            await self.start_edit_campaign(query, campaign_id)
-        elif data == "edit_text_content":
-            await self.edit_text_content(query)
-        elif data == "edit_media":
-            await self.edit_media(query)
-        elif data == "edit_buttons":
-            await self.edit_buttons(query)
-        elif data == "edit_settings":
-            await self.edit_settings(query)
-        elif data == "preview_campaign":
-            await self.preview_campaign(query)
-        elif data == "back_to_campaigns":
-            await self.show_my_campaigns(query)
-        elif data == "back_to_bump":
-            await self.show_bump_service(query)
-        elif data.startswith("schedule_"):
-            schedule_type = data.split("_")[1]
-            await self.handle_schedule_selection(query, schedule_type)
-        elif data.startswith("select_account_"):
-            account_id = int(data.split("_")[2])
-            await self.handle_account_selection(query, account_id)
-        elif data.startswith("config_"):
-            config_id = int(data.split("_")[1])
-            await self.show_config_details(query, config_id)
-        elif data.startswith("delete_config_"):
-            config_id = int(data.split("_")[2])
-            await self.delete_config(query, config_id)
-        elif data.startswith("toggle_config_"):
-            config_id = int(data.split("_")[2])
-            await self.toggle_config(query, config_id)
-        elif data.startswith("account_"):
-            account_id = int(data.split("_")[1])
-            await self.show_account_details(query, account_id)
-        elif data.startswith("delete_account_"):
-            account_id = int(data.split("_")[2])
-            await self.delete_account(query, account_id)
-        elif data.startswith("configs_for_account_"):
-            account_id = int(data.split("_")[3])
-            await self.show_configs_for_account(query, account_id)
-        elif data == "back_to_configs":
-            await self.show_my_configs(query)
-        elif data == "back_to_accounts":
-            await self.show_manage_accounts(query)
-        elif data == "upload_session":
-            await self.start_session_upload(query)
-        elif data == "manual_setup":
-            await self.start_manual_setup(query)
-        elif data == "advanced_settings":
-            await self.show_advanced_settings(query)
-        elif data == "configure_plugins":
-            await self.show_configure_plugins(query)
-        elif data == "performance_settings":
-            await self.show_performance_settings(query)
-        elif data == "security_settings":
-            await self.show_security_settings(query)
-        elif data == "add_buttons_yes":
-            await self.handle_add_buttons_yes(query)
-        elif data == "add_buttons_no":
-            await self.handle_add_buttons_no(query)
-        elif data == "add_more_messages":
-            await self.handle_add_more_messages(query)
-        elif data == "target_all_groups":
-            await self.handle_target_all_groups(query)
-        elif data == "target_specific_chats":
-            await self.handle_target_specific_chats(query)
-        elif data == "cancel_campaign":
-            await self.handle_cancel_campaign(query)
-        elif data == "back_to_schedule_selection":
-            await self.show_schedule_selection(query)
-        elif data == "back_to_target_selection":
-            await self.show_target_selection(query)
-        elif data == "back_to_button_choice":
-            await self.show_button_choice(query)
-        elif data.startswith("start_campaign_"):
-            campaign_id = int(data.split("_")[2])
-            await self.start_campaign_manually(query, campaign_id)
-        else:
-            await query.answer("Unknown command!", show_alert=True)
+        try:
+            # Answer the query first to prevent timeout
+            await query.answer()
+        except Exception as e:
+            logger.error(f"Failed to answer callback query: {e}")
+            return
+        
+        try:
+            if data == "main_menu":
+                await self.show_main_menu(query)
+            elif data == "manage_accounts":
+                await self.show_manage_accounts(query)
+            elif data == "add_account":
+                await self.start_add_account(query)
+            elif data == "my_configs":
+                await self.show_my_configs(query)
+            elif data == "add_forwarding":
+                await self.start_add_forwarding(query)
+            elif data == "settings":
+                await self.show_settings(query)
+            elif data == "help":
+                await self.show_help(query)
+            elif data == "bump_service":
+                await self.show_bump_service(query)
+            elif data == "add_campaign":
+                await self.start_add_campaign(query)
+            elif data == "my_campaigns":
+                await self.show_my_campaigns(query)
+            elif data.startswith("campaign_"):
+                campaign_id = int(data.split("_")[1])
+                await self.show_campaign_details(query, campaign_id)
+            elif data.startswith("delete_campaign_"):
+                campaign_id = int(data.split("_")[2])
+                await self.delete_campaign(query, campaign_id)
+            elif data.startswith("toggle_campaign_"):
+                campaign_id = int(data.split("_")[2])
+                await self.toggle_campaign(query, campaign_id)
+            elif data.startswith("test_campaign_"):
+                campaign_id = int(data.split("_")[2])
+                await self.test_campaign(query, campaign_id)
+            elif data.startswith("edit_campaign_"):
+                campaign_id = int(data.split("_")[2])
+                await self.start_edit_campaign(query, campaign_id)
+            elif data == "edit_text_content":
+                await self.edit_text_content(query)
+            elif data == "edit_media":
+                await self.edit_media(query)
+            elif data == "edit_buttons":
+                await self.edit_buttons(query)
+            elif data == "edit_settings":
+                await self.edit_settings(query)
+            elif data == "preview_campaign":
+                await self.preview_campaign(query)
+            elif data == "back_to_campaigns":
+                await self.show_my_campaigns(query)
+            elif data == "back_to_bump":
+                await self.show_bump_service(query)
+            elif data.startswith("schedule_"):
+                schedule_type = data.split("_")[1]
+                await self.handle_schedule_selection(query, schedule_type)
+            elif data.startswith("select_account_"):
+                account_id = int(data.split("_")[2])
+                await self.handle_account_selection(query, account_id)
+            elif data.startswith("config_"):
+                config_id = int(data.split("_")[1])
+                await self.show_config_details(query, config_id)
+            elif data.startswith("delete_config_"):
+                config_id = int(data.split("_")[2])
+                await self.delete_config(query, config_id)
+            elif data.startswith("toggle_config_"):
+                config_id = int(data.split("_")[2])
+                await self.toggle_config(query, config_id)
+            elif data.startswith("account_"):
+                account_id = int(data.split("_")[1])
+                await self.show_account_details(query, account_id)
+            elif data.startswith("delete_account_"):
+                account_id = int(data.split("_")[2])
+                await self.delete_account(query, account_id)
+            elif data.startswith("configs_for_account_"):
+                account_id = int(data.split("_")[3])
+                await self.show_configs_for_account(query, account_id)
+            elif data == "back_to_configs":
+                await self.show_my_configs(query)
+            elif data == "back_to_accounts":
+                await self.show_manage_accounts(query)
+            elif data == "upload_session":
+                await self.start_session_upload(query)
+            elif data == "manual_setup":
+                await self.start_manual_setup(query)
+            elif data == "advanced_settings":
+                await self.show_advanced_settings(query)
+            elif data == "configure_plugins":
+                await self.show_configure_plugins(query)
+            elif data == "performance_settings":
+                await self.show_performance_settings(query)
+            elif data == "security_settings":
+                await self.show_security_settings(query)
+            elif data == "add_buttons_yes":
+                await self.handle_add_buttons_yes(query)
+            elif data == "add_buttons_no":
+                await self.handle_add_buttons_no(query)
+            elif data == "add_more_messages":
+                await self.handle_add_more_messages(query)
+            elif data == "target_all_groups":
+                await self.handle_target_all_groups(query)
+            elif data == "target_specific_chats":
+                await self.handle_target_specific_chats(query)
+            elif data == "cancel_campaign":
+                await self.handle_cancel_campaign(query)
+            elif data == "back_to_schedule_selection":
+                await self.show_schedule_selection(query)
+            elif data == "back_to_target_selection":
+                await self.show_target_selection(query)
+            elif data == "back_to_button_choice":
+                await self.show_button_choice(query)
+            elif data.startswith("start_campaign_"):
+                campaign_id = int(data.split("_")[2])
+                await self.start_campaign_manually(query, campaign_id)
+            else:
+                await query.answer("Unknown command!", show_alert=True)
+        except Exception as e:
+            logger.error(f"Error handling callback query {data}: {e}")
+            try:
+                await query.answer("An error occurred. Please try again.", show_alert=True)
+            except:
+                pass  # Query might already be answered
     
     async def show_main_menu(self, query):
         """Show main menu with all core features"""
