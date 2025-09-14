@@ -2152,7 +2152,9 @@ Access the full-featured web interface for advanced configuration:
                 # Validate campaign name
                 logger.info(f"Validating campaign name: '{message_text}'")
                 # Simplified validation for campaign names - just check length and basic safety
-                if len(message_text) > 100:
+                if not message_text:
+                    is_valid, error_msg = False, "Campaign name cannot be empty"
+                elif len(message_text) > 100:
                     is_valid, error_msg = False, f"Campaign name too long (max 100 characters, got {len(message_text)})"
                 elif not message_text.strip():
                     is_valid, error_msg = False, "Campaign name cannot be empty"

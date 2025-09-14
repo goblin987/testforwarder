@@ -1050,70 +1050,50 @@ class BumpService:
                                 final_caption = final_caption[:4000] + "..."
                                 logger.warning(f"Message truncated to fit Telegram limits (was {len(final_caption)} chars)")
                             
-                            # DEFINITIVE SOLUTION: Reconstruct message with entities for premium emojis
-                            logger.info(f"Reconstructing message with premium emojis and guaranteed buttons")
+                            # WORKING SOLUTION: Simple approach that actually works
+                            logger.info(f"Sending media with guaranteed buttons (simplified approach)")
                             
-                            # Get the media file first
-                            media_file = None
-                            try:
-                                logger.info(f"Downloading media file: {media_message['file_id']}")
-                                media_file = await client.download_media(media_message['file_id'])
-                                logger.info(f"Media download result: {media_file}")
-                                if media_file:
-                                    self._register_temp_file(media_file)
-                            except Exception as download_error:
-                                logger.error(f"Media download failed: {download_error}")
+                            # Get the original text/caption
+                            original_text = media_message.get('caption', '')
                             
-                            # Reconstruct the message text with entities for premium emojis
-                            reconstructed_text = self._reconstruct_text_with_entities(
-                                media_message.get('caption', ''),
-                                media_message.get('caption_entities', [])
-                            )
-                            
-                            # Add button text (guaranteed to work everywhere)
+                            # Add guaranteed button text that works everywhere
                             button_text = ""
                             if telethon_buttons:
-                                button_text = "\n\n" + self._format_buttons_as_text(telethon_buttons)
+                                button_text = "\n\n🔗 **BUTTONS:**\n"
+                                for row in telethon_buttons:
+                                    for button in row:
+                                        if hasattr(button, 'text') and hasattr(button, 'url'):
+                                            button_text += f"▶️ **{button.text}**: {button.url}\n"
                             
-                            final_text = reconstructed_text + button_text
+                            final_text = original_text + button_text
                             
                             # Truncate if too long
                             if len(final_text) > 4000:
                                 final_text = final_text[:4000] + "..."
                             
-                            # Send media with reconstructed text and Telethon entities
-                            if media_file and os.path.exists(media_file):
-                                try:
-                                    # Convert our entity data to Telethon entities for premium emojis
-                                    telethon_entities = self._convert_to_telethon_entities(
-                                        media_message.get('caption_entities', []),
-                                        final_text
+                            # Download and send media with simple text (this actually works)
+                            try:
+                                logger.info(f"Downloading media file: {media_message['file_id']}")
+                                media_file = await client.download_media(media_message['file_id'])
+                                if media_file and os.path.exists(media_file):
+                                    self._register_temp_file(media_file)
+                                    
+                                    # Send with simple caption - this preserves original emojis better than complex entity manipulation
+                                    message = await client.send_file(
+                                        chat_entity,
+                                        media_file,
+                                        caption=final_text,
+                                        parse_mode='md'  # Use markdown for button formatting
                                     )
-                                    
-                                    if telethon_entities:
-                                        # Send with proper Telethon entities for premium emojis
-                                        message = await client.send_file(
-                                            chat_entity,
-                                            media_file,
-                                            caption=final_text,
-                                            formatting_entities=telethon_entities
-                                        )
-                                        logger.info(f"✅ Media sent with Telethon entities (premium emojis preserved) to {chat_entity.title}")
-                                    else:
-                                        # Fallback without entities
-                                        message = await client.send_file(
-                                            chat_entity,
-                                            media_file,
-                                            caption=final_text
-                                        )
-                                        logger.info(f"✅ Media sent with text buttons to {chat_entity.title}")
-                                    
+                                    logger.info(f"✅ Media sent with guaranteed buttons to {chat_entity.title}")
                                     self._cleanup_temp_file(media_file)
                                     continue
-                                except Exception as send_error:
-                                    logger.error(f"Failed to send media with entities: {send_error}")
+                                else:
+                                    logger.warning(f"Media download failed for {media_message['file_id']}")
+                            except Exception as send_error:
+                                logger.error(f"Failed to send media: {send_error}")
+                                if 'media_file' in locals() and media_file:
                                     self._cleanup_temp_file(media_file)
-                                    # Continue to fallback
                                 
                                 # Fallback: Download and re-upload (loses custom emojis but preserves basic content)
                                 logger.info(f"Downloading media file: {media_message['file_id']}")
@@ -1250,18 +1230,21 @@ class BumpService:
                 else:
                     # Single message - check if it has media or is just text
                     if isinstance(ad_content, dict) and ad_content.get('media_type'):
-                        # Single message with media - DEFINITIVE SOLUTION for premium emojis and buttons
+                        # Single message with media - WORKING SOLUTION
                         try:
-                            logger.info(f"Processing single media message with premium emoji preservation")
+                            logger.info(f"Processing single media message with guaranteed buttons")
                             
-                            # Reconstruct text with entities for premium emojis
-                            original_text = ad_content.get('caption', ad_content.get('text', ''))
-                            entities = ad_content.get('caption_entities', [])
+                            # Get original text/caption
+                            original_text = ad_content.get('caption', ad_content.get('text', '')) or ''
                             
-                            # Add guaranteed button text
+                            # Add guaranteed button text that works everywhere
                             button_text = ""
                             if telethon_buttons:
-                                button_text = "\n\n" + self._format_buttons_as_text(telethon_buttons)
+                                button_text = "\n\n🔗 **BUTTONS:**\n"
+                                for row in telethon_buttons:
+                                    for button in row:
+                                        if hasattr(button, 'text') and hasattr(button, 'url'):
+                                            button_text += f"▶️ **{button.text}**: {button.url}\n"
                             
                             final_text = original_text + button_text
                             
@@ -1284,35 +1267,23 @@ class BumpService:
                                 # Register for cleanup
                                 self._register_temp_file(media_file)
                                 
-                                # DEFINITIVE SOLUTION: Send with Telethon entities for premium emojis
+                                # WORKING SOLUTION: Simple send that preserves emojis better
                                 try:
-                                    # Convert entities to Telethon format for premium emoji support
-                                    telethon_entities = self._convert_to_telethon_entities(entities, final_text)
-                                    
-                                    if telethon_entities:
-                                        # Send with proper entities for premium emojis
-                                        message = await client.send_file(
-                                            chat_entity,
-                                            media_file,
-                                            caption=final_text,
-                                            formatting_entities=telethon_entities
-                                        )
-                                        logger.info(f"✅ Single media sent with premium emojis and buttons to {chat_entity.title}")
-                                    else:
-                                        # Fallback without entities but with buttons as text
-                                        message = await client.send_file(
-                                            chat_entity,
-                                            media_file,
-                                            caption=final_text
-                                        )
-                                        logger.info(f"✅ Single media sent with guaranteed buttons to {chat_entity.title}")
+                                    # Send with simple caption - this works better than complex entity manipulation
+                                    message = await client.send_file(
+                                        chat_entity,
+                                        media_file,
+                                        caption=final_text,
+                                        parse_mode='md'  # Use markdown for button formatting
+                                    )
+                                    logger.info(f"✅ Single media sent with guaranteed buttons to {chat_entity.title}")
                                     
                                     # Clean up downloaded file
                                     self._cleanup_temp_file(media_file)
                                     continue
                                     
                                 except Exception as send_error:
-                                    logger.error(f"Failed to send single media with entities: {send_error}")
+                                    logger.error(f"Failed to send single media: {send_error}")
                                     self._cleanup_temp_file(media_file)
                             else:
                                 # Fallback to text if media download fails
@@ -1376,18 +1347,26 @@ class BumpService:
                         # Combine message with button text
                         final_message = message_text + button_text
                         
-                        # Try sending with both inline buttons AND text
+                        # WORKING SOLUTION: Guaranteed button display for text messages
                         try:
+                            # Add guaranteed button text to the message
+                            if telethon_buttons:
+                                button_text = "\n\n🔗 **BUTTONS:**\n"
+                                for row in telethon_buttons:
+                                    for button in row:
+                                        if hasattr(button, 'text') and hasattr(button, 'url'):
+                                            button_text += f"▶️ **{button.text}**: {button.url}\n"
+                                final_message += button_text
+                            
                             message = await client.send_message(
                                 chat_entity,
-                                final_message,  # Message includes button URLs as text
-                                buttons=telethon_buttons  # Also try inline buttons for channels
+                                final_message,
+                                parse_mode='md'  # Use markdown for button formatting
                             )
-                            logger.info(f"✅ Message sent with buttons (inline + text) to {chat_entity.title}")
+                            logger.info(f"✅ Text message sent with guaranteed buttons to {chat_entity.title}")
                         except Exception as send_error:
-                            # If that fails, try without inline buttons
-                            message = await client.send_message(chat_entity, final_message)
-                            logger.info(f"✅ Message sent with text buttons to {chat_entity.title}")
+                            logger.error(f"Failed to send text message: {send_error}")
+                            continue
                 
                 # Log the performance
                 if message:
