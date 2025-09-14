@@ -1177,63 +1177,63 @@ class BumpService:
                                 media_file = None
                                 
                             if media_file and os.path.exists(media_file):
-                                    # Register for cleanup
-                                    self._register_temp_file(media_file)
+                                # Register for cleanup
+                                self._register_temp_file(media_file)
+                                
+                                # Try with inline buttons first, fallback to text
+                                try:
+                                    message = await client.send_file(
+                                        chat_entity,
+                                        media_file,
+                                        caption=caption_text,
+                                        buttons=telethon_buttons,
+                                        parse_mode='html'
+                                    )
+                                    logger.info(f"✅ Single media sent with inline buttons to {chat_entity.title}")
+                                except Exception as button_error:
+                                    # Fallback: Send without buttons, then send buttons as text
+                                    logger.warning(f"Inline buttons failed for single media, using text fallback: {button_error}")
+                                    message = await client.send_file(
+                                        chat_entity,
+                                        media_file,
+                                        caption=caption_text,
+                                        parse_mode='html'
+                                    )
                                     
+                                    # Send buttons as a follow-up message
+                                    if telethon_buttons:
+                                        button_text = self._format_buttons_as_text(telethon_buttons)
+                                        if button_text:
+                                            await client.send_message(
+                                                chat_entity,
+                                                button_text,
+                                                reply_to=message.id,
+                                                parse_mode='html'
+                                            )
+                                logger.info(f"✅ Single media+text sent via download ({ad_content['media_type']}) to {chat_entity.title}")
+                                
+                                # Clean up downloaded file
+                                self._cleanup_temp_file(media_file)
+                            else:
+                                # Fallback to text if media download fails
+                                if caption_text:
                                     # Try with inline buttons first, fallback to text
                                     try:
-                                        message = await client.send_file(
+                                        message = await client.send_message(
                                             chat_entity,
-                                            media_file,
-                                            caption=caption_text,
+                                            caption_text,
                                             buttons=telethon_buttons,
                                             parse_mode='html'
                                         )
-                                        logger.info(f"✅ Single media sent with inline buttons to {chat_entity.title}")
+                                        logger.info(f"✅ Caption sent with inline buttons to {chat_entity.title}")
                                     except Exception as button_error:
-                                        # Fallback: Send without buttons, then send buttons as text
-                                        logger.warning(f"Inline buttons failed for single media, using text fallback: {button_error}")
-                                        message = await client.send_file(
+                                        # Fallback: Send with buttons as text
+                                        logger.warning(f"Inline buttons failed for caption, using text fallback: {button_error}")
+                                        message = await client.send_message(
                                             chat_entity,
-                                            media_file,
-                                            caption=caption_text,
+                                            self._add_buttons_to_text(caption_text, telethon_buttons),
                                             parse_mode='html'
                                         )
-                                        
-                                        # Send buttons as a follow-up message
-                                        if telethon_buttons:
-                                            button_text = self._format_buttons_as_text(telethon_buttons)
-                                            if button_text:
-                                                await client.send_message(
-                                                    chat_entity,
-                                                    button_text,
-                                                    reply_to=message.id,
-                                                    parse_mode='html'
-                                                )
-                                    logger.info(f"✅ Single media+text sent via download ({ad_content['media_type']}) to {chat_entity.title}")
-                                    
-                                    # Clean up downloaded file
-                                    self._cleanup_temp_file(media_file)
-                                else:
-                                    # Fallback to text if media download fails
-                                    if caption_text:
-                                        # Try with inline buttons first, fallback to text
-                                        try:
-                                            message = await client.send_message(
-                                                chat_entity,
-                                                caption_text,
-                                                buttons=telethon_buttons,
-                                                parse_mode='html'
-                                            )
-                                            logger.info(f"✅ Caption sent with inline buttons to {chat_entity.title}")
-                                        except Exception as button_error:
-                                            # Fallback: Send with buttons as text
-                                            logger.warning(f"Inline buttons failed for caption, using text fallback: {button_error}")
-                                            message = await client.send_message(
-                                                chat_entity,
-                                                self._add_buttons_to_text(caption_text, telethon_buttons),
-                                                parse_mode='html'
-                                            )
                                         logger.warning(f"⚠️ Single media download failed, sent as text to {chat_entity.title}")
                                     else:
                                         continue
