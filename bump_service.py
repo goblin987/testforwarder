@@ -407,7 +407,7 @@ class BumpService:
             loop.close()
     
     async def _async_initialize_client(self, account_id: int, cache_client: bool = False) -> Optional[TelegramClient]:
-        """Async helper for client initialization"""
+        """Async helper for client initialization with improved session validation"""
         # For scheduled executions, always create fresh client to avoid asyncio loop issues
         if cache_client and account_id in self.telegram_clients:
             return self.telegram_clients[account_id]
@@ -434,6 +434,13 @@ class BumpService:
         if not account.get('session_string'):
             logger.error(f"Account {account_id} has no session string. Please re-authenticate the account.")
             return None
+        
+        # Clean up any existing session file first
+        try:
+            if os.path.exists(f"{temp_session_path}.session"):
+                os.remove(f"{temp_session_path}.session")
+        except:
+            pass
         
         # Handle uploaded sessions vs API credential sessions (EXACT SAME as bot.py)
         if account['api_id'] == 'uploaded' or account['api_hash'] == 'uploaded':
@@ -466,8 +473,22 @@ class BumpService:
                 logger.error(f"Failed to decode session for account {account_id}: {e}")
                 return None
         
+        # Validate session file was created and has content
+        if not os.path.exists(f"{temp_session_path}.session"):
+            logger.error(f"Session file not created for account {account_id}")
+            return None
+        
+        if os.path.getsize(f"{temp_session_path}.session") == 0:
+            logger.error(f"Session file is empty for account {account_id}")
+            try:
+                os.remove(f"{temp_session_path}.session")
+            except:
+                pass
+            return None
+        
         # Initialize and start client with retry logic for database locks
         max_retries = 3
+        client = None
         for attempt in range(max_retries):
             try:
                 client = TelegramClient(temp_session_path, api_id, api_hash)
@@ -497,6 +518,16 @@ class BumpService:
                     except:
                         pass
                     continue
+                elif "eof when reading a line" in error_msg:
+                    logger.error(f"Session file corrupted for account {account_id}: {e}")
+                    logger.error(f"💡 Solution: Re-add {account.get('username', 'this account')} with API credentials instead of uploaded session")
+                    # Clean up corrupted session file
+                    try:
+                        if os.path.exists(f"{temp_session_path}.session"):
+                            os.remove(f"{temp_session_path}.session")
+                    except:
+                        pass
+                    return None
                 else:
                     logger.error(f"Failed to start client for account {account_id}: {e}")
                     # Clean up session file on failure (EXACT SAME as bot.py)
@@ -506,6 +537,10 @@ class BumpService:
                     except:
                         pass
                     return None
+        
+        if client is None:
+            logger.error(f"Failed to initialize client for account {account_id} after {max_retries} attempts")
+            return None
         
         # Only cache client if requested (not for scheduled executions)
         if cache_client:
@@ -881,16 +916,8 @@ class BumpService:
                 logger.error(f"Please re-add account '{account.get('account_name', 'Unknown')}' with phone verification")
                 return False
             
-            # Initialize Telegram client
-            # Use fresh client for scheduled execution to avoid asyncio loop issues
-            client = self.initialize_telegram_client(campaign['account_id'], cache_client=False)
-            if not client:
-                logger.error(f"Failed to initialize client for scheduled campaign {campaign_id}")
-                logger.error(f"Account '{account.get('account_name', 'Unknown')}' needs to be deleted and re-added with phone verification")
-                return False
-            
-            # Send the ad (send_ad method doesn't need client parameter)
-            self.send_ad(campaign_id)
+            # Send the ad using the async version directly
+            await self._async_send_ad(campaign_id)
             logger.info(f"✅ Scheduled campaign {campaign_id} executed successfully")
                 
             return True
@@ -899,6 +926,32 @@ class BumpService:
             logger.error(f"Error executing scheduled campaign {campaign_id}: {e}")
             return False
     
+    def cleanup_corrupted_sessions(self):
+        """Clean up any corrupted session files"""
+        import os
+        import glob
+        
+        try:
+            # Find all bump session files
+            session_files = glob.glob("bump_session_*.session")
+            cleaned_count = 0
+            
+            for session_file in session_files:
+                try:
+                    # Check if file is empty or corrupted
+                    if os.path.getsize(session_file) == 0:
+                        os.remove(session_file)
+                        cleaned_count += 1
+                        logger.info(f"Cleaned up empty session file: {session_file}")
+                except Exception as e:
+                    logger.warning(f"Could not clean up session file {session_file}: {e}")
+            
+            if cleaned_count > 0:
+                logger.info(f"Cleaned up {cleaned_count} corrupted session files")
+                
+        except Exception as e:
+            logger.warning(f"Error during session cleanup: {e}")
+
     def start_scheduler(self):
         """Start the campaign scheduler with proper background thread"""
         if self.is_running:
@@ -906,6 +959,9 @@ class BumpService:
         
         self.is_running = True
         logger.info("🚀 Bump service scheduler started (automatic execution mode)")
+        
+        # Clean up any corrupted session files
+        self.cleanup_corrupted_sessions()
         
         # Load existing campaigns into memory
         self.load_existing_campaigns()
