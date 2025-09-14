@@ -1268,47 +1268,50 @@ class BumpService:
                                 final_text = final_text[:4000] + "..."
                                 logger.warning(f"Single media message truncated to fit Telegram limits")
 
-                            # ULTIMATE FIX: Try multiple approaches to get media with premium emojis
+                            # ULTIMATE FIX: Worker account accesses YOUR original message directly (bypasses BotFather bot)
                             media_file = None
                             try:
-                                # Method 1: Try to get original message using Telethon
+                                # CRITICAL: Use worker account to get YOUR original message (preserves premium emojis)
                                 original_chat_id = ad_content.get('original_chat_id') or ad_content.get('chat_id')
                                 original_message_id = ad_content.get('original_message_id') or ad_content.get('message_id')
                                 
-                                logger.info(f"Trying Method 1 - Getting original message: chat_id={original_chat_id}, message_id={original_message_id}")
+                                logger.info(f"🔄 PREMIUM EMOJI FIX: Worker account accessing your original message directly")
+                                logger.info(f"Getting original message: chat_id={original_chat_id}, message_id={original_message_id}")
                                 
-                                # Get the original message with media
+                                # CRITICAL: Worker account (with Premium) gets YOUR original message directly
+                                # This bypasses the BotFather bot that stripped the premium emoji data
                                 original_message = await client.get_messages(original_chat_id, ids=original_message_id)
-                                logger.info(f"Method 1: Retrieved message: {original_message}")
-                                logger.info(f"Method 1: Message has media: {hasattr(original_message, 'media') and original_message.media}")
+                                logger.info(f"Worker retrieved message: {original_message}")
+                                logger.info(f"Message has media: {hasattr(original_message, 'media') and original_message.media}")
                                 
                                 if original_message and hasattr(original_message, 'media') and original_message.media:
                                     logger.info(f"Method 1 SUCCESS: Found media {type(original_message.media)}")
                                     media_file = await client.download_media(original_message.media)
                                     logger.info(f"Method 1: Media downloaded: {media_file}")
                                     
-                                    # CRITICAL: Get the original message text with entities for premium emojis
-                                    if original_message.text:
+                                    # CRITICAL: Get YOUR original message text with premium emoji entities intact
+                                    if hasattr(original_message, 'message'):
+                                        original_text = original_message.message  # Caption for media
+                                        logger.info(f"✅ PREMIUM EMOJI SUCCESS: Using YOUR original caption with premium emojis intact")
+                                    elif original_message.text:
                                         original_text = original_message.text
-                                        logger.info(f"Method 1: Using original message text with entities preserved")
-                                    elif hasattr(original_message, 'message'):
-                                        original_text = original_message.message
-                                        logger.info(f"Method 1: Using original message.message with entities preserved")
+                                        logger.info(f"✅ PREMIUM EMOJI SUCCESS: Using YOUR original text with premium emojis intact")
                                     else:
                                         original_text = ad_content.get('caption', '')
-                                        logger.info(f"Method 1: Fallback to stored caption")
+                                        logger.warning(f"⚠️ Fallback to BotFather stored caption (premium emojis may be lost)")
                                     
-                                    # Check if bot has premium (can send premium emojis)
+                                    # Check worker account premium status
                                     try:
                                         me = await client.get_me()
-                                        bot_has_premium = getattr(me, 'premium', False)
-                                        logger.info(f"Bot premium status: {bot_has_premium}")
+                                        worker_has_premium = getattr(me, 'premium', False)
+                                        logger.info(f"✅ Worker account premium status: {worker_has_premium}")
                                         
-                                        if not bot_has_premium and ad_content.get('has_custom_emojis'):
-                                            logger.warning(f"⚠️ Bot account doesn't have Premium - premium emojis will show as regular emojis")
-                                            logger.info(f"💡 To preserve premium emojis, upgrade bot account to Telegram Premium")
+                                        if worker_has_premium:
+                                            logger.info(f"🎉 PERFECT SETUP: Worker has Premium + accessing YOUR original message = Premium emojis preserved!")
+                                        else:
+                                            logger.warning(f"⚠️ Worker account doesn't have Premium - premium emojis will show as regular emojis")
                                     except Exception as premium_check_error:
-                                        logger.error(f"Could not check bot premium status: {premium_check_error}")
+                                        logger.error(f"Could not check worker premium status: {premium_check_error}")
                                 else:
                                     logger.warning(f"Method 1 FAILED: No media in original message")
                                     
