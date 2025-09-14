@@ -1692,6 +1692,11 @@ Access the full-featured web interface for advanced configuration:
         session = self.user_sessions[user_id]
         message_text = update.message.text
         
+        # Debug logging
+        logger.info(f"Message received from user {user_id}, step: {session.get('step', 'unknown')}, message type: {type(update.message).__name__}")
+        logger.info(f"Message has text: {bool(message_text)}, has photo: {bool(update.message.photo)}, has video: {bool(update.message.video)}")
+        logger.info(f"Message is forwarded: {update.message.forward_from is not None or update.message.forward_from_chat is not None}")
+        
         # Handle account creation
         if 'account_data' in session:
             if session['step'] == 'account_name':
@@ -2864,6 +2869,16 @@ Targets: {len(enhanced_campaign_data['target_chats'])} chat(s)
         application.add_handler(CallbackQueryHandler(self.button_callback))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         application.add_handler(MessageHandler(filters.Document.ALL, self.handle_document))
+        # Add handlers for forwarded messages with media
+        application.add_handler(MessageHandler(filters.PHOTO, self.handle_message))
+        application.add_handler(MessageHandler(filters.VIDEO, self.handle_message))
+        application.add_handler(MessageHandler(filters.ANIMATION, self.handle_message))
+        application.add_handler(MessageHandler(filters.VOICE, self.handle_message))
+        application.add_handler(MessageHandler(filters.VIDEO_NOTE, self.handle_message))
+        application.add_handler(MessageHandler(filters.AUDIO, self.handle_message))
+        application.add_handler(MessageHandler(filters.STICKER, self.handle_message))
+        # Add handler for forwarded messages (any type)
+        application.add_handler(MessageHandler(filters.FORWARDED, self.handle_message))
         
         # Setup bot commands
         application.post_init = self.setup_bot_commands
