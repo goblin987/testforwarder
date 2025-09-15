@@ -1542,6 +1542,16 @@ class BumpService:
                                                 # Storage message doesn't have caption - use stored caption from database
                                                 logger.info(f"🚀 ULTIMATE FIX: Using database caption + entities + storage media + buttons")
                                                 
+                                                # 🔥 CRITICAL DEBUG: Log button details before sending
+                                                logger.info(f"🔥 BUTTON DEBUG: telethon_buttons type: {type(telethon_buttons)}")
+                                                logger.info(f"🔥 BUTTON DEBUG: telethon_buttons content: {telethon_buttons}")
+                                                if telethon_buttons:
+                                                    for i, row in enumerate(telethon_buttons):
+                                                        logger.info(f"🔥 BUTTON DEBUG: Row {i}: {row}")
+                                                        if hasattr(row, '__iter__'):
+                                                            for j, btn in enumerate(row):
+                                                                logger.info(f"🔥 BUTTON DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
+                                                
                                                 message = await client.send_file(
                                                     chat_entity,
                                                     file=storage_message.media,  # Media from storage channel
@@ -1570,6 +1580,16 @@ class BumpService:
                                             # 🚀 FINAL SOLUTION: Use database caption + entities + buttons with parse_mode='none'
                                             # Storage message doesn't have caption - use stored caption from database
                                             logger.info(f"🚀 ULTIMATE FIX: Using database caption + entities + storage media + buttons")
+                                            
+                                            # 🔥 FALLBACK BUTTON DEBUG: Log button details before sending
+                                            logger.info(f"🔥 FALLBACK BUTTON DEBUG: telethon_buttons type: {type(telethon_buttons)}")
+                                            logger.info(f"🔥 FALLBACK BUTTON DEBUG: telethon_buttons content: {telethon_buttons}")
+                                            if telethon_buttons:
+                                                for i, row in enumerate(telethon_buttons):
+                                                    logger.info(f"🔥 FALLBACK BUTTON DEBUG: Row {i}: {row}")
+                                                    if hasattr(row, '__iter__'):
+                                                        for j, btn in enumerate(row):
+                                                            logger.info(f"🔥 FALLBACK BUTTON DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                             
                                             message = await client.send_file(
                                                 chat_entity,
