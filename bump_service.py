@@ -1534,9 +1534,9 @@ class BumpService:
                                                 # 🔥 ULTIMATE FIX: Debug storage message content first, then send properly
                                                 logger.info(f"🔥 ULTIMATE DEBUG: Checking storage message content")
                                                 logger.info(f"Storage message text: {storage_message.text}")
-                                                logger.info(f"Storage message caption: {storage_message.caption}")
-                                                logger.info(f"Storage message entities: {storage_message.entities}")
-                                                logger.info(f"Storage message caption_entities: {storage_message.caption_entities}")
+                                                logger.info(f"Storage message caption: {getattr(storage_message, 'caption', 'NO CAPTION ATTRIBUTE')}")
+                                                logger.info(f"Storage message entities: {getattr(storage_message, 'entities', 'NO ENTITIES ATTRIBUTE')}")
+                                                logger.info(f"Storage message caption_entities: {getattr(storage_message, 'caption_entities', 'NO CAPTION_ENTITIES ATTRIBUTE')}")
                                                 
                                                 # 🚀 FINAL SOLUTION: Use database caption + entities + buttons with parse_mode='none'
                                                 # Storage message doesn't have caption - use stored caption from database
@@ -1563,9 +1563,9 @@ class BumpService:
                                             # Fallback: Send storage media with original entities and buttons
                                             logger.info(f"🔧 FALLBACK DEBUG: Checking storage message content")
                                             logger.info(f"FALLBACK Storage message text: {storage_message.text}")
-                                            logger.info(f"FALLBACK Storage message caption: {storage_message.caption}")
-                                            logger.info(f"FALLBACK Storage message entities: {storage_message.entities}")
-                                            logger.info(f"FALLBACK Storage message caption_entities: {storage_message.caption_entities}")
+                                            logger.info(f"FALLBACK Storage message caption: {getattr(storage_message, 'caption', 'NO CAPTION ATTRIBUTE')}")
+                                            logger.info(f"FALLBACK Storage message entities: {getattr(storage_message, 'entities', 'NO ENTITIES ATTRIBUTE')}")
+                                            logger.info(f"FALLBACK Storage message caption_entities: {getattr(storage_message, 'caption_entities', 'NO CAPTION_ENTITIES ATTRIBUTE')}")
                                             
                                             # 🚀 FINAL SOLUTION: Use database caption + entities + buttons with parse_mode='none'
                                             # Storage message doesn't have caption - use stored caption from database
