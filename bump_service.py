@@ -1489,8 +1489,8 @@ class BumpService:
                                             logger.info(f"🔄 Using storage chat ID: {storage_chat_id_int}")
                                             
                                             # Get the message from storage channel (bot has access!)
-                                            storage_messages = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
-                                            storage_message = storage_messages[0] if storage_messages else None
+                                            storage_message = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
+                                            # Note: get_messages with single ID returns single Message object, not list
                                         except Exception as storage_access_error:
                                             logger.error(f"❌ Storage channel access failed: {storage_access_error}")
                                             
@@ -1503,8 +1503,7 @@ class BumpService:
                                                     logger.info(f"✅ Session refreshed, retrying media access...")
                                                     
                                                     # Retry after session refresh
-                                                    storage_messages = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
-                                                    storage_message = storage_messages[0] if storage_messages else None
+                                                    storage_message = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
                                                     logger.info(f"✅ Media access successful after session refresh!")
                                                 except Exception as retry_error:
                                                     logger.error(f"❌ Media access failed even after session refresh: {retry_error}")
