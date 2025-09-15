@@ -1442,7 +1442,6 @@ class BumpService:
                                                 buttons=telethon_buttons
                                             )
                                             logger.info(f"✅ Text sent with PREMIUM EMOJIS and inline buttons to {chat_entity.title}")
-                                            # Don't continue - let the message be counted and logged
                                         else:
                                             # Fallback: Send without entities but with buttons
                                             message = await client.send_message(
@@ -1450,30 +1449,33 @@ class BumpService:
                                                 original_text,
                                                 buttons=telethon_buttons
                                             )
-                                    logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
+                                            logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
                                     
                                 except Exception as text_error:
                                     logger.error(f"Text fallback failed: {text_error}")
                                     continue
                                 
-                                # REAL FIX: Send media with original caption AND inline buttons
-                                try:
-                                    # Send media with original caption to preserve emojis + inline buttons
-                                    message = await client.send_file(
-                                        chat_entity,
-                                        media_file,
-                                        caption=original_text,  # Use original text to preserve emojis
-                                        buttons=telethon_buttons  # Add inline buttons directly to media
-                                    )
-                                    logger.info(f"✅ Single media sent with preserved emojis and inline buttons to {chat_entity.title}")
-                                    
-                                    # Clean up downloaded file
-                                    self._cleanup_temp_file(media_file)
-                                    continue
-                                    
-                                except Exception as send_error:
-                                    logger.error(f"Failed to send single media: {send_error}")
-                                    self._cleanup_temp_file(media_file)
+                                # Only try to send media if we have a valid file
+                                if media_file and os.path.exists(media_file):
+                                    try:
+                                        # Send media with original caption to preserve emojis + inline buttons
+                                        message = await client.send_file(
+                                            chat_entity,
+                                            media_file,
+                                            caption=original_text,  # Use original text to preserve emojis
+                                            buttons=telethon_buttons  # Add inline buttons directly to media
+                                        )
+                                        logger.info(f"✅ Single media sent with preserved emojis and inline buttons to {chat_entity.title}")
+                                        
+                                        # Clean up downloaded file
+                                        self._cleanup_temp_file(media_file)
+                                        continue
+                                        
+                                    except Exception as send_error:
+                                        logger.error(f"Failed to send single media: {send_error}")
+                                        self._cleanup_temp_file(media_file)
+                                else:
+                                    logger.info(f"📝 No media file available, text with buttons already sent")
                             else:
                                 # Fallback to text if media download fails
                                 if final_text:
