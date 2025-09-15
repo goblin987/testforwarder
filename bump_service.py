@@ -1355,22 +1355,71 @@ class BumpService:
                             original_text = stored_caption
                             
                             try:
-                                # Try to download media using file_id from Bot API
+                                # SOLUTION: Download media using Bot API, then send with Telethon + buttons
+                                logger.info(f"🎬 MEDIA SOLUTION: Download via Bot API, send via Telethon with buttons")
+                                logger.info(f"📹 Video details: {ad_content.get('width')}x{ad_content.get('height')}, {ad_content.get('duration')}s, {ad_content.get('file_size')} bytes")
+                                
+                                # Use Bot API to download the file, then Telethon to send it with buttons
                                 file_id = ad_content.get('file_id')
                                 media_file = None
                                 
                                 if file_id:
                                     try:
-                                        logger.info(f"🔄 Attempting to download media using file_id: {file_id}")
-                                        # Use Telethon to download the media file
-                                        media_file = await client.download_media(file_id, f"temp_media_{campaign_id}_{int(time.time())}")
-                                        logger.info(f"✅ Media downloaded successfully: {media_file}")
+                                        # SOLUTION: Use Bot API to download the file properly
+                                        logger.info(f"🔄 Using Bot API to download media file")
+                                        
+                                        from telegram import Bot
+                                        from config import Config
+                                        import aiohttp
+                                        import os
+                                        
+                                        # Create Bot API instance
+                                        bot_api = Bot(token=Config.BOT_TOKEN)
+                                        
+                                        # Get file info from Bot API
+                                        file_info = await bot_api.get_file(file_id)
+                                        file_path = file_info.file_path
+                                        
+                                        # Download the file
+                                        file_url = f"https://api.telegram.org/file/bot{Config.BOT_TOKEN}/{file_path}"
+                                        
+                                        # Create temp filename
+                                        temp_filename = f"temp_media_{campaign_id}_{int(time.time())}.{file_path.split('.')[-1] if '.' in file_path else 'mp4'}"
+                                        
+                                        # Download file using aiohttp
+                                        async with aiohttp.ClientSession() as session:
+                                            async with session.get(file_url) as response:
+                                                if response.status == 200:
+                                                    with open(temp_filename, 'wb') as f:
+                                                        async for chunk in response.content.iter_chunked(8192):
+                                                            f.write(chunk)
+                                                    
+                                                    media_file = temp_filename
+                                                    logger.info(f"✅ Media downloaded via Bot API: {media_file}")
+                                                else:
+                                                    logger.error(f"❌ Bot API download failed with status: {response.status}")
+                                                    media_file = None
+                                        
                                     except Exception as download_error:
-                                        logger.warning(f"⚠️ Media download failed: {download_error}")
+                                        logger.warning(f"⚠️ Bot API media download failed: {download_error}")
                                         media_file = None
+                                        
+                                        # Fallback: Try original message approach
+                                        try:
+                                            logger.info(f"🔄 Fallback: Attempting original message approach")
+                                            original_chat_id = ad_content.get('original_chat_id')
+                                            original_message_id = ad_content.get('original_message_id')
+                                            
+                                            if original_chat_id and original_message_id:
+                                                original_msg = await client.get_messages(original_chat_id, ids=original_message_id)
+                                                if original_msg and original_msg.media:
+                                                    logger.info(f"✅ Found original message with media: {type(original_msg.media)}")
+                                                    media_file = await client.download_media(original_msg.media, f"temp_media_{campaign_id}_{int(time.time())}")
+                                                    logger.info(f"✅ Fallback media download successful: {media_file}")
+                                        except Exception as fallback_error:
+                                            logger.warning(f"❌ Fallback download also failed: {fallback_error}")
                                 else:
-                                    logger.info(f"📝 No file_id available, using text with premium emoji reconstruction and inline buttons")
-                                    media_file = None
+                                    logger.info(f"📝 No file_id available for media download")
                                 
                                 if media_file and os.path.exists(media_file):
                                     # Register for cleanup
@@ -1431,9 +1480,11 @@ class BumpService:
                                 logger.error(f"Media download failed: {download_error}")
                                 media_file = None
                             
-                            # If media download failed, send as text with premium emoji entities
-                            if not media_file:
-                                logger.info(f"📝 PREMIUM EMOJI TEXT FALLBACK: Sending as text with entity reconstruction")
+            # If media download failed, send as text with premium emoji entities
+            if not media_file:
+                logger.warning(f"🚨 CRITICAL ISSUE: Media download failed - buttons may not work on text-only messages in groups!")
+                logger.info(f"💡 TELEGRAM LIMITATION: Groups may ignore inline buttons on text-only messages")
+                logger.info(f"📝 PREMIUM EMOJI TEXT FALLBACK: Sending as text with entity reconstruction (buttons may not appear)")
                                 
                                 try:
                                     me = await client.get_me()
