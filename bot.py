@@ -3454,7 +3454,8 @@ This name will help you identify the campaign in your dashboard.
                 enhanced_campaign_data['schedule_type'],
                 enhanced_campaign_data['schedule_time'],
                 enhanced_campaign_data['buttons'],
-                enhanced_campaign_data['target_mode']
+                enhanced_campaign_data['target_mode'],
+                enhanced_campaign_data.get('immediate_start', False)
             )
             
             logger.info(f"Campaign created successfully with ID: {campaign_id}")
