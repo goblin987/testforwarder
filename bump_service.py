@@ -975,6 +975,41 @@ class BumpService:
         if cache_client:
             self.telegram_clients[account_id] = client
         logger.info(f"Telegram client initialized for bump service (Account: {account_id})")
+        
+        # 🎯 AUTO-JOIN STORAGE CHANNEL: Ensure worker account can access storage channel
+        try:
+            from config import Config
+            storage_channel_id = Config.STORAGE_CHANNEL_ID
+            
+            if storage_channel_id:
+                logger.info(f"🔄 AUTO-JOIN: Ensuring worker account has access to storage channel {storage_channel_id}")
+                
+                # Try to get channel info (this will fail if not accessible)
+                try:
+                    storage_channel = await client.get_entity(storage_channel_id)
+                    logger.info(f"✅ Storage channel access confirmed: {storage_channel.title}")
+                except Exception as access_error:
+                    logger.warning(f"⚠️ Cannot access storage channel, attempting to join: {access_error}")
+                    
+                    # Try to join the channel (works for public channels or if bot is admin)
+                    try:
+                        from telethon.tl.functions.channels import JoinChannelRequest
+                        await client(JoinChannelRequest(storage_channel_id))
+                        logger.info(f"✅ Successfully joined storage channel: {storage_channel_id}")
+                        
+                        # Verify access after joining
+                        storage_channel = await client.get_entity(storage_channel_id)
+                        logger.info(f"✅ Storage channel access verified: {storage_channel.title}")
+                    except Exception as join_error:
+                        logger.warning(f"❌ Failed to auto-join storage channel: {join_error}")
+                        logger.warning(f"💡 Manual solution: Add worker account to storage channel as member")
+            else:
+                logger.info(f"⚠️ STORAGE_CHANNEL_ID not configured - skipping auto-join")
+                
+        except Exception as storage_setup_error:
+            logger.error(f"❌ Storage channel setup failed: {storage_setup_error}")
+            # Continue anyway - this is not critical for basic functionality
+        
         return client
     
     def send_ad(self, campaign_id: int):
