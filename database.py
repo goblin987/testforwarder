@@ -339,6 +339,44 @@ class Database:
             ''', (user_id, account_id, source_message_id, destination_message_id, source_chat_id, destination_chat_id))
             conn.commit()
     
+    def get_campaign(self, campaign_id: int) -> Optional[Dict]:
+        """Get a campaign by ID"""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT c.*, a.account_name 
+                FROM ad_campaigns c
+                LEFT JOIN telegram_accounts a ON c.account_id = a.id
+                WHERE c.id = ?
+            ''', (campaign_id,))
+            
+            row = cursor.fetchone()
+            if row:
+                columns = [description[0] for description in cursor.description]
+                campaign = dict(zip(columns, row))
+                
+                # Parse JSON fields
+                if campaign.get('ad_content'):
+                    try:
+                        campaign['ad_content'] = json.loads(campaign['ad_content'])
+                    except json.JSONDecodeError:
+                        campaign['ad_content'] = {}
+                
+                if campaign.get('target_chats'):
+                    try:
+                        campaign['target_chats'] = json.loads(campaign['target_chats'])
+                    except json.JSONDecodeError:
+                        campaign['target_chats'] = []
+                
+                if campaign.get('buttons'):
+                    try:
+                        campaign['buttons'] = json.loads(campaign['buttons'])
+                    except json.JSONDecodeError:
+                        campaign['buttons'] = []
+                
+                return campaign
+            return None
+    
     def update_campaign_last_run(self, campaign_id: int):
         """Update the last run time for a campaign"""
         with self._get_connection() as conn:
