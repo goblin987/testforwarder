@@ -984,25 +984,49 @@ class BumpService:
             if storage_channel_id:
                 logger.info(f"🔄 AUTO-JOIN: Ensuring worker account has access to storage channel {storage_channel_id}")
                 
-                # Try to get channel info (this will fail if not accessible)
+                # Convert string ID to integer for Telethon
                 try:
-                    storage_channel = await client.get_entity(storage_channel_id)
-                    logger.info(f"✅ Storage channel access confirmed: {storage_channel.title}")
-                except Exception as access_error:
-                    logger.warning(f"⚠️ Cannot access storage channel, attempting to join: {access_error}")
+                    if isinstance(storage_channel_id, str):
+                        if storage_channel_id.startswith('-100'):
+                            # Full channel ID format: -1001234567890
+                            channel_id_int = int(storage_channel_id)
+                        elif storage_channel_id.startswith('-'):
+                            # Short format: -1234567890, convert to full format
+                            channel_id_int = int('-100' + storage_channel_id[1:])
+                        else:
+                            # Positive number, convert to negative channel ID
+                            channel_id_int = int('-100' + storage_channel_id)
+                    else:
+                        channel_id_int = int(storage_channel_id)
                     
-                    # Try to join the channel (works for public channels or if bot is admin)
-                    try:
-                        from telethon.tl.functions.channels import JoinChannelRequest
-                        await client(JoinChannelRequest(storage_channel_id))
-                        logger.info(f"✅ Successfully joined storage channel: {storage_channel_id}")
-                        
-                        # Verify access after joining
-                        storage_channel = await client.get_entity(storage_channel_id)
-                        logger.info(f"✅ Storage channel access verified: {storage_channel.title}")
-                    except Exception as join_error:
-                        logger.warning(f"❌ Failed to auto-join storage channel: {join_error}")
-                        logger.warning(f"💡 Manual solution: Add worker account to storage channel as member")
+                    logger.info(f"🔄 Using channel ID: {channel_id_int}")
+                    
+                    # Try to get channel info
+                    storage_channel = await client.get_entity(channel_id_int)
+                    logger.info(f"✅ Storage channel access confirmed: {storage_channel.title}")
+                    
+                except Exception as access_error:
+                    logger.warning(f"⚠️ Cannot access storage channel with ID {channel_id_int}: {access_error}")
+                    
+                    # Try alternative ID formats
+                    alternative_ids = []
+                    if isinstance(storage_channel_id, str) and storage_channel_id.startswith('-100'):
+                        # Try without -100 prefix
+                        alt_id = int(storage_channel_id[4:])  # Remove -100 prefix
+                        alternative_ids.append(alt_id)
+                        alternative_ids.append(-alt_id)  # Try negative version
+                    
+                    for alt_id in alternative_ids:
+                        try:
+                            logger.info(f"🔄 Trying alternative channel ID: {alt_id}")
+                            storage_channel = await client.get_entity(alt_id)
+                            logger.info(f"✅ Storage channel access confirmed with alternative ID {alt_id}: {storage_channel.title}")
+                            break
+                        except Exception as alt_error:
+                            logger.warning(f"❌ Alternative ID {alt_id} failed: {alt_error}")
+                    else:
+                        logger.warning(f"❌ All channel ID formats failed")
+                        logger.warning(f"💡 Manual solution: Verify channel ID format and worker account membership")
             else:
                 logger.info(f"⚠️ STORAGE_CHANNEL_ID not configured - skipping auto-join")
                 
@@ -1422,15 +1446,32 @@ class BumpService:
                                 logger.info(f"🔄 TELETHON APPROACH: Getting original message for native media handling")
                                 
                                 try:
-                                    # 🎯 BREAKTHROUGH: Get media from STORAGE CHANNEL instead of user's private chat
-                                    storage_chat_id = ad_content.get('storage_chat_id')
-                                    storage_message_id = ad_content.get('storage_message_id')
-                                    
-                                    if storage_chat_id and storage_message_id:
-                                        logger.info(f"📥 BREAKTHROUGH: Fetching media from STORAGE CHANNEL message {storage_message_id} in chat {storage_chat_id}")
-                                        
-                                        # Get the message from storage channel (bot has access!)
-                                        storage_message = await client.get_messages(storage_chat_id, ids=storage_message_id)
+                # 🎯 BREAKTHROUGH: Get media from STORAGE CHANNEL instead of user's private chat
+                storage_chat_id = ad_content.get('storage_chat_id')
+                storage_message_id = ad_content.get('storage_message_id')
+                
+                if storage_chat_id and storage_message_id:
+                    logger.info(f"📥 BREAKTHROUGH: Fetching media from STORAGE CHANNEL message {storage_message_id} in chat {storage_chat_id}")
+                    
+                    # Convert storage_chat_id to proper format for Telethon
+                    try:
+                        if isinstance(storage_chat_id, str):
+                            if storage_chat_id.startswith('-100'):
+                                storage_chat_id_int = int(storage_chat_id)
+                            elif storage_chat_id.startswith('-'):
+                                storage_chat_id_int = int('-100' + storage_chat_id[1:])
+                            else:
+                                storage_chat_id_int = int('-100' + storage_chat_id)
+                        else:
+                            storage_chat_id_int = int(storage_chat_id)
+                        
+                        logger.info(f"🔄 Using storage chat ID: {storage_chat_id_int}")
+                        
+                        # Get the message from storage channel (bot has access!)
+                        storage_message = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
+                    except Exception as id_conversion_error:
+                        logger.error(f"❌ Storage chat ID conversion failed: {id_conversion_error}")
+                        storage_message = None
                                         
                                         if storage_message and storage_message.media:
                                             logger.info(f"✅ STORAGE SUCCESS: Found media in storage channel: {type(storage_message.media)}")
