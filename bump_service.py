@@ -1525,22 +1525,35 @@ class BumpService:
                                                 telethon_entities = self._convert_to_telethon_entities(stored_entities, original_text)
                                                 
                                                 if telethon_entities:
-                                                    # DEBUG: Log button details before sending
-                                                    logger.info(f"🔧 DEBUG: About to send with buttons: {telethon_buttons}")
-                                                    logger.info(f"🔧 DEBUG: Button type: {type(telethon_buttons)}")
-                                                    if telethon_buttons:
-                                                        logger.info(f"🔧 DEBUG: Button rows count: {len(telethon_buttons)}")
-                                                        for i, row in enumerate(telethon_buttons):
-                                                            logger.info(f"🔧 DEBUG: Row {i}: {row}")
+                                                    # 🔧 TELETHON LIMITATION FIX: formatting_entities conflicts with buttons
+                                                    # Solution: Send media with entities first, then edit to add buttons
+                                                    logger.info(f"🔧 TELETHON FIX: Sending media with premium emojis first, then adding buttons")
                                                     
-                                                    # Send storage media with premium emoji entities and buttons
+                                                    # Step 1: Send storage media with premium emoji entities (NO buttons)
                                                     message = await client.send_file(
                                                         chat_entity,
                                                         storage_message.media,  # Use storage channel media object
                                                         caption=original_text,
-                                                        formatting_entities=telethon_entities,
-                                                        buttons=telethon_buttons
+                                                        formatting_entities=telethon_entities
+                                                        # NO buttons parameter - this conflicts with formatting_entities
                                                     )
+                                                    
+                                                    # Step 2: Edit the message to add buttons
+                                                    if telethon_buttons:
+                                                        logger.info(f"🔧 STEP 2: Adding buttons to message via edit")
+                                                        try:
+                                                            await message.edit(buttons=telethon_buttons)
+                                                            logger.info(f"✅ BUTTONS ADDED: Successfully added buttons via message edit")
+                                                        except Exception as button_edit_error:
+                                                            logger.error(f"❌ BUTTON EDIT FAILED: {button_edit_error}")
+                                                            # Fallback: Try editing with reply_markup
+                                                            try:
+                                                                from telethon.tl.types import ReplyInlineMarkup
+                                                                markup = ReplyInlineMarkup(telethon_buttons)
+                                                                await client.edit_message(chat_entity, message.id, buttons=markup)
+                                                                logger.info(f"✅ FALLBACK SUCCESS: Added buttons via reply_markup")
+                                                            except Exception as fallback_error:
+                                                                logger.error(f"❌ FALLBACK FAILED: {fallback_error}")
                                                     logger.info(f"🎉 STORAGE BREAKTHROUGH: MEDIA + PREMIUM EMOJIS + INLINE BUTTONS sent to {chat_entity.title}")
                                                     
                                                     # Debug: Check if message has reply markup
@@ -1551,20 +1564,25 @@ class BumpService:
                                                     
                                                     continue
                                             
-                                            # Fallback: Send storage media without entities but with buttons
-                                            logger.info(f"🔧 DEBUG FALLBACK: About to send with buttons: {telethon_buttons}")
-                                            logger.info(f"🔧 DEBUG FALLBACK: Button type: {type(telethon_buttons)}")
-                                            if telethon_buttons:
-                                                logger.info(f"🔧 DEBUG FALLBACK: Button rows count: {len(telethon_buttons)}")
-                                                for i, row in enumerate(telethon_buttons):
-                                                    logger.info(f"🔧 DEBUG FALLBACK: Row {i}: {row}")
+                                            # Fallback: Send storage media without entities, then add buttons via edit
+                                            logger.info(f"🔧 FALLBACK: Sending media without entities, then adding buttons")
                                             
+                                            # Step 1: Send media without buttons first
                                             message = await client.send_file(
                                                 chat_entity,
                                                 storage_message.media,  # Use storage channel media object
-                                                caption=original_text,
-                                                buttons=telethon_buttons
+                                                caption=original_text
+                                                # NO buttons - will add via edit
                                             )
+                                            
+                                            # Step 2: Add buttons via edit
+                                            if telethon_buttons:
+                                                logger.info(f"🔧 FALLBACK STEP 2: Adding buttons via edit")
+                                                try:
+                                                    await message.edit(buttons=telethon_buttons)
+                                                    logger.info(f"✅ FALLBACK BUTTONS: Successfully added buttons via edit")
+                                                except Exception as fallback_button_error:
+                                                    logger.error(f"❌ FALLBACK BUTTON EDIT FAILED: {fallback_button_error}")
                                             logger.info(f"🎉 STORAGE SUCCESS: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
                                             
                                             # Debug: Check if message has reply markup
