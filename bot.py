@@ -828,11 +828,7 @@ Please send me the source chat ID or username.
         user_id = update.effective_user.id
         message = update.message
         
-        # Check if this is a bridge channel/group message link
-        message_text = message.text or message.caption or ""
-        if message_text and self._is_bridge_channel_link(message_text):
-            await self._handle_bridge_channel_link(update, session, message_text)
-            return
+        # Process the forwarded message directly
         
         # Store the complete message data for full fidelity reproduction
         ad_data = {
@@ -2296,7 +2292,7 @@ Access the full-featured web interface for advanced configuration:
                 session['step'] = 'ad_content'
                 
                 await update.message.reply_text(
-                    "✅ **Campaign name set!**\n\n**Step 2/6: Ad Content**\n\n**🔗 PREMIUM EMOJI SOLUTION: Bridge Channel Method**\n\n**Option 1: Bridge Channel/Group (RECOMMENDED for Premium Emojis)**\n1️⃣ Create a public channel or group\n2️⃣ Forward your premium emoji message there\n3️⃣ Send me the channel message link (e.g., `t.me/yourchannel/123`)\n4️⃣ Worker accounts will join and forward with premium emojis preserved!\n\n**Option 2: Direct Forward (Standard)**\n📤 Forward me the message(s) directly\n\n**Supported Content:**\n• Text with custom/premium emojis ✨\n• Images, videos, documents 📸\n• Voice messages and stickers 🎵\n• Full formatting preservation 📝\n\n**💎 For premium emojis, use Option 1 (Bridge Channel)!**",
+                    "✅ **Campaign name set!**\n\n**Step 2/6: Ad Content**\n\n📤 **Forward me the message(s) you want to use as advertisement**\n\n**Supported Content:**\n• Text with emojis ✨\n• Images, videos, documents 📸\n• Voice messages and stickers 🎵\n• Full formatting preservation 📝\n• Multiple messages (forward each one)\n\n**Just forward the message(s) from any chat - I'll add inline buttons under them!**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             

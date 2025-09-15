@@ -1075,12 +1075,7 @@ class BumpService:
                     media_message = None
                     combined_text = ""
                     
-                    # Check if this is a bridge channel message (first item check)
-                    if ad_content[0].get('bridge_channel'):
-                        logger.info(f"🔗 Processing BRIDGE CHANNEL message for premium emoji preservation")
-                        await self._process_bridge_channel_message(client, chat_entity, ad_content[0], telethon_buttons)
-                        sent_count += 1
-                        continue  # Bridge channel messages are processed individually, move to next chat
+                    # Process normal ad content with inline buttons
                     
                     for message_data in ad_content:
                         if message_data.get('media_type') and not media_message:
@@ -1126,16 +1121,8 @@ class BumpService:
                             # Get the original text/caption
                             original_text = media_message.get('caption', '')
                             
-                            # Add guaranteed button text that works everywhere
-                            button_text = ""
-                            if telethon_buttons:
-                                button_text = "\n\n🔗 **BUTTONS:**\n"
-                                for row in telethon_buttons:
-                                    for button in row:
-                                        if hasattr(button, 'text') and hasattr(button, 'url'):
-                                            button_text += f"▶️ **{button.text}**: {button.url}\n"
-                            
-                            final_text = original_text + button_text
+                            # Use original text WITHOUT adding button text - buttons will be inline
+                            final_text = original_text
                             
                             # Truncate if too long
                             if len(final_text) > 4000:
@@ -1214,16 +1201,7 @@ class BumpService:
                                             parse_mode='html'
                                         )
                                         
-                                        # Send buttons as a follow-up message
-                                        if telethon_buttons:
-                                            button_text = self._format_buttons_as_text(telethon_buttons)
-                                            if button_text:
-                                                await client.send_message(
-                                                    chat_entity,
-                                                    button_text,
-                                                    reply_to=message.id,
-                                                    parse_mode='html'
-                                                )
+                                        # Buttons already sent as inline buttons with the media
                                     logger.info(f"✅ Combined media+text sent via download ({media_message['media_type']}) to {chat_entity.title}")
                                     
                                     # Clean up downloaded file
@@ -1231,14 +1209,13 @@ class BumpService:
                                 else:
                                     # Fallback to text if media download fails
                                     if final_caption:
-                                        # Add buttons as text to the message
+                                        # Send with inline buttons only
                                         final_caption_with_buttons = final_caption
-                                        if telethon_buttons:
-                                            final_caption_with_buttons += "\n\n" + self._format_buttons_as_text(telethon_buttons)
                                         
                                         message = await client.send_message(
                                             chat_entity,
                                             final_caption_with_buttons,
+                                            buttons=telethon_buttons,
                                             parse_mode='html'
                                         )
                                         logger.warning(f"⚠️ Media download failed, sent as text to {chat_entity.title}")
@@ -1274,12 +1251,12 @@ class BumpService:
                             if combined_text:
                                 # Add buttons as text to the message
                                 combined_text_with_buttons = combined_text
-                                if telethon_buttons:
-                                    combined_text_with_buttons += "\n\n" + self._format_buttons_as_text(telethon_buttons)
+                                # Buttons will be sent as inline buttons
                                 
                                 message = await client.send_message(
                                     chat_entity,
                                     combined_text_with_buttons,
+                                    buttons=telethon_buttons,
                                     parse_mode='html'
                                 )
                                 logger.info(f"✅ Combined text message sent to {chat_entity.title}")
@@ -1313,11 +1290,7 @@ class BumpService:
                             else:
                                 continue  # Skip if no text content
                 else:
-                    # Check if this is a bridge channel message
-                    if isinstance(ad_content, dict) and ad_content.get('bridge_channel'):
-                        logger.info(f"🔗 Processing BRIDGE CHANNEL message for premium emoji preservation")
-                        await self._process_bridge_channel_message(client, chat_entity, ad_content, telethon_buttons)
-                        continue
+                    # Process normal ad content with inline buttons
                     
                     # Single message - check if it has media or is just text
                     if isinstance(ad_content, dict) and ad_content.get('media_type'):
@@ -1328,16 +1301,8 @@ class BumpService:
                             # Get original text/caption
                             original_text = ad_content.get('caption', ad_content.get('text', '')) or ''
                             
-                            # Add guaranteed button text that works everywhere
-                            button_text = ""
-                            if telethon_buttons:
-                                button_text = "\n\n🔗 **BUTTONS:**\n"
-                                for row in telethon_buttons:
-                                    for button in row:
-                                        if hasattr(button, 'text') and hasattr(button, 'url'):
-                                            button_text += f"▶️ **{button.text}**: {button.url}\n"
-                            
-                            final_text = original_text + button_text
+                            # Use original text WITHOUT adding button text - buttons will be inline
+                            final_text = original_text
                             
                             # Truncate message if too long
                             if len(final_text) > 4000:
