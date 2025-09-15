@@ -1424,8 +1424,9 @@ class BumpService:
                                         logger.error(f"⚠️ Download error type: {type(download_error).__name__}")
                                         logger.error(f"⚠️ Download error details:", exc_info=True)
                                         media_file = None
-                                        
-                                        # SOLUTION: Get fresh media from original message (bypasses expired file_id)
+                                    
+                                    # CRITICAL FIX: Try fresh media download if Bot API failed (404 or any other reason)
+                                    if not media_file:
                                         try:
                                             logger.info(f"🔄 SOLUTION: Getting fresh media from original message")
                                             original_chat_id = ad_content.get('original_chat_id')
@@ -1438,7 +1439,7 @@ class BumpService:
                                                     logger.info(f"✅ Found original message with fresh media: {type(original_msg.media)}")
                                                     media_file = await client.download_media(original_msg.media, f"temp_media_{campaign_id}_{int(time.time())}")
                                                     if media_file:
-                                                        logger.info(f"✅ SUCCESS: Fresh media downloaded: {media_file}")
+                                                        logger.info(f"🎉 SUCCESS: Fresh media downloaded: {media_file}")
                                                     else:
                                                         logger.warning(f"❌ Fresh media download returned None")
                                                 else:
