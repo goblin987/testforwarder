@@ -1442,14 +1442,14 @@ class BumpService:
                                                 buttons=telethon_buttons
                                             )
                                             logger.info(f"✅ Text sent with PREMIUM EMOJIS and inline buttons to {chat_entity.title}")
-                                            continue
-                                    
-                                    # Fallback: Send without entities but with buttons
-                                    message = await client.send_message(
-                                        chat_entity,
-                                        original_text,
-                                        buttons=telethon_buttons
-                                    )
+                                            # Don't continue - let the message be counted and logged
+                                        else:
+                                            # Fallback: Send without entities but with buttons
+                                            message = await client.send_message(
+                                                chat_entity,
+                                                original_text,
+                                                buttons=telethon_buttons
+                                            )
                                     logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
                                     
                                 except Exception as text_error:
