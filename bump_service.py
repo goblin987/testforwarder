@@ -1480,11 +1480,11 @@ class BumpService:
                                 logger.error(f"Media download failed: {download_error}")
                                 media_file = None
                             
-            # If media download failed, send as text with premium emoji entities
-            if not media_file:
-                logger.warning(f"🚨 CRITICAL ISSUE: Media download failed - buttons may not work on text-only messages in groups!")
-                logger.info(f"💡 TELEGRAM LIMITATION: Groups may ignore inline buttons on text-only messages")
-                logger.info(f"📝 PREMIUM EMOJI TEXT FALLBACK: Sending as text with entity reconstruction (buttons may not appear)")
+                            # If media download failed, send as text with premium emoji entities
+                            if not media_file:
+                                logger.warning(f"🚨 CRITICAL ISSUE: Media download failed - buttons may not work on text-only messages in groups!")
+                                logger.info(f"💡 TELEGRAM LIMITATION: Groups may ignore inline buttons on text-only messages")
+                                logger.info(f"📝 PREMIUM EMOJI TEXT FALLBACK: Sending as text with entity reconstruction (buttons may not appear)")
                                 
                                 try:
                                     me = await client.get_me()
