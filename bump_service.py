@@ -1268,37 +1268,32 @@ class BumpService:
                                 final_text = final_text[:4000] + "..."
                                 logger.warning(f"Single media message truncated to fit Telegram limits")
 
-                            # ULTIMATE FIX: Worker account accesses YOUR original message directly (bypasses BotFather bot)
+                            # ULTIMATE FIX: Use stored entity data to reconstruct premium emojis
                             media_file = None
+                            
+                            # CRITICAL INSIGHT: Worker can't access your private chat, but we have the entity data!
+                            logger.info(f"🔄 PREMIUM EMOJI RECONSTRUCTION: Using stored entity data to rebuild premium emojis")
+                            
+                            # Get the stored caption and entities from BotFather bot
+                            stored_caption = ad_content.get('caption', '')
+                            stored_entities = ad_content.get('caption_entities', [])
+                            
+                            logger.info(f"Stored caption length: {len(stored_caption)}")
+                            logger.info(f"Stored entities count: {len(stored_entities)}")
+                            logger.info(f"Premium emoji entities: {len([e for e in stored_entities if e.get('type') == 'custom_emoji'])}")
+                            
+                            # Use the stored caption with entity data (this preserves premium emoji IDs)
+                            original_text = stored_caption
+                            
                             try:
-                                # CRITICAL: Use worker account to get YOUR original message (preserves premium emojis)
-                                original_chat_id = ad_content.get('original_chat_id') or ad_content.get('chat_id')
-                                original_message_id = ad_content.get('original_message_id') or ad_content.get('message_id')
+                                # Try to download media using Bot API file_id first
+                                logger.info(f"Downloading media using Bot API file_id: {ad_content['file_id']}")
+                                media_file = await client.download_media(ad_content['file_id'])
+                                logger.info(f"Media download result: {media_file}")
                                 
-                                logger.info(f"🔄 PREMIUM EMOJI FIX: Worker account accessing your original message directly")
-                                logger.info(f"Getting original message: chat_id={original_chat_id}, message_id={original_message_id}")
-                                
-                                # CRITICAL: Worker account (with Premium) gets YOUR original message directly
-                                # This bypasses the BotFather bot that stripped the premium emoji data
-                                original_message = await client.get_messages(original_chat_id, ids=original_message_id)
-                                logger.info(f"Worker retrieved message: {original_message}")
-                                logger.info(f"Message has media: {hasattr(original_message, 'media') and original_message.media}")
-                                
-                                if original_message and hasattr(original_message, 'media') and original_message.media:
-                                    logger.info(f"Method 1 SUCCESS: Found media {type(original_message.media)}")
-                                    media_file = await client.download_media(original_message.media)
-                                    logger.info(f"Method 1: Media downloaded: {media_file}")
-                                    
-                                    # CRITICAL: Get YOUR original message text with premium emoji entities intact
-                                    if hasattr(original_message, 'message'):
-                                        original_text = original_message.message  # Caption for media
-                                        logger.info(f"✅ PREMIUM EMOJI SUCCESS: Using YOUR original caption with premium emojis intact")
-                                    elif original_message.text:
-                                        original_text = original_message.text
-                                        logger.info(f"✅ PREMIUM EMOJI SUCCESS: Using YOUR original text with premium emojis intact")
-                                    else:
-                                        original_text = ad_content.get('caption', '')
-                                        logger.warning(f"⚠️ Fallback to BotFather stored caption (premium emojis may be lost)")
+                                if media_file and os.path.exists(media_file):
+                                    # Register for cleanup
+                                    self._register_temp_file(media_file)
                                     
                                     # Check worker account premium status
                                     try:
@@ -1306,37 +1301,91 @@ class BumpService:
                                         worker_has_premium = getattr(me, 'premium', False)
                                         logger.info(f"✅ Worker account premium status: {worker_has_premium}")
                                         
-                                        if worker_has_premium:
-                                            logger.info(f"🎉 PERFECT SETUP: Worker has Premium + accessing YOUR original message = Premium emojis preserved!")
-                                        else:
-                                            logger.warning(f"⚠️ Worker account doesn't have Premium - premium emojis will show as regular emojis")
+                                        if worker_has_premium and stored_entities:
+                                            logger.info(f"🎉 PERFECT SETUP: Worker has Premium + entity data = Premium emojis should work!")
+                                            
+                                            # Convert stored entities to Telethon format for premium emoji reconstruction
+                                            telethon_entities = self._convert_to_telethon_entities(stored_entities, original_text)
+                                            
+                                            if telethon_entities:
+                                                # Send with premium emoji entities
+                                                message = await client.send_file(
+                                                    chat_entity,
+                                                    media_file,
+                                                    caption=original_text,
+                                                    formatting_entities=telethon_entities,
+                                                    buttons=telethon_buttons
+                                                )
+                                                logger.info(f"✅ Media sent with PREMIUM EMOJIS and inline buttons to {chat_entity.title}")
+                                                self._cleanup_temp_file(media_file)
+                                                continue
+                                        
+                                        # Fallback: Send without entities but with buttons
+                                        message = await client.send_file(
+                                            chat_entity,
+                                            media_file,
+                                            caption=original_text,
+                                            buttons=telethon_buttons
+                                        )
+                                        logger.info(f"✅ Media sent with inline buttons to {chat_entity.title}")
+                                        
                                     except Exception as premium_check_error:
                                         logger.error(f"Could not check worker premium status: {premium_check_error}")
-                                else:
-                                    logger.warning(f"Method 1 FAILED: No media in original message")
-                                    
-                            except Exception as method1_error:
-                                logger.error(f"Method 1 failed: {method1_error}")
-                            
-                            # Method 2: If Method 1 failed, try Bot API approach with entity reconstruction
-                            if not media_file:
-                                try:
-                                    logger.info(f"Trying Method 2 - Bot API file_id with entity reconstruction")
-                                    
-                                    # Try to download using Bot API file_id (might work in some cases)
-                                    media_file = await client.download_media(ad_content['file_id'])
-                                    if media_file:
-                                        logger.info(f"Method 2 SUCCESS: Downloaded via file_id: {media_file}")
-                                    else:
-                                        logger.warning(f"Method 2 FAILED: file_id download returned None")
                                         
-                                except Exception as method2_error:
-                                    logger.error(f"Method 2 failed: {method2_error}")
-                                    media_file = None
+                                        # Basic fallback
+                                        message = await client.send_file(
+                                            chat_entity,
+                                            media_file,
+                                            caption=original_text,
+                                            buttons=telethon_buttons
+                                        )
+                                        logger.info(f"✅ Media sent with basic setup to {chat_entity.title}")
+                                    
+                                    self._cleanup_temp_file(media_file)
+                                    continue
+                                else:
+                                    logger.warning(f"Media download failed, falling back to text")
+                                    
+                            except Exception as download_error:
+                                logger.error(f"Media download failed: {download_error}")
+                                media_file = None
+                            
+                            # If media download failed, send as text with premium emoji entities
+                            if not media_file:
+                                logger.info(f"📝 PREMIUM EMOJI TEXT FALLBACK: Sending as text with entity reconstruction")
                                 
-                            if media_file and os.path.exists(media_file):
-                                # Register for cleanup
-                                self._register_temp_file(media_file)
+                                try:
+                                    me = await client.get_me()
+                                    worker_has_premium = getattr(me, 'premium', False)
+                                    
+                                    if worker_has_premium and stored_entities:
+                                        logger.info(f"🎉 TEXT FALLBACK: Worker has Premium + entity data = Premium emojis should work!")
+                                        
+                                        # Convert stored entities to Telethon format
+                                        telethon_entities = self._convert_to_telethon_entities(stored_entities, original_text)
+                                        
+                                        if telethon_entities:
+                                            # Send text with premium emoji entities
+                                            message = await client.send_message(
+                                                chat_entity,
+                                                original_text,
+                                                formatting_entities=telethon_entities,
+                                                buttons=telethon_buttons
+                                            )
+                                            logger.info(f"✅ Text sent with PREMIUM EMOJIS and inline buttons to {chat_entity.title}")
+                                            continue
+                                    
+                                    # Fallback: Send without entities but with buttons
+                                    message = await client.send_message(
+                                        chat_entity,
+                                        original_text,
+                                        buttons=telethon_buttons
+                                    )
+                                    logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
+                                    
+                                except Exception as text_error:
+                                    logger.error(f"Text fallback failed: {text_error}")
+                                    continue
                                 
                                 # REAL FIX: Send media with original caption AND inline buttons
                                 try:
