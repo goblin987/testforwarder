@@ -1359,174 +1359,155 @@ class BumpService:
                             # Use the stored caption with entity data (this preserves premium emoji IDs)
                             original_text = stored_caption
                             
-                            try:
-                                # SOLUTION: Download media using Bot API, then send with Telethon + buttons
-                                logger.info(f"📤 STORAGE CHANNEL SOLUTION: Using persistent media from storage channel")
-                                logger.info(f"📹 Video details: {ad_content.get('width')}x{ad_content.get('height')}, {ad_content.get('duration')}s, {ad_content.get('file_size')} bytes")
+                            # SOLUTION: Download media using Bot API, then send with Telethon + buttons
+                            logger.info(f"📤 STORAGE CHANNEL SOLUTION: Using persistent media from storage channel")
+                            logger.info(f"📹 Video details: {ad_content.get('width')}x{ad_content.get('height')}, {ad_content.get('duration')}s, {ad_content.get('file_size')} bytes")
+                            
+                            # 🎯 STORAGE CHANNEL APPROACH: Use file_id from storage channel (persistent & reliable)
+                            storage_file_id = ad_content.get('storage_file_id')
+                            media_file_id = None
+                            
+                            if storage_file_id:
+                                logger.info(f"✅ Using storage channel file_id: {storage_file_id}")
+                                media_file_id = storage_file_id
+                                logger.info(f"📤 Storage channel provides persistent, reliable media access")
                                 
-                                # 🎯 STORAGE CHANNEL APPROACH: Use file_id from storage channel (persistent & reliable)
-                                storage_file_id = ad_content.get('storage_file_id')
-                                media_file_id = None
-                                
-                                if storage_file_id:
-                                    logger.info(f"✅ Using storage channel file_id: {storage_file_id}")
-                                    media_file_id = storage_file_id
-                                    logger.info(f"📤 Storage channel provides persistent, reliable media access")
-                                    
+                            else:
+                                # Fallback to original file_id if storage channel not available
+                                original_file_id = ad_content.get('file_id')
+                                if original_file_id:
+                                    logger.warning(f"⚠️ Storage channel not available, using original file_id: {original_file_id}")
+                                    media_file_id = original_file_id
                                 else:
-                                    # Fallback to original file_id if storage channel not available
-                                    original_file_id = ad_content.get('file_id')
-                                    if original_file_id:
-                                        logger.warning(f"⚠️ Storage channel not available, using original file_id: {original_file_id}")
-                                        media_file_id = original_file_id
+                                    logger.warning(f"❌ No media file_id available - will send text with premium emojis only")
+                                    media_file_id = None
+                            
+                            if media_file_id:
+                                # 🎯 TELETHON MEDIA SOLUTION: Get original message via Telethon for native media handling
+                                logger.info(f"🔄 TELETHON APPROACH: Getting original message for native media handling")
+                                
+                                try:
+                                    # Get the original message from user's chat using Telethon
+                                    original_chat_id = ad_content.get('original_chat_id')
+                                    original_message_id = ad_content.get('original_message_id')
+                                    
+                                    if original_chat_id and original_message_id:
+                                        logger.info(f"📥 Fetching original message {original_message_id} from chat {original_chat_id}")
+                                        
+                                        # Get the original message with media
+                                        original_message = await client.get_messages(original_chat_id, ids=original_message_id)
+                                        
+                                        if original_message and original_message.media:
+                                            logger.info(f"✅ Found original message with media: {type(original_message.media)}")
+                                            
+                                            # Check worker account premium status
+                                            me = await client.get_me()
+                                            worker_has_premium = getattr(me, 'premium', False)
+                                            logger.info(f"✅ Worker account premium status: {worker_has_premium}")
+                                            
+                                            if worker_has_premium and stored_entities:
+                                                logger.info(f"🎉 PERFECT SETUP: Worker has Premium + entity data + original media!")
+                                                
+                                                # Convert stored entities to Telethon format
+                                                telethon_entities = self._convert_to_telethon_entities(stored_entities, original_text)
+                                                
+                                                if telethon_entities:
+                                                    # Send original media with premium emoji entities and buttons
+                                                    message = await client.send_file(
+                                                        chat_entity,
+                                                        original_message.media,  # Use original media object
+                                                        caption=original_text,
+                                                        formatting_entities=telethon_entities,
+                                                        buttons=telethon_buttons
+                                                    )
+                                                    logger.info(f"🎉 TELETHON SUCCESS: MEDIA + PREMIUM EMOJIS + INLINE BUTTONS sent to {chat_entity.title}")
+                                                    
+                                                    # Debug: Check if message has reply markup
+                                                    if hasattr(message, 'reply_markup') and message.reply_markup:
+                                                        logger.info(f"✅ CONFIRMED: Message has reply_markup with {len(message.reply_markup.rows)} button rows")
+                                                    else:
+                                                        logger.warning(f"⚠️ WARNING: Message has NO reply_markup!")
+                                                    
+                                                    continue
+                                            
+                                            # Fallback: Send original media without entities but with buttons
+                                            message = await client.send_file(
+                                                chat_entity,
+                                                original_message.media,  # Use original media object
+                                                caption=original_text,
+                                                buttons=telethon_buttons
+                                            )
+                                            logger.info(f"🎉 TELETHON SUCCESS: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
+                                            
+                                            # Debug: Check if message has reply markup
+                                            if hasattr(message, 'reply_markup') and message.reply_markup:
+                                                logger.info(f"✅ CONFIRMED: Message has reply_markup with {len(message.reply_markup.rows)} button rows")
+                                            else:
+                                                logger.warning(f"⚠️ WARNING: Message has NO reply_markup!")
+                                            
+                                            continue
+                                        else:
+                                            logger.warning(f"❌ Original message has no media or not found")
                                     else:
-                                        logger.warning(f"❌ No media file_id available - will send text with premium emojis only")
-                                        media_file_id = None
+                                        logger.warning(f"❌ Missing original_chat_id or original_message_id")
+                                        
+                                except Exception as telethon_media_error:
+                                    logger.error(f"❌ Telethon media access failed: {telethon_media_error}")
                                 
-                if media_file_id:
-                    # 🎯 TELETHON MEDIA SOLUTION: Get original message via Telethon for native media handling
-                    logger.info(f"🔄 TELETHON APPROACH: Getting original message for native media handling")
-                    
-                    try:
-                        # Get the original message from user's chat using Telethon
-                        original_chat_id = ad_content.get('original_chat_id')
-                        original_message_id = ad_content.get('original_message_id')
-                        
-                        if original_chat_id and original_message_id:
-                            logger.info(f"📥 Fetching original message {original_message_id} from chat {original_chat_id}")
+                                # If all media approaches fail, fall back to text
+                                logger.warning(f"Media handling failed, falling back to text")
                             
-                            # Get the original message with media
-                            original_message = await client.get_messages(original_chat_id, ids=original_message_id)
+                            # If media handling failed, send as text with premium emoji entities
+                            logger.warning(f"🚨 CRITICAL ISSUE: Media download failed - buttons may not work on text-only messages in groups!")
+                            logger.info(f"💡 TELEGRAM LIMITATION: Groups may ignore inline buttons on text-only messages")
+                            logger.info(f"📝 PREMIUM EMOJI TEXT FALLBACK: Sending as text with entity reconstruction (buttons may not appear)")
                             
-                            if original_message and original_message.media:
-                                logger.info(f"✅ Found original message with media: {type(original_message.media)}")
-                                
-                                # Check worker account premium status
+                            # Text fallback - send as text with buttons
+                            try:
                                 me = await client.get_me()
                                 worker_has_premium = getattr(me, 'premium', False)
-                                logger.info(f"✅ Worker account premium status: {worker_has_premium}")
                                 
                                 if worker_has_premium and stored_entities:
-                                    logger.info(f"🎉 PERFECT SETUP: Worker has Premium + entity data + original media!")
+                                    logger.info(f"🎉 TEXT FALLBACK: Worker has Premium + entity data = Premium emojis should work!")
                                     
                                     # Convert stored entities to Telethon format
                                     telethon_entities = self._convert_to_telethon_entities(stored_entities, original_text)
                                     
                                     if telethon_entities:
-                                        # Send original media with premium emoji entities and buttons
-                                        message = await client.send_file(
+                                        # Send text with premium emoji entities
+                                        message = await client.send_message(
                                             chat_entity,
-                                            original_message.media,  # Use original media object
-                                            caption=original_text,
+                                            original_text,
                                             formatting_entities=telethon_entities,
                                             buttons=telethon_buttons
                                         )
-                                        logger.info(f"🎉 TELETHON SUCCESS: MEDIA + PREMIUM EMOJIS + INLINE BUTTONS sent to {chat_entity.title}")
-                                        
-                                        # Debug: Check if message has reply markup
-                                        if hasattr(message, 'reply_markup') and message.reply_markup:
-                                            logger.info(f"✅ CONFIRMED: Message has reply_markup with {len(message.reply_markup.rows)} button rows")
-                                        else:
-                                            logger.warning(f"⚠️ WARNING: Message has NO reply_markup!")
-                                        
-                                        continue
-                                
-                                # Fallback: Send original media without entities but with buttons
-                                message = await client.send_file(
-                                    chat_entity,
-                                    original_message.media,  # Use original media object
-                                    caption=original_text,
-                                    buttons=telethon_buttons
-                                )
-                                logger.info(f"🎉 TELETHON SUCCESS: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
-                                
-                                # Debug: Check if message has reply markup
-                                if hasattr(message, 'reply_markup') and message.reply_markup:
-                                    logger.info(f"✅ CONFIRMED: Message has reply_markup with {len(message.reply_markup.rows)} button rows")
+                                        logger.info(f"✅ Text sent with PREMIUM EMOJIS and inline buttons to {chat_entity.title}")
+                                    else:
+                                        # Fallback: Send without entities but with buttons
+                                        message = await client.send_message(
+                                            chat_entity,
+                                            original_text,
+                                            buttons=telethon_buttons
+                                        )
+                                        logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
                                 else:
-                                    logger.warning(f"⚠️ WARNING: Message has NO reply_markup!")
+                                    # Send without premium emoji entities but with buttons
+                                    message = await client.send_message(
+                                        chat_entity,
+                                        original_text,
+                                        buttons=telethon_buttons
+                                    )
+                                    logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
                                 
-                                continue
-                            else:
-                                logger.warning(f"❌ Original message has no media or not found")
-                        else:
-                            logger.warning(f"❌ Missing original_chat_id or original_message_id")
-                            
-                    except Exception as telethon_media_error:
-                        logger.error(f"❌ Telethon media access failed: {telethon_media_error}")
-                    
-                    # If all media approaches fail, fall back to text
-                    logger.warning(f"Media handling failed, falling back to text")
-                
-                # If media handling failed, send as text with premium emoji entities
-                logger.warning(f"🚨 CRITICAL ISSUE: Media download failed - buttons may not work on text-only messages in groups!")
-                logger.info(f"💡 TELEGRAM LIMITATION: Groups may ignore inline buttons on text-only messages")
-                logger.info(f"📝 PREMIUM EMOJI TEXT FALLBACK: Sending as text with entity reconstruction (buttons may not appear)")
-                
-                try:
-                    me = await client.get_me()
-                    worker_has_premium = getattr(me, 'premium', False)
-                    
-                    if worker_has_premium and stored_entities:
-                        logger.info(f"🎉 TEXT FALLBACK: Worker has Premium + entity data = Premium emojis should work!")
+                            except Exception as text_error:
+                                logger.error(f"Text fallback failed: {text_error}")
+                                # Still continue to next chat even if this one fails
+                                pass
                         
-                        # Convert stored entities to Telethon format
-                        telethon_entities = self._convert_to_telethon_entities(stored_entities, original_text)
-                        
-                        # Debug: Log button information
-                        logger.info(f"🔘 DEBUG: Sending with {len(telethon_buttons) if telethon_buttons else 0} button rows")
-                        if telethon_buttons:
-                            for i, row in enumerate(telethon_buttons):
-                                logger.info(f"🔘 DEBUG: Row {i}: {len(row)} buttons - {[btn.text for btn in row]}")
-                        
-                        if telethon_entities:
-                            # Send text with premium emoji entities
-                            message = await client.send_message(
-                                chat_entity,
-                                original_text,
-                                formatting_entities=telethon_entities,
-                                buttons=telethon_buttons
-                            )
-                            logger.info(f"✅ Text sent with PREMIUM EMOJIS and inline buttons to {chat_entity.title}")
-                            
-                            # Debug: Check if message has reply markup
-                            if hasattr(message, 'reply_markup') and message.reply_markup:
-                                logger.info(f"🔘 DEBUG: Message has reply_markup with {len(message.reply_markup.rows)} rows")
-                            else:
-                                logger.warning(f"🔘 DEBUG: Message has NO reply_markup - buttons may have been ignored!")
-                        else:
-                            # Fallback: Send without entities but with buttons
-                            message = await client.send_message(
-                                chat_entity,
-                                original_text,
-                                buttons=telethon_buttons
-                            )
-                            logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
-                            
-                            # Debug: Check if message has reply markup
-                            if hasattr(message, 'reply_markup') and message.reply_markup:
-                                logger.info(f"🔘 DEBUG: Message has reply_markup with {len(message.reply_markup.rows)} rows")
-                            else:
-                                logger.warning(f"🔘 DEBUG: Message has NO reply_markup - buttons may have been ignored!")
-                    else:
-                        # Send without premium emoji entities but with buttons
-                        message = await client.send_message(
-                            chat_entity,
-                            original_text,
-                            buttons=telethon_buttons
-                        )
-                        logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
-                        
-                        # Debug: Check if message has reply markup
-                        if hasattr(message, 'reply_markup') and message.reply_markup:
-                            logger.info(f"🔘 DEBUG: Message has reply_markup with {len(message.reply_markup.rows)} rows")
-                        else:
-                            logger.warning(f"🔘 DEBUG: Message has NO reply_markup - buttons may have been ignored!")
-                
-                except Exception as text_error:
-                    logger.error(f"Text fallback failed: {text_error}")
-                    # Still continue to next chat even if this one fails
-                    pass
+                        except Exception as single_media_error:
+                            logger.error(f"Single media processing failed: {single_media_error}")
+                            # Continue to next chat
+                            continue
                 
                 # Log the performance
                 if message:
