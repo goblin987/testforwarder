@@ -1071,11 +1071,16 @@ class BumpService:
             try:
                 # Handle different content types
                 if isinstance(ad_content, list) and ad_content:
+                    # Check if this is a bridge channel message (first item check)
+                    if ad_content[0].get('bridge_channel'):
+                        logger.info(f"🔗 Processing BRIDGE CHANNEL message for premium emoji preservation")
+                        await self._process_bridge_channel_message(client, chat_entity, ad_content[0], telethon_buttons)
+                        sent_count += 1
+                        continue  # Bridge channel messages are processed individually, move to next chat
+                    
                     # Find the main media message and combine all text content
                     media_message = None
                     combined_text = ""
-                    
-                    # Process normal ad content with inline buttons
                     
                     for message_data in ad_content:
                         if message_data.get('media_type') and not media_message:
@@ -1290,7 +1295,12 @@ class BumpService:
                             else:
                                 continue  # Skip if no text content
                 else:
-                    # Process normal ad content with inline buttons
+                    # Check if this is a bridge channel message
+                    if isinstance(ad_content, dict) and ad_content.get('bridge_channel'):
+                        logger.info(f"🔗 Processing BRIDGE CHANNEL message for premium emoji preservation")
+                        await self._process_bridge_channel_message(client, chat_entity, ad_content, telethon_buttons)
+                        sent_count += 1
+                        continue
                     
                     # Single message - check if it has media or is just text
                     if isinstance(ad_content, dict) and ad_content.get('media_type'):
