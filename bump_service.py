@@ -1546,7 +1546,7 @@ class BumpService:
                                                     chat_entity,
                                                     file=storage_message.media,  # Media from storage channel
                                                     caption=original_text,  # Caption from database
-                                                    parse_mode='none',  # Critical: Don't parse, use entities directly
+                                                    parse_mode=None,  # Critical: Don't parse, use entities directly
                                                     entities=telethon_entities,  # Premium emoji entities from database
                                                     buttons=telethon_buttons  # Inline buttons
                                                 )
@@ -1575,7 +1575,7 @@ class BumpService:
                                                 chat_entity,
                                                 file=storage_message.media,  # Media from storage channel
                                                 caption=original_text,  # Caption from database
-                                                parse_mode='none',  # Critical: Don't parse, use entities directly
+                                                parse_mode=None,  # Critical: Don't parse, use entities directly
                                                 entities=telethon_entities,  # Premium emoji entities from database
                                                 buttons=telethon_buttons  # Inline buttons
                                             )
