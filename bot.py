@@ -503,8 +503,8 @@ class TgcfBot:
             # Use centralized error handling
             await self.handle_error(update, context, e, f"button_callback_{data}")
     
-    async def show_main_menu(self, query):
-        """Show main menu with all core features"""
+    def get_main_menu_keyboard(self):
+        """Get main menu keyboard markup"""
         keyboard = [
             [InlineKeyboardButton("👥 Manage Accounts", callback_data="manage_accounts")],
             [InlineKeyboardButton("📢 Bump Service", callback_data="bump_service")],
@@ -513,7 +513,11 @@ class TgcfBot:
             [InlineKeyboardButton("⚙️ Settings", callback_data="settings")],
             [InlineKeyboardButton("❓ Help", callback_data="help")]
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        return InlineKeyboardMarkup(keyboard)
+
+    async def show_main_menu(self, query):
+        """Show main menu with all core features"""
+        reply_markup = self.get_main_menu_keyboard()
         
         await query.edit_message_text(
             "🤖 **TgCF Bot - Main Menu**\n\nChoose an option:",
