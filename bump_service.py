@@ -1425,20 +1425,29 @@ class BumpService:
                                         logger.error(f"⚠️ Download error details:", exc_info=True)
                                         media_file = None
                                         
-                                        # Fallback: Try original message approach
+                                        # SOLUTION: Get fresh media from original message (bypasses expired file_id)
                                         try:
-                                            logger.info(f"🔄 Fallback: Attempting original message approach")
+                                            logger.info(f"🔄 SOLUTION: Getting fresh media from original message")
                                             original_chat_id = ad_content.get('original_chat_id')
                                             original_message_id = ad_content.get('original_message_id')
                                             
                                             if original_chat_id and original_message_id:
+                                                logger.info(f"🔄 Fetching message {original_message_id} from chat {original_chat_id}")
                                                 original_msg = await client.get_messages(original_chat_id, ids=original_message_id)
                                                 if original_msg and original_msg.media:
-                                                    logger.info(f"✅ Found original message with media: {type(original_msg.media)}")
+                                                    logger.info(f"✅ Found original message with fresh media: {type(original_msg.media)}")
                                                     media_file = await client.download_media(original_msg.media, f"temp_media_{campaign_id}_{int(time.time())}")
-                                                    logger.info(f"✅ Fallback media download successful: {media_file}")
+                                                    if media_file:
+                                                        logger.info(f"✅ SUCCESS: Fresh media downloaded: {media_file}")
+                                                    else:
+                                                        logger.warning(f"❌ Fresh media download returned None")
+                                                else:
+                                                    logger.warning(f"❌ Original message has no media or not found")
+                                            else:
+                                                logger.warning(f"❌ Missing original_chat_id or original_message_id")
                                         except Exception as fallback_error:
-                                            logger.warning(f"❌ Fallback download also failed: {fallback_error}")
+                                            logger.error(f"❌ Fresh media download failed: {fallback_error}")
+                                            logger.error(f"❌ Fresh media error details:", exc_info=True)
                                 else:
                                     logger.info(f"📝 No file_id available for media download")
                                 
@@ -1467,18 +1476,31 @@ class BumpService:
                                                     formatting_entities=telethon_entities,
                                                     buttons=telethon_buttons
                                                 )
-                                                logger.info(f"✅ Media sent with PREMIUM EMOJIS and inline buttons to {chat_entity.title}")
+                                                logger.info(f"🎉 SUCCESS: VIDEO + PREMIUM EMOJIS + INLINE BUTTONS sent to {chat_entity.title}")
+                                                
+                                                # Debug: Check if message has reply markup
+                                                if hasattr(message, 'reply_markup') and message.reply_markup:
+                                                    logger.info(f"✅ CONFIRMED: Message has reply_markup with {len(message.reply_markup.rows)} button rows")
+                                                else:
+                                                    logger.warning(f"⚠️ WARNING: Video message has NO reply_markup!")
+                                                
                                                 self._cleanup_temp_file(media_file)
                                                 continue
                                         
-                                        # Fallback: Send without entities but with buttons
-                                        message = await client.send_file(
-                                            chat_entity,
-                                            media_file,
-                                            caption=original_text,
-                                            buttons=telethon_buttons
-                                        )
-                                        logger.info(f"✅ Media sent with inline buttons to {chat_entity.title}")
+                                            # Fallback: Send without entities but with buttons
+                                            message = await client.send_file(
+                                                chat_entity,
+                                                media_file,
+                                                caption=original_text,
+                                                buttons=telethon_buttons
+                                            )
+                                            logger.info(f"🎉 SUCCESS: VIDEO + INLINE BUTTONS sent to {chat_entity.title}")
+                                            
+                                            # Debug: Check if message has reply markup
+                                            if hasattr(message, 'reply_markup') and message.reply_markup:
+                                                logger.info(f"✅ CONFIRMED: Message has reply_markup with {len(message.reply_markup.rows)} button rows")
+                                            else:
+                                                logger.warning(f"⚠️ WARNING: Video message has NO reply_markup!")
                                         
                                     except Exception as premium_check_error:
                                         logger.error(f"Could not check worker premium status: {premium_check_error}")
