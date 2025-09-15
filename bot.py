@@ -1493,38 +1493,6 @@ Schedule: Next message in {campaign['schedule_time']}
             
             await query.edit_message_text(success_text, reply_markup=self.get_main_menu_keyboard())
             await query.answer("✅ Campaign is active!", show_alert=False)
-Account: {account['account_name']}
-Status: ❌ Account not authenticated
-
-**Solution:**
-1. Delete this account from 'Manage Accounts'
-2. Re-add the account using API credentials
-3. Complete phone verification when prompted
-4. Try starting the campaign again"""
-                else:
-                    success_text = f"""⚠️ Campaign Start Issues
-
-Campaign: {campaign['campaign_name']}
-Account: {account['account_name']}
-Status: ❌ Authentication failed or no access to groups
-
-**Possible Solutions:**
-1. Check that your account has access to target groups
-2. Try deleting and re-adding the account with phone verification
-3. Make sure the account is not banned/restricted"""
-            
-            keyboard = [
-                [InlineKeyboardButton("🔄 Try Again", callback_data=f"start_campaign_{campaign_id}")],
-                [InlineKeyboardButton("⚙️ Configure Campaign", callback_data=f"campaign_{campaign_id}")],
-                [InlineKeyboardButton("📋 My Campaigns", callback_data="my_campaigns")],
-                [InlineKeyboardButton("🔙 Bump Service", callback_data="back_to_bump")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.edit_message_text(
-                success_text,
-                reply_markup=reply_markup
-            )
             
         except Exception as e:
             logger.error(f"Manual campaign start failed: {e}")
