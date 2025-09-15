@@ -143,6 +143,69 @@ class BumpService:
         finally:
             self.temp_files.discard(file_path)
     
+    async def _process_bridge_channel_message(self, client, chat_entity, ad_content, telethon_buttons):
+        """Process bridge channel message with premium emoji preservation"""
+        try:
+            bridge_channel_username = ad_content.get('bridge_channel_username')
+            bridge_message_id = ad_content.get('bridge_message_id')
+            
+            logger.info(f"🔗 Bridge channel: @{bridge_channel_username}, Message ID: {bridge_message_id}")
+            
+            # Step 1: Join the bridge channel if not already joined
+            try:
+                bridge_entity = await client.get_entity(f"@{bridge_channel_username}")
+                logger.info(f"✅ Bridge channel entity resolved: {bridge_entity.title}")
+                
+                # Try to join the channel (if it's public and we're not already in it)
+                try:
+                    from telethon.tl.functions.channels import JoinChannelRequest
+                    await client(JoinChannelRequest(bridge_entity))
+                    logger.info(f"✅ Joined bridge channel @{bridge_channel_username}")
+                except Exception as join_error:
+                    logger.info(f"Already in bridge channel or can't join: {join_error}")
+                
+            except Exception as entity_error:
+                logger.error(f"❌ Could not resolve bridge channel @{bridge_channel_username}: {entity_error}")
+                return
+            
+            # Step 2: Get the original message from bridge channel (preserves all entities)
+            try:
+                original_message = await client.get_messages(bridge_entity, ids=bridge_message_id)
+                if not original_message:
+                    logger.error(f"❌ Message {bridge_message_id} not found in @{bridge_channel_username}")
+                    return
+                
+                logger.info(f"✅ Retrieved original message from bridge channel with all entities intact")
+                logger.info(f"Message has media: {bool(original_message.media)}")
+                logger.info(f"Message text length: {len(original_message.message or '')}")
+                
+                # Step 3: Forward the message with all entities preserved + add buttons
+                if original_message.media:
+                    # Forward media with preserved entities and add buttons
+                    message = await client.send_file(
+                        chat_entity,
+                        original_message.media,
+                        caption=original_message.message,
+                        buttons=telethon_buttons
+                    )
+                    logger.info(f"✅ Bridge channel media forwarded with PREMIUM EMOJIS and buttons to {chat_entity.title}")
+                else:
+                    # Forward text with preserved entities and add buttons
+                    message = await client.send_message(
+                        chat_entity,
+                        original_message.message,
+                        buttons=telethon_buttons
+                    )
+                    logger.info(f"✅ Bridge channel text forwarded with PREMIUM EMOJIS and buttons to {chat_entity.title}")
+                
+            except Exception as message_error:
+                logger.error(f"❌ Could not retrieve/forward message from bridge channel: {message_error}")
+                return
+                
+        except Exception as e:
+            logger.error(f"❌ Bridge channel processing failed: {e}")
+            return
+    
     def cleanup_all_resources(self):
         """Clean up all resources (clients, temp files, etc.)"""
         logger.info("Starting comprehensive resource cleanup...")
@@ -1243,6 +1306,12 @@ class BumpService:
                             else:
                                 continue  # Skip if no text content
                 else:
+                    # Check if this is a bridge channel message
+                    if isinstance(ad_content, dict) and ad_content.get('bridge_channel'):
+                        logger.info(f"🔗 Processing BRIDGE CHANNEL message for premium emoji preservation")
+                        await self._process_bridge_channel_message(client, chat_entity, ad_content, telethon_buttons)
+                        continue
+                    
                     # Single message - check if it has media or is just text
                     if isinstance(ad_content, dict) and ad_content.get('media_type'):
                         # Single message with media - WORKING SOLUTION

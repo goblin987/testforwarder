@@ -104,6 +104,80 @@ class TgcfBot:
         
         return True, ""
     
+    def _is_bridge_channel_link(self, text: str) -> bool:
+        """Check if text contains a bridge channel/group message link"""
+        text = text.strip()
+        
+        # Check for t.me links with message ID
+        if 't.me/' in text and '/' in text:
+            # Extract the link part
+            if text.startswith('https://t.me/') or text.startswith('http://t.me/') or text.startswith('t.me/'):
+                parts = text.replace('https://', '').replace('http://', '').split('/')
+                if len(parts) >= 3:  # t.me/channel/message_id
+                    try:
+                        int(parts[-1])  # Last part should be message ID
+                        return True
+                    except ValueError:
+                        pass
+        
+        return False
+    
+    async def _handle_bridge_channel_link(self, update: Update, session: dict, link: str):
+        """Handle bridge channel/group message link"""
+        user_id = update.effective_user.id
+        
+        try:
+            # Parse the bridge channel link
+            link = link.strip()
+            if not link.startswith('http'):
+                link = 'https://' + link
+            
+            # Extract channel username and message ID
+            parts = link.replace('https://t.me/', '').replace('http://t.me/', '').split('/')
+            if len(parts) < 2:
+                raise ValueError("Invalid link format")
+            
+            channel_username = parts[0]
+            message_id = int(parts[1])
+            
+            # Store bridge channel information
+            ad_data = {
+                'bridge_channel': True,
+                'bridge_channel_username': channel_username,
+                'bridge_message_id': message_id,
+                'bridge_link': link,
+                'message_id': message_id,
+                'chat_id': f"@{channel_username}",
+                'original_message_id': message_id,
+                'original_chat_id': f"@{channel_username}",
+                'has_custom_emojis': True,  # Assume bridge channel preserves emojis
+                'has_premium_emojis': True,  # Bridge channel should preserve premium emojis
+                'media_type': 'bridge_channel'
+            }
+            
+            # Store in session
+            session['campaign_data']['ad_content'] = ad_data
+            
+            # Move to next step
+            session['step'] = 'add_buttons_choice'
+            
+            await update.message.reply_text(
+                f"✅ **Bridge Channel Link Configured!**\n\n**Channel:** @{channel_username}\n**Message ID:** {message_id}\n\n🎯 **How this works:**\n1️⃣ Worker accounts will join @{channel_username}\n2️⃣ They'll forward message #{message_id} with premium emojis intact\n3️⃣ All formatting and media preserved perfectly!\n\n**Step 3/6: Add Buttons**\n\nWould you like to add clickable buttons under your forwarded message?",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Yes, Add Buttons", callback_data="add_buttons_yes")],
+                    [InlineKeyboardButton("❌ No Buttons", callback_data="add_buttons_no")],
+                    [InlineKeyboardButton("🔙 Back", callback_data="back_to_ad_content")]
+                ])
+            )
+            
+        except Exception as e:
+            logger.error(f"Error parsing bridge channel link: {e}")
+            await update.message.reply_text(
+                "❌ **Invalid Bridge Channel Link**\n\n**Expected format:**\n`t.me/yourchannel/123`\n`https://t.me/yourchannel/123`\n\n**Example:**\n`t.me/mychannel/456`\n\nPlease send a valid channel message link or forward a message directly.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+    
     def sanitize_text(self, text: str) -> str:
         """Sanitize text input by removing or escaping dangerous characters"""
         if not text:
@@ -737,9 +811,15 @@ Please send me the source chat ID or username.
         )
     
     async def handle_forwarded_ad_content(self, update: Update, session: dict):
-        """Handle forwarded message as ad content with full fidelity preservation"""
+        """Handle forwarded message or bridge channel link as ad content with full fidelity preservation"""
         user_id = update.effective_user.id
         message = update.message
+        
+        # Check if this is a bridge channel/group message link
+        message_text = message.text or message.caption or ""
+        if message_text and self._is_bridge_channel_link(message_text):
+            await self._handle_bridge_channel_link(update, session, message_text)
+            return
         
         # Store the complete message data for full fidelity reproduction
         ad_data = {
@@ -2203,7 +2283,7 @@ Access the full-featured web interface for advanced configuration:
                 session['step'] = 'ad_content'
                 
                 await update.message.reply_text(
-                    "✅ **Campaign name set!**\n\n**Step 2/6: Ad Content**\n\n📤 **Forward me the message(s) you want to use as advertisement**\n\n**Supported Content:**\n• Text with custom/premium emojis ✨\n• Images, videos, documents 📸\n• Voice messages and stickers 🎵\n• Full formatting preservation 📝\n• Multiple messages (forward each one)\n\n**Just forward the message(s) from any chat - I'll preserve everything exactly!**",
+                    "✅ **Campaign name set!**\n\n**Step 2/6: Ad Content**\n\n**🔗 PREMIUM EMOJI SOLUTION: Bridge Channel Method**\n\n**Option 1: Bridge Channel/Group (RECOMMENDED for Premium Emojis)**\n1️⃣ Create a public channel or group\n2️⃣ Forward your premium emoji message there\n3️⃣ Send me the channel message link (e.g., `t.me/yourchannel/123`)\n4️⃣ Worker accounts will join and forward with premium emojis preserved!\n\n**Option 2: Direct Forward (Standard)**\n📤 Forward me the message(s) directly\n\n**Supported Content:**\n• Text with custom/premium emojis ✨\n• Images, videos, documents 📸\n• Voice messages and stickers 🎵\n• Full formatting preservation 📝\n\n**💎 For premium emojis, use Option 1 (Bridge Channel)!**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             
