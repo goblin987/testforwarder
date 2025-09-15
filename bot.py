@@ -3415,10 +3415,14 @@ This name will help you identify the campaign in your dashboard.
         
         # Create the campaign with enhanced data structure
         try:
+            logger.info(f"🔧 DEBUG: Starting campaign creation process")
             # Prepare enhanced campaign data
             # Handle single message with media vs multiple messages
             ad_messages = campaign_data.get('ad_messages', [])
+            logger.info(f"🔧 DEBUG: Found {len(ad_messages)} ad messages")
+            
             if len(ad_messages) == 1 and ad_messages[0].get('media_type'):
+                logger.info(f"🔧 DEBUG: Creating single media campaign")
                 # Single message with media - use it directly
                 enhanced_campaign_data = {
                     'campaign_name': campaign_data['campaign_name'],
@@ -3430,6 +3434,7 @@ This name will help you identify the campaign in your dashboard.
                     'target_mode': campaign_data.get('target_mode', 'specific'),
                     'immediate_start': True  # Flag for immediate execution
                 }
+                logger.info(f"🔧 DEBUG: Enhanced campaign data created successfully")
             else:
                 # Multiple messages or no media - use as list
                 enhanced_campaign_data = {
@@ -3443,6 +3448,7 @@ This name will help you identify the campaign in your dashboard.
                     'immediate_start': True  # Flag for immediate execution
                 }
             
+            logger.info(f"🔧 DEBUG: About to call add_campaign")
             logger.info(f"Creating campaign with data: {enhanced_campaign_data}")
             
             campaign_id = self.bump_service.add_campaign(
@@ -3458,6 +3464,7 @@ This name will help you identify the campaign in your dashboard.
                 enhanced_campaign_data.get('immediate_start', False)
             )
             
+            logger.info(f"🔧 DEBUG: add_campaign returned with ID: {campaign_id}")
             logger.info(f"Campaign created successfully with ID: {campaign_id}")
             
             # DISABLED AUTOMATIC EXECUTION: User must manually start campaigns
@@ -3495,6 +3502,9 @@ Targets: {len(enhanced_campaign_data['target_chats'])} chat(s)
             )
             
         except Exception as e:
+            logger.error(f"🔧 DEBUG: Exception caught during campaign creation: {e}")
+            logger.error(f"🔧 DEBUG: Exception type: {type(e).__name__}")
+            logger.error(f"🔧 DEBUG: Full traceback:", exc_info=True)
             await query.answer(f"❌ Error creating campaign: {str(e)[:50]}", show_alert=True)
             logger.error(f"Error creating campaign for user {user_id}: {e}")
     
