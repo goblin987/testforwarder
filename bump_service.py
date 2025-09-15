@@ -1049,12 +1049,7 @@ class BumpService:
             try:
                 # Handle different content types
                 if isinstance(ad_content, list) and ad_content:
-                    # Check if this is a bridge channel message (first item check)
-                    if ad_content[0].get('bridge_channel'):
-                        logger.info(f"🔗 Processing BRIDGE CHANNEL message for premium emoji preservation")
-                        await self._process_bridge_channel_message(client, chat_entity, ad_content[0], telethon_buttons)
-                        sent_count += 1
-                        continue  # Bridge channel messages are processed individually, move to next chat
+                    # Process all messages with inline buttons
                     
                     # Find the main media message and combine all text content
                     media_message = None
@@ -1131,13 +1126,15 @@ class BumpService:
                                         
                                         # REAL FIX: Send media with original caption AND inline buttons
                                         # Send media with original caption to preserve emojis + inline buttons
+                                        # CRITICAL: Send with inline buttons (not text buttons)
+                                        logger.info(f"🎯 Sending media with {len(telethon_buttons) if telethon_buttons else 0} inline button rows")
                                         message = await client.send_file(
                                             chat_entity,
                                             media_file,
                                             caption=original_text,  # Use original text to preserve emojis
                                             buttons=telethon_buttons  # Add inline buttons directly to media
                                         )
-                                        logger.info(f"✅ Media sent with preserved emojis and inline buttons to {chat_entity.title}")
+                                        logger.info(f"✅ Media sent with INLINE BUTTONS to {chat_entity.title}")
                                         self._cleanup_temp_file(media_file)
                                         continue
                                     else:
@@ -1275,12 +1272,7 @@ class BumpService:
                             else:
                                 continue  # Skip if no text content
                 else:
-                    # Check if this is a bridge channel message
-                    if isinstance(ad_content, dict) and ad_content.get('bridge_channel'):
-                        logger.info(f"🔗 Processing BRIDGE CHANNEL message for premium emoji preservation")
-                        await self._process_bridge_channel_message(client, chat_entity, ad_content, telethon_buttons)
-                        sent_count += 1
-                        continue
+                    # Process single message with inline buttons
                     
                     # Single message - check if it has media or is just text
                     if isinstance(ad_content, dict) and ad_content.get('media_type'):
