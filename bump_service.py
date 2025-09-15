@@ -172,7 +172,7 @@ class BumpService:
             try:
                 original_message = await client.get_messages(bridge_entity, ids=bridge_message_id)
                 if not original_message:
-                    logger.error(f"❌ Message {bridge_message_id} not found in @{bridge_channel_username}")
+                    logger.error(f"❌ Message {bridge_message_id} not found in {bridge_channel_entity}")
                     return
                 
                 logger.info(f"✅ Retrieved original message from bridge channel with all entities intact")
@@ -262,19 +262,7 @@ class BumpService:
         except Exception as e:
             logger.error(f"Error during session file cleanup: {e}")
     
-    def _format_buttons_as_text(self, telethon_buttons):
-        """Format Telethon buttons as text for guaranteed display everywhere"""
-        if not telethon_buttons:
-            return ""
-        
-        button_text = "🔗 **LINKS:**\n"
-        for row in telethon_buttons:
-            for button in row:
-                if hasattr(button, 'text') and hasattr(button, 'url'):
-                    # Simple, guaranteed format that works everywhere
-                    button_text += f"▶️ {button.text}: {button.url}\n"
-        
-        return button_text.strip()
+    # Removed _format_buttons_as_text - now using inline buttons only
     
     def _reconstruct_text_with_entities(self, text, entities):
         """Reconstruct text with custom emojis using entity data"""
@@ -374,17 +362,7 @@ class BumpService:
             logger.error(f"Failed to convert entities to Telethon format: {e}")
             return []
     
-    def _add_buttons_to_text(self, text, telethon_buttons):
-        """Add button text to message text"""
-        if not text:
-            return ""
-        
-        if telethon_buttons:
-            button_text = self._format_buttons_as_text(telethon_buttons)
-            if button_text:
-                return text + "\n\n" + button_text
-        
-        return text
+    # Removed _add_buttons_to_text - now using inline buttons directly
     
     def init_bump_database(self):
         """Initialize bump service database tables"""
@@ -1244,7 +1222,8 @@ class BumpService:
                                     logger.warning(f"Inline buttons failed for text, using text fallback: {button_error}")
                                     message = await client.send_message(
                                         chat_entity,
-                                        self._add_buttons_to_text(combined_text, telethon_buttons),
+                                        combined_text,
+                                        buttons=telethon_buttons,
                                         parse_mode='html'
                                     )
                                 logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
@@ -1288,7 +1267,8 @@ class BumpService:
                                     logger.warning(f"Inline buttons failed for text, using text fallback: {button_error}")
                                     message = await client.send_message(
                                         chat_entity,
-                                        self._add_buttons_to_text(combined_text, telethon_buttons),
+                                        combined_text,
+                                        buttons=telethon_buttons,
                                         parse_mode='html'
                                     )
                                 logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
@@ -1473,7 +1453,8 @@ class BumpService:
                                         logger.warning(f"Inline buttons failed for caption, using text fallback: {button_error}")
                                         message = await client.send_message(
                                             chat_entity,
-                                            self._add_buttons_to_text(caption_text, telethon_buttons),
+                                            caption_text,
+                                            buttons=telethon_buttons,
                                             parse_mode='html'
                                         )
                                         logger.warning(f"⚠️ Single media download failed, sent as text to {chat_entity.title}")
@@ -1498,7 +1479,8 @@ class BumpService:
                                     logger.warning(f"Inline buttons failed for caption, using text fallback: {button_error}")
                                     message = await client.send_message(
                                         chat_entity,
-                                        self._add_buttons_to_text(caption_text, telethon_buttons),
+                                        caption_text,
+                                            buttons=telethon_buttons,
                                         parse_mode='html'
                                     )
                                 logger.info(f"📝 Single media sent as text fallback to {chat_entity.title}")
