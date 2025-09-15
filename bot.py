@@ -835,39 +835,6 @@ Please send me the source chat ID or username.
             reply_markup=reply_markup
         )
     
-    def _get_file_extension(self, media_type: str, mime_type: str = None) -> str:
-        """Get appropriate file extension based on media type and MIME type"""
-        if media_type == 'photo':
-            return '.jpg'
-        elif media_type == 'video':
-            return '.mp4'
-        elif media_type == 'animation':
-            return '.gif'
-        elif media_type == 'voice':
-            return '.ogg'
-        elif media_type == 'video_note':
-            return '.mp4'
-        elif media_type == 'sticker':
-            return '.webp'
-        elif media_type == 'audio':
-            return '.mp3'
-        elif media_type == 'document':
-            if mime_type:
-                # Map common MIME types to extensions
-                mime_to_ext = {
-                    'application/pdf': '.pdf',
-                    'text/plain': '.txt',
-                    'image/png': '.png',
-                    'image/jpeg': '.jpg',
-                    'video/mp4': '.mp4',
-                    'audio/mpeg': '.mp3',
-                    'application/zip': '.zip'
-                }
-                return mime_to_ext.get(mime_type, '.bin')
-            return '.bin'
-        else:
-            return '.bin'
-    
     async def handle_forwarded_ad_content(self, update: Update, session: dict, context: ContextTypes.DEFAULT_TYPE = None):
         """Handle forwarded message or bridge channel link as ad content with full fidelity preservation"""
         user_id = update.effective_user.id
@@ -985,43 +952,59 @@ Please send me the source chat ID or username.
             ad_data['performer'] = getattr(message.audio, 'performer', None)
             ad_data['title'] = getattr(message.audio, 'title', None)
         
-        # 🎯 BREAKTHROUGH SOLUTION: Download media immediately during campaign creation
-        # This solves the "Original message has no media or not found" issue
-        if ad_data['media_type'] and ad_data.get('file_unique_id'):
+        # 🎯 STORAGE CHANNEL SOLUTION: Forward media to private storage channel
+        # This provides persistent, reliable media storage that survives deployments
+        if ad_data['media_type'] and ad_data.get('file_id'):
             try:
-                import os
-                import time
+                from config import Config
                 
-                logger.info(f"🔄 IMMEDIATE DOWNLOAD: Downloading {ad_data['media_type']} during campaign creation")
-                
-                # Create media directory if it doesn't exist
-                media_dir = "campaign_media"
-                if not os.path.exists(media_dir):
-                    os.makedirs(media_dir)
-                
-                # Use file_unique_id for permanent filename (never expires)
-                file_extension = self._get_file_extension(ad_data['media_type'], ad_data.get('mime_type'))
-                local_filename = f"{media_dir}/{ad_data['file_unique_id']}{file_extension}"
-                
-                # Only download if file doesn't already exist
-                if not os.path.exists(local_filename):
-                    logger.info(f"📥 Downloading media to: {local_filename}")
+                storage_channel_id = Config.STORAGE_CHANNEL_ID
+                if storage_channel_id:
+                    logger.info(f"📤 STORAGE CHANNEL: Forwarding {ad_data['media_type']} to storage channel")
                     
-                    # Get the file using Bot API
-                    file = await context.bot.get_file(ad_data['file_id'])
-                    await file.download_to_drive(local_filename)
+                    # Forward the message to storage channel to get a permanent file_id
+                    forwarded_message = await context.bot.forward_message(
+                        chat_id=storage_channel_id,
+                        from_chat_id=message.chat_id,
+                        message_id=message.message_id
+                    )
                     
-                    logger.info(f"✅ Media downloaded successfully: {local_filename}")
+                    # Extract the new file_id from the forwarded message
+                    storage_file_id = None
+                    if forwarded_message.photo:
+                        storage_file_id = forwarded_message.photo[-1].file_id
+                    elif forwarded_message.video:
+                        storage_file_id = forwarded_message.video.file_id
+                    elif forwarded_message.document:
+                        storage_file_id = forwarded_message.document.file_id
+                    elif forwarded_message.animation:
+                        storage_file_id = forwarded_message.animation.file_id
+                    elif forwarded_message.voice:
+                        storage_file_id = forwarded_message.voice.file_id
+                    elif forwarded_message.video_note:
+                        storage_file_id = forwarded_message.video_note.file_id
+                    elif forwarded_message.sticker:
+                        storage_file_id = forwarded_message.sticker.file_id
+                    elif forwarded_message.audio:
+                        storage_file_id = forwarded_message.audio.file_id
+                    
+                    if storage_file_id:
+                        # Store the storage channel file_id and message_id for reliable access
+                        ad_data['storage_file_id'] = storage_file_id
+                        ad_data['storage_message_id'] = forwarded_message.message_id
+                        ad_data['storage_chat_id'] = storage_channel_id
+                        logger.info(f"✅ Media stored in channel: {storage_file_id}")
+                    else:
+                        logger.warning(f"❌ Could not extract file_id from forwarded message")
+                        ad_data['storage_file_id'] = None
                 else:
-                    logger.info(f"✅ Media already exists: {local_filename}")
+                    logger.warning(f"❌ STORAGE_CHANNEL_ID not configured - using original file_id")
+                    ad_data['storage_file_id'] = None
                 
-                # Store the local file path in ad_data
-                ad_data['local_file_path'] = local_filename
-                
-            except Exception as download_error:
-                logger.error(f"❌ Immediate media download failed: {download_error}")
-                # Continue without local file - fallback to file_id method
-                ad_data['local_file_path'] = None
+            except Exception as storage_error:
+                logger.error(f"❌ Storage channel forwarding failed: {storage_error}")
+                # Continue without storage channel - fallback to original file_id
+                ad_data['storage_file_id'] = None
         
         # Store the ad data
         if 'ad_messages' not in session['campaign_data']:

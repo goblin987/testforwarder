@@ -29,6 +29,9 @@ class Config:
     # Bot Owner Configuration (single user mode)
     OWNER_USER_ID = os.getenv('OWNER_USER_ID')  # Your Telegram user ID (optional)
     
+    # Storage Channel Configuration (for persistent media storage)
+    STORAGE_CHANNEL_ID = os.getenv('STORAGE_CHANNEL_ID')  # Private channel for storing media files
+    
     # Web Interface Configuration
     PASSWORD = os.getenv('PASSWORD', 'hocus pocus qwerty utopia')
     WEB_PORT = int(os.getenv('WEB_PORT', 5000))

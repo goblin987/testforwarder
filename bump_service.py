@@ -1361,27 +1361,30 @@ class BumpService:
                             
                             try:
                                 # SOLUTION: Download media using Bot API, then send with Telethon + buttons
-                                logger.info(f"🎯 BREAKTHROUGH SOLUTION: Using locally stored media file")
+                                logger.info(f"📤 STORAGE CHANNEL SOLUTION: Using persistent media from storage channel")
                                 logger.info(f"📹 Video details: {ad_content.get('width')}x{ad_content.get('height')}, {ad_content.get('duration')}s, {ad_content.get('file_size')} bytes")
                                 
-                                # 🎯 NEW APPROACH: Use locally stored media file (downloaded during campaign creation)
-                                local_file_path = ad_content.get('local_file_path')
-                                media_file = None
+                                # 🎯 STORAGE CHANNEL APPROACH: Use file_id from storage channel (persistent & reliable)
+                                storage_file_id = ad_content.get('storage_file_id')
+                                media_file_id = None
                                 
-                                if local_file_path and os.path.exists(local_file_path):
-                                    logger.info(f"✅ Using locally stored media: {local_file_path}")
-                                    media_file = local_file_path
-                                    
-                                    # Get file size for logging
-                                    file_size = os.path.getsize(local_file_path)
-                                    logger.info(f"📁 Local file size: {file_size} bytes ({file_size / (1024*1024):.1f}MB)")
+                                if storage_file_id:
+                                    logger.info(f"✅ Using storage channel file_id: {storage_file_id}")
+                                    media_file_id = storage_file_id
+                                    logger.info(f"📤 Storage channel provides persistent, reliable media access")
                                     
                                 else:
-                                    logger.warning(f"❌ Local media file not found: {local_file_path}")
-                                    logger.info(f"🔄 Fallback: No local media available - will send text with premium emojis only")
+                                    # Fallback to original file_id if storage channel not available
+                                    original_file_id = ad_content.get('file_id')
+                                    if original_file_id:
+                                        logger.warning(f"⚠️ Storage channel not available, using original file_id: {original_file_id}")
+                                        media_file_id = original_file_id
+                                    else:
+                                        logger.warning(f"❌ No media file_id available - will send text with premium emojis only")
+                                        media_file_id = None
                                 
-                                if media_file and os.path.exists(media_file):
-                                    # Note: No cleanup registration needed - these are permanent campaign media files
+                                if media_file_id:
+                                    # Use file_id to send media with buttons - single API call ensures buttons appear
                                     
                                     # Check worker account premium status
                                     try:
@@ -1396,15 +1399,15 @@ class BumpService:
                                             telethon_entities = self._convert_to_telethon_entities(stored_entities, original_text)
                                             
                                             if telethon_entities:
-                                                # Send with premium emoji entities
+                                                # Send with premium emoji entities using storage channel file_id
                                                 message = await client.send_file(
                                                     chat_entity,
-                                                    media_file,
+                                                    media_file_id,  # Use file_id from storage channel
                                                     caption=original_text,
                                                     formatting_entities=telethon_entities,
                                                     buttons=telethon_buttons
                                                 )
-                                                logger.info(f"🎉 BREAKTHROUGH SUCCESS: LOCAL VIDEO + PREMIUM EMOJIS + INLINE BUTTONS sent to {chat_entity.title}")
+                                                logger.info(f"🎉 STORAGE CHANNEL SUCCESS: VIDEO + PREMIUM EMOJIS + INLINE BUTTONS sent to {chat_entity.title}")
                                                 
                                                 # Debug: Check if message has reply markup
                                                 if hasattr(message, 'reply_markup') and message.reply_markup:
@@ -1412,13 +1415,13 @@ class BumpService:
                                                 else:
                                                     logger.warning(f"⚠️ WARNING: Video message has NO reply_markup!")
                                                 
-                                                self._cleanup_temp_file(media_file)
+                                                # No cleanup needed - using file_id from storage channel
                                                 continue
                                         
                                             # Fallback: Send without entities but with buttons
                                             message = await client.send_file(
                                                 chat_entity,
-                                                media_file,
+                                                media_file_id,  # Use file_id from storage channel
                                                 caption=original_text,
                                                 buttons=telethon_buttons
                                             )
@@ -1436,13 +1439,13 @@ class BumpService:
                                         # Basic fallback
                                         message = await client.send_file(
                                             chat_entity,
-                                            media_file,
+                                            media_file_id,  # Use file_id from storage channel
                                             caption=original_text,
                                             buttons=telethon_buttons
                                         )
                                         logger.info(f"✅ Media sent with basic setup to {chat_entity.title}")
                                     
-                                    self._cleanup_temp_file(media_file)
+                                    # No cleanup needed - using file_id from storage channel
                                     continue
                                 else:
                                     logger.warning(f"Media download failed, falling back to text")
