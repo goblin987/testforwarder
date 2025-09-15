@@ -1011,10 +1011,12 @@ class BumpService:
     
     async def _async_send_ad(self, campaign_id: int):
         """Async helper for send_ad"""
-        campaign = self.get_campaign(campaign_id)
-        if not campaign or not campaign['is_active']:
-            logger.warning(f"Campaign {campaign_id} not found or inactive")
-            return
+        try:
+            logger.info(f"🚀 Starting _async_send_ad for campaign {campaign_id}")
+            campaign = self.get_campaign(campaign_id)
+            if not campaign or not campaign['is_active']:
+                logger.warning(f"Campaign {campaign_id} not found or inactive")
+                return
         
         # Get account info for logging
         account = self.db.get_account(campaign['account_id'])
@@ -1367,41 +1369,56 @@ class BumpService:
                                     try:
                                         # SOLUTION: Use Bot API to download the file properly
                                         logger.info(f"🔄 Using Bot API to download media file")
+                                        logger.info(f"🔄 File ID: {file_id}")
                                         
                                         from telegram import Bot
                                         from config import Config
                                         import aiohttp
                                         import os
+                                        import time
                                         
                                         # Create Bot API instance
+                                        logger.info(f"🔄 Creating Bot API instance")
                                         bot_api = Bot(token=Config.BOT_TOKEN)
                                         
                                         # Get file info from Bot API
+                                        logger.info(f"🔄 Getting file info from Bot API")
                                         file_info = await bot_api.get_file(file_id)
                                         file_path = file_info.file_path
+                                        logger.info(f"🔄 File path from API: {file_path}")
                                         
                                         # Download the file
                                         file_url = f"https://api.telegram.org/file/bot{Config.BOT_TOKEN}/{file_path}"
+                                        logger.info(f"🔄 Download URL: {file_url[:50]}...")
                                         
                                         # Create temp filename
                                         temp_filename = f"temp_media_{campaign_id}_{int(time.time())}.{file_path.split('.')[-1] if '.' in file_path else 'mp4'}"
+                                        logger.info(f"🔄 Temp filename: {temp_filename}")
                                         
                                         # Download file using aiohttp
+                                        logger.info(f"🔄 Starting file download")
                                         async with aiohttp.ClientSession() as session:
                                             async with session.get(file_url) as response:
+                                                logger.info(f"🔄 HTTP response status: {response.status}")
                                                 if response.status == 200:
                                                     with open(temp_filename, 'wb') as f:
+                                                        total_size = 0
                                                         async for chunk in response.content.iter_chunked(8192):
                                                             f.write(chunk)
+                                                            total_size += len(chunk)
                                                     
                                                     media_file = temp_filename
-                                                    logger.info(f"✅ Media downloaded via Bot API: {media_file}")
+                                                    logger.info(f"✅ Media downloaded via Bot API: {media_file} ({total_size} bytes)")
                                                 else:
                                                     logger.error(f"❌ Bot API download failed with status: {response.status}")
+                                                    response_text = await response.text()
+                                                    logger.error(f"❌ Response body: {response_text}")
                                                     media_file = None
                                         
                                     except Exception as download_error:
-                                        logger.warning(f"⚠️ Bot API media download failed: {download_error}")
+                                        logger.error(f"⚠️ Bot API media download failed: {download_error}")
+                                        logger.error(f"⚠️ Download error type: {type(download_error).__name__}")
+                                        logger.error(f"⚠️ Download error details:", exc_info=True)
                                         media_file = None
                                         
                                         # Fallback: Try original message approach
@@ -1648,6 +1665,12 @@ class BumpService:
             logger.info(f"Disconnected client for scheduled campaign {campaign_id}")
         except Exception as e:
             logger.warning(f"Failed to disconnect client for campaign {campaign_id}: {e}")
+        
+        except Exception as campaign_error:
+            logger.error(f"🚨 CRITICAL ERROR in _async_send_ad for campaign {campaign_id}: {campaign_error}")
+            logger.error(f"🚨 Error type: {type(campaign_error).__name__}")
+            logger.error(f"🚨 Full traceback:", exc_info=True)
+            logger.error(f"💡 This error prevented the campaign from executing completely")
     
     def log_ad_performance(self, campaign_id: int, user_id: int, target_chat: str, 
                           message_id: Optional[int], status: str = 'sent'):
