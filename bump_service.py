@@ -541,13 +541,7 @@ class BumpService:
             logger.info(f"🚀 Executing immediate campaign {campaign_id}: {campaign['campaign_name']}")
             
             # Use the existing campaign execution logic
-            await self._async_send_ad(
-                campaign_id, 
-                campaign['account_id'], 
-                campaign['ad_content'], 
-                campaign['target_chats'], 
-                campaign.get('buttons', [])
-            )
+            await self._async_send_ad(campaign_id)
             
             logger.info(f"✅ Immediate campaign {campaign_id} executed successfully")
             
