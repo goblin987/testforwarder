@@ -1467,48 +1467,48 @@ class BumpService:
                                 logger.info(f"🔄 TELETHON APPROACH: Getting original message for native media handling")
                                 
                                 try:
-                # 🎯 BREAKTHROUGH: Get media from STORAGE CHANNEL instead of user's private chat
-                storage_chat_id = ad_content.get('storage_chat_id')
-                storage_message_id = ad_content.get('storage_message_id')
-                
-                if storage_chat_id and storage_message_id:
-                    logger.info(f"📥 BREAKTHROUGH: Fetching media from STORAGE CHANNEL message {storage_message_id} in chat {storage_chat_id}")
-                    
-                    # Convert storage_chat_id to proper format for Telethon
-                    try:
-                        if isinstance(storage_chat_id, str):
-                            if storage_chat_id.startswith('-100'):
-                                storage_chat_id_int = int(storage_chat_id)
-                            elif storage_chat_id.startswith('-'):
-                                storage_chat_id_int = int('-100' + storage_chat_id[1:])
-                            else:
-                                storage_chat_id_int = int('-100' + storage_chat_id)
-                        else:
-                            storage_chat_id_int = int(storage_chat_id)
-                        
-                        logger.info(f"🔄 Using storage chat ID: {storage_chat_id_int}")
-                        
-                        # Get the message from storage channel (bot has access!)
-                        storage_message = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
-                    except Exception as storage_access_error:
-                        logger.error(f"❌ Storage channel access failed: {storage_access_error}")
-                        
-                        # 🔄 TELETHON SESSION REFRESH: Try refreshing session if entity not found
-                        if "Cannot find any entity" in str(storage_access_error):
-                            logger.warning(f"🔄 MEDIA ACCESS: Telethon session cache issue detected")
-                            try:
-                                logger.info(f"🔄 Refreshing session cache for media access...")
-                                await client.get_dialogs(limit=50)
-                                logger.info(f"✅ Session refreshed, retrying media access...")
-                                
-                                # Retry after session refresh
-                                storage_message = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
-                                logger.info(f"✅ Media access successful after session refresh!")
-                            except Exception as retry_error:
-                                logger.error(f"❌ Media access failed even after session refresh: {retry_error}")
-                                storage_message = None
-                        else:
-                            storage_message = None
+                                    # 🎯 BREAKTHROUGH: Get media from STORAGE CHANNEL instead of user's private chat
+                                    storage_chat_id = ad_content.get('storage_chat_id')
+                                    storage_message_id = ad_content.get('storage_message_id')
+                                    
+                                    if storage_chat_id and storage_message_id:
+                                        logger.info(f"📥 BREAKTHROUGH: Fetching media from STORAGE CHANNEL message {storage_message_id} in chat {storage_chat_id}")
+                                        
+                                        # Convert storage_chat_id to proper format for Telethon
+                                        try:
+                                            if isinstance(storage_chat_id, str):
+                                                if storage_chat_id.startswith('-100'):
+                                                    storage_chat_id_int = int(storage_chat_id)
+                                                elif storage_chat_id.startswith('-'):
+                                                    storage_chat_id_int = int('-100' + storage_chat_id[1:])
+                                                else:
+                                                    storage_chat_id_int = int('-100' + storage_chat_id)
+                                            else:
+                                                storage_chat_id_int = int(storage_chat_id)
+                                            
+                                            logger.info(f"🔄 Using storage chat ID: {storage_chat_id_int}")
+                                            
+                                            # Get the message from storage channel (bot has access!)
+                                            storage_message = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
+                                        except Exception as storage_access_error:
+                                            logger.error(f"❌ Storage channel access failed: {storage_access_error}")
+                                            
+                                            # 🔄 TELETHON SESSION REFRESH: Try refreshing session if entity not found
+                                            if "Cannot find any entity" in str(storage_access_error):
+                                                logger.warning(f"🔄 MEDIA ACCESS: Telethon session cache issue detected")
+                                                try:
+                                                    logger.info(f"🔄 Refreshing session cache for media access...")
+                                                    await client.get_dialogs(limit=50)
+                                                    logger.info(f"✅ Session refreshed, retrying media access...")
+                                                    
+                                                    # Retry after session refresh
+                                                    storage_message = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
+                                                    logger.info(f"✅ Media access successful after session refresh!")
+                                                except Exception as retry_error:
+                                                    logger.error(f"❌ Media access failed even after session refresh: {retry_error}")
+                                                    storage_message = None
+                                            else:
+                                                storage_message = None
                                         
                                         if storage_message and storage_message.media:
                                             logger.info(f"✅ STORAGE SUCCESS: Found media in storage channel: {type(storage_message.media)}")
