@@ -1525,6 +1525,14 @@ class BumpService:
                                                 telethon_entities = self._convert_to_telethon_entities(stored_entities, original_text)
                                                 
                                                 if telethon_entities:
+                                                    # DEBUG: Log button details before sending
+                                                    logger.info(f"🔧 DEBUG: About to send with buttons: {telethon_buttons}")
+                                                    logger.info(f"🔧 DEBUG: Button type: {type(telethon_buttons)}")
+                                                    if telethon_buttons:
+                                                        logger.info(f"🔧 DEBUG: Button rows count: {len(telethon_buttons)}")
+                                                        for i, row in enumerate(telethon_buttons):
+                                                            logger.info(f"🔧 DEBUG: Row {i}: {row}")
+                                                    
                                                     # Send storage media with premium emoji entities and buttons
                                                     message = await client.send_file(
                                                         chat_entity,
@@ -1544,6 +1552,13 @@ class BumpService:
                                                     continue
                                             
                                             # Fallback: Send storage media without entities but with buttons
+                                            logger.info(f"🔧 DEBUG FALLBACK: About to send with buttons: {telethon_buttons}")
+                                            logger.info(f"🔧 DEBUG FALLBACK: Button type: {type(telethon_buttons)}")
+                                            if telethon_buttons:
+                                                logger.info(f"🔧 DEBUG FALLBACK: Button rows count: {len(telethon_buttons)}")
+                                                for i, row in enumerate(telethon_buttons):
+                                                    logger.info(f"🔧 DEBUG FALLBACK: Row {i}: {row}")
+                                            
                                             message = await client.send_file(
                                                 chat_entity,
                                                 storage_message.media,  # Use storage channel media object
