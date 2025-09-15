@@ -1236,8 +1236,7 @@ class BumpService:
                                         # Buttons already sent as inline buttons with the media
                                     logger.info(f"✅ Combined media+text sent via download ({media_message['media_type']}) to {chat_entity.title}")
                                     
-                                    # Clean up downloaded file
-                                    self._cleanup_temp_file(media_file)
+                                    # Note: No cleanup needed - using permanent local media file
                                 else:
                                     # Fallback to text if media download fails
                                     if final_caption:
@@ -1362,99 +1361,27 @@ class BumpService:
                             
                             try:
                                 # SOLUTION: Download media using Bot API, then send with Telethon + buttons
-                                logger.info(f"🎬 MEDIA SOLUTION: Download via Bot API, send via Telethon with buttons")
+                                logger.info(f"🎯 BREAKTHROUGH SOLUTION: Using locally stored media file")
                                 logger.info(f"📹 Video details: {ad_content.get('width')}x{ad_content.get('height')}, {ad_content.get('duration')}s, {ad_content.get('file_size')} bytes")
                                 
-                                # Use Bot API to download the file, then Telethon to send it with buttons
-                                file_id = ad_content.get('file_id')
+                                # 🎯 NEW APPROACH: Use locally stored media file (downloaded during campaign creation)
+                                local_file_path = ad_content.get('local_file_path')
                                 media_file = None
                                 
-                                if file_id:
-                                    try:
-                                        # SOLUTION: Use Bot API to download the file properly
-                                        logger.info(f"🔄 Using Bot API to download media file")
-                                        logger.info(f"🔄 File ID: {file_id}")
-                                        
-                                        from telegram import Bot
-                                        from config import Config
-                                        import aiohttp
-                                        import os
-                                        import time
-                                        
-                                        # Create Bot API instance
-                                        logger.info(f"🔄 Creating Bot API instance")
-                                        bot_api = Bot(token=Config.BOT_TOKEN)
-                                        
-                                        # Get file info from Bot API
-                                        logger.info(f"🔄 Getting file info from Bot API")
-                                        file_info = await bot_api.get_file(file_id)
-                                        file_path = file_info.file_path
-                                        logger.info(f"🔄 File path from API: {file_path}")
-                                        
-                                        # Download the file
-                                        file_url = f"https://api.telegram.org/file/bot{Config.BOT_TOKEN}/{file_path}"
-                                        logger.info(f"🔄 Download URL: {file_url[:50]}...")
-                                        
-                                        # Create temp filename
-                                        temp_filename = f"temp_media_{campaign_id}_{int(time.time())}.{file_path.split('.')[-1] if '.' in file_path else 'mp4'}"
-                                        logger.info(f"🔄 Temp filename: {temp_filename}")
-                                        
-                                        # Download file using aiohttp
-                                        logger.info(f"🔄 Starting file download")
-                                        async with aiohttp.ClientSession() as session:
-                                            async with session.get(file_url) as response:
-                                                logger.info(f"🔄 HTTP response status: {response.status}")
-                                                if response.status == 200:
-                                                    with open(temp_filename, 'wb') as f:
-                                                        total_size = 0
-                                                        async for chunk in response.content.iter_chunked(8192):
-                                                            f.write(chunk)
-                                                            total_size += len(chunk)
-                                                    
-                                                    media_file = temp_filename
-                                                    logger.info(f"✅ Media downloaded via Bot API: {media_file} ({total_size} bytes)")
-                                                else:
-                                                    logger.error(f"❌ Bot API download failed with status: {response.status}")
-                                                    response_text = await response.text()
-                                                    logger.error(f"❌ Response body: {response_text}")
-                                                    media_file = None
-                                        
-                                    except Exception as download_error:
-                                        logger.error(f"⚠️ Bot API media download failed: {download_error}")
-                                        logger.error(f"⚠️ Download error type: {type(download_error).__name__}")
-                                        logger.error(f"⚠️ Download error details:", exc_info=True)
-                                        media_file = None
+                                if local_file_path and os.path.exists(local_file_path):
+                                    logger.info(f"✅ Using locally stored media: {local_file_path}")
+                                    media_file = local_file_path
                                     
-                                    # CRITICAL FIX: Try fresh media download if Bot API failed (404 or any other reason)
-                                    if not media_file:
-                                        try:
-                                            logger.info(f"🔄 SOLUTION: Getting fresh media from original message")
-                                            original_chat_id = ad_content.get('original_chat_id')
-                                            original_message_id = ad_content.get('original_message_id')
-                                            
-                                            if original_chat_id and original_message_id:
-                                                logger.info(f"🔄 Fetching message {original_message_id} from chat {original_chat_id}")
-                                                original_msg = await client.get_messages(original_chat_id, ids=original_message_id)
-                                                if original_msg and original_msg.media:
-                                                    logger.info(f"✅ Found original message with fresh media: {type(original_msg.media)}")
-                                                    media_file = await client.download_media(original_msg.media, f"temp_media_{campaign_id}_{int(time.time())}")
-                                                    if media_file:
-                                                        logger.info(f"🎉 SUCCESS: Fresh media downloaded: {media_file}")
-                                                    else:
-                                                        logger.warning(f"❌ Fresh media download returned None")
-                                                else:
-                                                    logger.warning(f"❌ Original message has no media or not found")
-                                            else:
-                                                logger.warning(f"❌ Missing original_chat_id or original_message_id")
-                                        except Exception as fallback_error:
-                                            logger.error(f"❌ Fresh media download failed: {fallback_error}")
-                                            logger.error(f"❌ Fresh media error details:", exc_info=True)
+                                    # Get file size for logging
+                                    file_size = os.path.getsize(local_file_path)
+                                    logger.info(f"📁 Local file size: {file_size} bytes ({file_size / (1024*1024):.1f}MB)")
+                                    
                                 else:
-                                    logger.info(f"📝 No file_id available for media download")
+                                    logger.warning(f"❌ Local media file not found: {local_file_path}")
+                                    logger.info(f"🔄 Fallback: No local media available - will send text with premium emojis only")
                                 
                                 if media_file and os.path.exists(media_file):
-                                    # Register for cleanup
-                                    self._register_temp_file(media_file)
+                                    # Note: No cleanup registration needed - these are permanent campaign media files
                                     
                                     # Check worker account premium status
                                     try:
@@ -1477,7 +1404,7 @@ class BumpService:
                                                     formatting_entities=telethon_entities,
                                                     buttons=telethon_buttons
                                                 )
-                                                logger.info(f"🎉 SUCCESS: VIDEO + PREMIUM EMOJIS + INLINE BUTTONS sent to {chat_entity.title}")
+                                                logger.info(f"🎉 BREAKTHROUGH SUCCESS: LOCAL VIDEO + PREMIUM EMOJIS + INLINE BUTTONS sent to {chat_entity.title}")
                                                 
                                                 # Debug: Check if message has reply markup
                                                 if hasattr(message, 'reply_markup') and message.reply_markup:
@@ -1592,13 +1519,12 @@ class BumpService:
                                         )
                                         logger.info(f"✅ Single media sent with preserved emojis and inline buttons to {chat_entity.title}")
                                         
-                                        # Clean up downloaded file
-                                        self._cleanup_temp_file(media_file)
+                                        # Note: No cleanup needed - using permanent local media file
                                         continue
                                         
                                     except Exception as send_error:
                                         logger.error(f"Failed to send single media: {send_error}")
-                                        self._cleanup_temp_file(media_file)
+                                        # Note: No cleanup needed - using permanent local media file
                                 else:
                                     logger.info(f"📝 No media file available, text with buttons already sent")
                             else:
