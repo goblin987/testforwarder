@@ -1011,12 +1011,16 @@ class BumpService:
     
     async def _async_send_ad(self, campaign_id: int):
         """Async helper for send_ad"""
+        logger.info(f"🚀 Starting _async_send_ad for campaign {campaign_id}")
+        
         try:
-            logger.info(f"🚀 Starting _async_send_ad for campaign {campaign_id}")
             campaign = self.get_campaign(campaign_id)
             if not campaign or not campaign['is_active']:
                 logger.warning(f"Campaign {campaign_id} not found or inactive")
                 return
+        except Exception as e:
+            logger.error(f"🚨 Failed to get campaign {campaign_id}: {e}")
+            return
         
         # Get account info for logging
         account = self.db.get_account(campaign['account_id'])
@@ -1665,12 +1669,6 @@ class BumpService:
             logger.info(f"Disconnected client for scheduled campaign {campaign_id}")
         except Exception as e:
             logger.warning(f"Failed to disconnect client for campaign {campaign_id}: {e}")
-        
-        except Exception as campaign_error:
-            logger.error(f"🚨 CRITICAL ERROR in _async_send_ad for campaign {campaign_id}: {campaign_error}")
-            logger.error(f"🚨 Error type: {type(campaign_error).__name__}")
-            logger.error(f"🚨 Full traceback:", exc_info=True)
-            logger.error(f"💡 This error prevented the campaign from executing completely")
     
     def log_ad_performance(self, campaign_id: int, user_id: int, target_chat: str, 
                           message_id: Optional[int], status: str = 'sent'):
