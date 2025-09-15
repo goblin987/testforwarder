@@ -1524,16 +1524,16 @@ class BumpService:
                                                 # Convert stored entities to Telethon format
                                                 telethon_entities = self._convert_to_telethon_entities(stored_entities, original_text)
                                                 
-                                                # 🎯 SIMPLE SOLUTION: Prioritize buttons over premium emojis
-                                                # Send media with buttons but without formatting_entities
-                                                # Premium emojis may still render if they're in the text naturally
-                                                logger.info(f"🎯 SIMPLE FIX: Media with buttons (premium emojis may render naturally)")
+                                                # 🚀 CORRECT SOLUTION: Use storage message's original caption + entities + buttons in ONE call
+                                                # This is the proper way to send media with premium emojis AND buttons
+                                                logger.info(f"🚀 CORRECT FIX: Single send_file with storage caption + entities + buttons")
                                                 
                                                 message = await client.send_file(
                                                     chat_entity,
-                                                    storage_message.media,
-                                                    caption=original_text,  # Original text with emoji codes
-                                                    buttons=telethon_buttons  # Buttons work without formatting_entities
+                                                    file=storage_message.media,  # Media from storage
+                                                    caption=storage_message.text or storage_message.caption,  # Original caption
+                                                    caption_entities=storage_message.entities or storage_message.caption_entities,  # Original entities
+                                                    buttons=telethon_buttons  # Add buttons
                                                 )
                                                 logger.info(f"🎉 STORAGE BREAKTHROUGH: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
                                                 
@@ -1545,14 +1545,15 @@ class BumpService:
                                                 
                                                 continue
                                             
-                                            # Fallback: Send storage media with buttons (no premium emoji entities)
-                                            logger.info(f"🔧 FALLBACK: Sending media with buttons (no premium emojis)")
+                                            # Fallback: Send storage media with original entities and buttons
+                                            logger.info(f"🔧 FALLBACK: Single send_file with storage message data + buttons")
                                             
                                             message = await client.send_file(
                                                 chat_entity,
-                                                storage_message.media,  # Use storage channel media object
-                                                caption=original_text,  # Original text
-                                                buttons=telethon_buttons  # Add buttons directly
+                                                file=storage_message.media,  # Media from storage
+                                                caption=storage_message.text or storage_message.caption,  # Original caption
+                                                caption_entities=storage_message.entities or storage_message.caption_entities,  # Original entities
+                                                buttons=telethon_buttons  # Add buttons
                                             )
                                             logger.info(f"🎉 STORAGE SUCCESS: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
                                             
