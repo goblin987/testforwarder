@@ -1524,15 +1524,24 @@ class BumpService:
                                                 # Convert stored entities to Telethon format
                                                 telethon_entities = self._convert_to_telethon_entities(stored_entities, original_text)
                                                 
-                                                # 🚀 CORRECT SOLUTION: Use storage message's original caption + entities + buttons in ONE call
-                                                # This is the proper way to send media with premium emojis AND buttons
-                                                logger.info(f"🚀 CORRECT FIX: Single send_file with storage caption + entities + buttons")
+                                                # 🔥 ULTIMATE FIX: Debug storage message content first, then send properly
+                                                logger.info(f"🔥 ULTIMATE DEBUG: Checking storage message content")
+                                                logger.info(f"Storage message text: {storage_message.text}")
+                                                logger.info(f"Storage message caption: {storage_message.caption}")
+                                                logger.info(f"Storage message entities: {storage_message.entities}")
+                                                logger.info(f"Storage message caption_entities: {storage_message.caption_entities}")
+                                                
+                                                # Use the correct caption and entities from storage message
+                                                storage_caption = storage_message.text or storage_message.caption
+                                                storage_entities = storage_message.entities or storage_message.caption_entities
+                                                
+                                                logger.info(f"🔥 FINAL SEND: caption='{storage_caption[:50]}...', entities_count={len(storage_entities) if storage_entities else 0}, buttons_count={len(telethon_buttons) if telethon_buttons else 0}")
                                                 
                                                 message = await client.send_file(
                                                     chat_entity,
                                                     file=storage_message.media,  # Media from storage
-                                                    caption=storage_message.text or storage_message.caption,  # Original caption
-                                                    caption_entities=storage_message.entities or storage_message.caption_entities,  # Original entities
+                                                    caption=storage_caption,  # Original caption from storage
+                                                    caption_entities=storage_entities,  # Original entities from storage
                                                     buttons=telethon_buttons  # Add buttons
                                                 )
                                                 logger.info(f"🎉 STORAGE BREAKTHROUGH: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
@@ -1546,13 +1555,23 @@ class BumpService:
                                                 continue
                                             
                                             # Fallback: Send storage media with original entities and buttons
-                                            logger.info(f"🔧 FALLBACK: Single send_file with storage message data + buttons")
+                                            logger.info(f"🔧 FALLBACK DEBUG: Checking storage message content")
+                                            logger.info(f"FALLBACK Storage message text: {storage_message.text}")
+                                            logger.info(f"FALLBACK Storage message caption: {storage_message.caption}")
+                                            logger.info(f"FALLBACK Storage message entities: {storage_message.entities}")
+                                            logger.info(f"FALLBACK Storage message caption_entities: {storage_message.caption_entities}")
+                                            
+                                            # Use the correct caption and entities from storage message
+                                            storage_caption = storage_message.text or storage_message.caption
+                                            storage_entities = storage_message.entities or storage_message.caption_entities
+                                            
+                                            logger.info(f"🔧 FALLBACK SEND: caption='{storage_caption[:50] if storage_caption else None}...', entities_count={len(storage_entities) if storage_entities else 0}, buttons_count={len(telethon_buttons) if telethon_buttons else 0}")
                                             
                                             message = await client.send_file(
                                                 chat_entity,
                                                 file=storage_message.media,  # Media from storage
-                                                caption=storage_message.text or storage_message.caption,  # Original caption
-                                                caption_entities=storage_message.entities or storage_message.caption_entities,  # Original entities
+                                                caption=storage_caption,  # Original caption from storage
+                                                caption_entities=storage_entities,  # Original entities from storage
                                                 buttons=telethon_buttons  # Add buttons
                                             )
                                             logger.info(f"🎉 STORAGE SUCCESS: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
