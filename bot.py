@@ -112,10 +112,10 @@ class TgcfBot:
         if 't.me/' in text and '/' in text:
             # Extract the link part
             if text.startswith('https://t.me/') or text.startswith('http://t.me/') or text.startswith('t.me/'):
-                parts = text.replace('https://', '').replace('http://', '').split('/')
+                parts = text.replace('https://', '').replace('http://', '').replace('t.me/', '').split('/')
                 
                 # Handle both public channels (t.me/channel/123) and private channels (t.me/c/123456789/123)
-                if len(parts) >= 3:  # At least t.me/something/message_id
+                if len(parts) >= 2:  # At least channel/message_id
                     try:
                         int(parts[-1])  # Last part should be message ID
                         return True
@@ -131,27 +131,35 @@ class TgcfBot:
         try:
             # Parse the bridge channel link
             link = link.strip()
+            logger.info(f"🔗 Parsing bridge channel link: {link}")
+            
             if not link.startswith('http'):
                 link = 'https://' + link
             
             # Extract channel info and message ID
             parts = link.replace('https://t.me/', '').replace('http://t.me/', '').split('/')
-            if len(parts) < 3:
-                raise ValueError("Invalid link format")
+            logger.info(f"🔗 Link parts after parsing: {parts}")
             
-            # Handle private channels (t.me/c/123456789/123) vs public channels (t.me/channel/123)
+            if len(parts) < 2:
+                raise ValueError(f"Invalid link format - need at least channel/message_id, got {len(parts)} parts: {parts}")
+            
+            # Handle private channels (t.me/c/123456789/123) vs public channels (t.me/username/123)
             if parts[0] == 'c' and len(parts) >= 3:
                 # Private channel: t.me/c/channel_id/message_id
                 channel_id = int(parts[1])
                 message_id = int(parts[2])
                 channel_entity = f"-100{channel_id}"  # Private channel format
                 display_name = f"Private Channel ({channel_id})"
-            else:
+            elif len(parts) >= 2:
                 # Public channel: t.me/username/message_id
                 channel_username = parts[0]
                 message_id = int(parts[1])
                 channel_entity = f"@{channel_username}"
                 display_name = f"@{channel_username}"
+            else:
+                raise ValueError("Invalid link format - could not parse channel and message ID")
+            
+            logger.info(f"✅ Successfully parsed bridge channel: {display_name}, Message ID: {message_id}")
             
             # Store bridge channel information
             ad_data = {
