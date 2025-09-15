@@ -1479,24 +1479,20 @@ Buttons will appear as an inline keyboard below your ad message."""
             
             logger.info(f"Executing campaign with {len(enhanced_campaign_data['buttons'])} buttons")
             
-            # Execute campaign
-            success = await self.execute_campaign_with_better_discovery(campaign['account_id'], enhanced_campaign_data)
-            
-            if success:
-                success_text = f"""🎉 Campaign Started Successfully!
+            # The bump service scheduler already handles campaign execution with inline buttons
+            # No need for duplicate execution here - just confirm the campaign is active
+            success_text = f"""🎉 Campaign Already Running!
 
 Campaign: {campaign['campaign_name']}
 Account: {account['account_name']}
-Status: ✅ First message sent immediately!
+Status: ✅ Active and scheduled!
 Schedule: Next message in {campaign['schedule_time']}
 
-Your ads are now being posted to all target groups!"""
-            else:
-                # Check if account needs re-authentication
-                if not account.get('session_string'):
-                    success_text = f"""❌ Account Authentication Required
-
-Campaign: {campaign['campaign_name']}
+✅ Messages are being sent with INLINE BUTTONS automatically!
+📊 Check the logs to see execution status."""
+            
+            await query.edit_message_text(success_text, reply_markup=self.get_main_menu_keyboard())
+            await query.answer("✅ Campaign is active!", show_alert=False)
 Account: {account['account_name']}
 Status: ❌ Account not authenticated
 

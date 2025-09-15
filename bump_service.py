@@ -1309,10 +1309,22 @@ class BumpService:
                             original_text = stored_caption
                             
                             try:
-                                # Try to download media using Bot API file_id first
-                                logger.info(f"Downloading media using Bot API file_id: {ad_content['file_id']}")
-                                media_file = await client.download_media(ad_content['file_id'])
-                                logger.info(f"Media download result: {media_file}")
+                                # Try to get original message first (preserves entities)
+                                original_chat_id = ad_content.get('original_chat_id') or ad_content.get('chat_id')
+                                original_message_id = ad_content.get('original_message_id') or ad_content.get('message_id')
+                                
+                                logger.info(f"Getting original message: chat_id={original_chat_id}, message_id={original_message_id}")
+                                original_message = await client.get_messages(original_chat_id, ids=original_message_id)
+                                
+                                if original_message and original_message.media:
+                                    logger.info(f"Found original message with media: {type(original_message.media)}")
+                                    media_file = await client.download_media(original_message.media)
+                                    logger.info(f"Media download result: {media_file}")
+                                else:
+                                    # Fallback to Bot API file_id
+                                    logger.info(f"Fallback: Downloading media using Bot API file_id: {ad_content['file_id']}")
+                                    media_file = await client.download_media(ad_content['file_id'])
+                                    logger.info(f"Media download result: {media_file}")
                                 
                                 if media_file and os.path.exists(media_file):
                                     # Register for cleanup
