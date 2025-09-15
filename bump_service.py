@@ -1489,7 +1489,8 @@ class BumpService:
                                             logger.info(f"🔄 Using storage chat ID: {storage_chat_id_int}")
                                             
                                             # Get the message from storage channel (bot has access!)
-                                            storage_message = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
+                                            storage_messages = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
+                                            storage_message = storage_messages[0] if storage_messages else None
                                         except Exception as storage_access_error:
                                             logger.error(f"❌ Storage channel access failed: {storage_access_error}")
                                             
@@ -1502,7 +1503,8 @@ class BumpService:
                                                     logger.info(f"✅ Session refreshed, retrying media access...")
                                                     
                                                     # Retry after session refresh
-                                                    storage_message = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
+                                                    storage_messages = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
+                                                    storage_message = storage_messages[0] if storage_messages else None
                                                     logger.info(f"✅ Media access successful after session refresh!")
                                                 except Exception as retry_error:
                                                     logger.error(f"❌ Media access failed even after session refresh: {retry_error}")
@@ -1510,8 +1512,14 @@ class BumpService:
                                             else:
                                                 storage_message = None
                                         
-                                        if storage_message and storage_message.media:
-                                            logger.info(f"✅ STORAGE SUCCESS: Found media in storage channel: {type(storage_message.media)}")
+                                        if storage_message:
+                                            logger.info(f"🔥 STORAGE MESSAGE DEBUG: Message type: {type(storage_message)}")
+                                            logger.info(f"🔥 STORAGE MESSAGE DEBUG: Has media: {hasattr(storage_message, 'media') and storage_message.media is not None}")
+                                            logger.info(f"🔥 STORAGE MESSAGE DEBUG: Has caption: {hasattr(storage_message, 'caption')}")
+                                            if hasattr(storage_message, 'media') and storage_message.media:
+                                                logger.info(f"✅ STORAGE SUCCESS: Found media in storage channel: {type(storage_message.media)}")
+                                            else:
+                                                logger.error(f"❌ STORAGE ISSUE: Message has no media attribute or media is None")
                                             
                                             # Check worker account premium status
                                             me = await client.get_me()
