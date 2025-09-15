@@ -431,7 +431,7 @@ class BumpService:
     
     def add_campaign(self, user_id: int, account_id: int, campaign_name: str, 
                     ad_content, target_chats: List[str], schedule_type: str, 
-                    schedule_time: str, buttons=None, target_mode='specific') -> int:
+                    schedule_time: str, buttons=None, target_mode='specific', immediate_start=False) -> int:
         """Add new ad campaign with support for complex content types and buttons"""
         import sqlite3
         start_time = time.time()
@@ -490,6 +490,16 @@ class BumpService:
                     details=f"Campaign '{campaign_name}' successfully created"
                 )
                 
+                # Execute immediately if requested
+                if immediate_start:
+                    logger.info(f"🚀 Running campaign {campaign_id} immediately on creation")
+                    # Run the campaign execution in a separate thread to not block
+                    threading.Thread(
+                        target=self._run_campaign_immediately, 
+                        args=(campaign_id,),
+                        daemon=True
+                    ).start()
+                
                 return campaign_id
                 
         except Exception as e:
@@ -501,6 +511,48 @@ class BumpService:
                 details=f"Failed to create campaign '{campaign_name}'"
             )
             raise
+    
+    def _run_campaign_immediately(self, campaign_id: int):
+        """Run campaign immediately in a separate thread"""
+        try:
+            logger.info(f"🚀 Starting immediate execution of campaign {campaign_id}")
+            # Create new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            try:
+                # Run the campaign execution
+                loop.run_until_complete(self._execute_campaign_async(campaign_id))
+            finally:
+                loop.close()
+                
+        except Exception as e:
+            logger.error(f"❌ Immediate campaign execution failed for {campaign_id}: {e}")
+    
+    async def _execute_campaign_async(self, campaign_id: int):
+        """Execute campaign asynchronously - same logic as scheduled execution"""
+        try:
+            # Get campaign data
+            campaign = self.db.get_campaign(campaign_id)
+            if not campaign:
+                logger.error(f"Campaign {campaign_id} not found")
+                return
+            
+            logger.info(f"🚀 Executing immediate campaign {campaign_id}: {campaign['campaign_name']}")
+            
+            # Use the existing campaign execution logic
+            await self._async_send_ad(
+                campaign_id, 
+                campaign['account_id'], 
+                campaign['ad_content'], 
+                campaign['target_chats'], 
+                campaign.get('buttons', [])
+            )
+            
+            logger.info(f"✅ Immediate campaign {campaign_id} executed successfully")
+            
+        except Exception as e:
+            logger.error(f"❌ Immediate campaign execution failed for {campaign_id}: {e}")
     
     def get_user_campaigns(self, user_id: int) -> List[Dict]:
         """Get all campaigns for a user"""
