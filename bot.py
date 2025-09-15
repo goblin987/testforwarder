@@ -113,7 +113,9 @@ class TgcfBot:
             # Extract the link part
             if text.startswith('https://t.me/') or text.startswith('http://t.me/') or text.startswith('t.me/'):
                 parts = text.replace('https://', '').replace('http://', '').split('/')
-                if len(parts) >= 3:  # t.me/channel/message_id
+                
+                # Handle both public channels (t.me/channel/123) and private channels (t.me/c/123456789/123)
+                if len(parts) >= 3:  # At least t.me/something/message_id
                     try:
                         int(parts[-1])  # Last part should be message ID
                         return True
@@ -132,24 +134,35 @@ class TgcfBot:
             if not link.startswith('http'):
                 link = 'https://' + link
             
-            # Extract channel username and message ID
+            # Extract channel info and message ID
             parts = link.replace('https://t.me/', '').replace('http://t.me/', '').split('/')
-            if len(parts) < 2:
+            if len(parts) < 3:
                 raise ValueError("Invalid link format")
             
-            channel_username = parts[0]
-            message_id = int(parts[1])
+            # Handle private channels (t.me/c/123456789/123) vs public channels (t.me/channel/123)
+            if parts[0] == 'c' and len(parts) >= 3:
+                # Private channel: t.me/c/channel_id/message_id
+                channel_id = int(parts[1])
+                message_id = int(parts[2])
+                channel_entity = f"-100{channel_id}"  # Private channel format
+                display_name = f"Private Channel ({channel_id})"
+            else:
+                # Public channel: t.me/username/message_id
+                channel_username = parts[0]
+                message_id = int(parts[1])
+                channel_entity = f"@{channel_username}"
+                display_name = f"@{channel_username}"
             
             # Store bridge channel information
             ad_data = {
                 'bridge_channel': True,
-                'bridge_channel_username': channel_username,
+                'bridge_channel_entity': channel_entity,
                 'bridge_message_id': message_id,
                 'bridge_link': link,
                 'message_id': message_id,
-                'chat_id': f"@{channel_username}",
+                'chat_id': channel_entity,
                 'original_message_id': message_id,
-                'original_chat_id': f"@{channel_username}",
+                'original_chat_id': channel_entity,
                 'has_custom_emojis': True,  # Assume bridge channel preserves emojis
                 'has_premium_emojis': True,  # Bridge channel should preserve premium emojis
                 'media_type': 'bridge_channel'
@@ -162,7 +175,7 @@ class TgcfBot:
             session['step'] = 'add_buttons_choice'
             
             await update.message.reply_text(
-                f"✅ **Bridge Channel Link Configured!**\n\n**Channel:** @{channel_username}\n**Message ID:** {message_id}\n\n🎯 **How this works:**\n1️⃣ Worker accounts will join @{channel_username}\n2️⃣ They'll forward message #{message_id} with premium emojis intact\n3️⃣ All formatting and media preserved perfectly!\n\n**Step 3/6: Add Buttons**\n\nWould you like to add clickable buttons under your forwarded message?",
+                f"✅ **Bridge Channel Link Configured!**\n\n**Channel:** {display_name}\n**Message ID:** {message_id}\n\n🎯 **How this works:**\n1️⃣ Worker accounts will join your channel\n2️⃣ They'll forward message #{message_id} with premium emojis intact\n3️⃣ All formatting and media preserved perfectly!\n\n**Step 3/6: Add Buttons**\n\nWould you like to add clickable buttons under your forwarded message?",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("✅ Yes, Add Buttons", callback_data="add_buttons_yes")],

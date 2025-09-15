@@ -146,26 +146,26 @@ class BumpService:
     async def _process_bridge_channel_message(self, client, chat_entity, ad_content, telethon_buttons):
         """Process bridge channel message with premium emoji preservation"""
         try:
-            bridge_channel_username = ad_content.get('bridge_channel_username')
+            bridge_channel_entity = ad_content.get('bridge_channel_entity')
             bridge_message_id = ad_content.get('bridge_message_id')
             
-            logger.info(f"🔗 Bridge channel: @{bridge_channel_username}, Message ID: {bridge_message_id}")
+            logger.info(f"🔗 Bridge channel: {bridge_channel_entity}, Message ID: {bridge_message_id}")
             
-            # Step 1: Join the bridge channel if not already joined
+            # Step 1: Get the bridge channel entity (join if needed)
             try:
-                bridge_entity = await client.get_entity(f"@{bridge_channel_username}")
-                logger.info(f"✅ Bridge channel entity resolved: {bridge_entity.title}")
+                bridge_entity = await client.get_entity(bridge_channel_entity)
+                logger.info(f"✅ Bridge channel entity resolved: {getattr(bridge_entity, 'title', bridge_channel_entity)}")
                 
                 # Try to join the channel (if it's public and we're not already in it)
                 try:
                     from telethon.tl.functions.channels import JoinChannelRequest
                     await client(JoinChannelRequest(bridge_entity))
-                    logger.info(f"✅ Joined bridge channel @{bridge_channel_username}")
+                    logger.info(f"✅ Joined bridge channel {bridge_channel_entity}")
                 except Exception as join_error:
                     logger.info(f"Already in bridge channel or can't join: {join_error}")
                 
             except Exception as entity_error:
-                logger.error(f"❌ Could not resolve bridge channel @{bridge_channel_username}: {entity_error}")
+                logger.error(f"❌ Could not resolve bridge channel {bridge_channel_entity}: {entity_error}")
                 return
             
             # Step 2: Get the original message from bridge channel (preserves all entities)
@@ -1074,6 +1074,13 @@ class BumpService:
                     # Find the main media message and combine all text content
                     media_message = None
                     combined_text = ""
+                    
+                    # Check if this is a bridge channel message (first item check)
+                    if ad_content[0].get('bridge_channel'):
+                        logger.info(f"🔗 Processing BRIDGE CHANNEL message for premium emoji preservation")
+                        await self._process_bridge_channel_message(client, chat_entity, ad_content[0], telethon_buttons)
+                        sent_count += 1
+                        continue  # Bridge channel messages are processed individually, move to next chat
                     
                     for message_data in ad_content:
                         if message_data.get('media_type') and not media_message:
