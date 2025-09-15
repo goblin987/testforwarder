@@ -1387,18 +1387,18 @@ class BumpService:
                                 logger.info(f"🔄 TELETHON APPROACH: Getting original message for native media handling")
                                 
                                 try:
-                                    # Get the original message from user's chat using Telethon
-                                    original_chat_id = ad_content.get('original_chat_id')
-                                    original_message_id = ad_content.get('original_message_id')
+                                    # 🎯 BREAKTHROUGH: Get media from STORAGE CHANNEL instead of user's private chat
+                                    storage_chat_id = ad_content.get('storage_chat_id')
+                                    storage_message_id = ad_content.get('storage_message_id')
                                     
-                                    if original_chat_id and original_message_id:
-                                        logger.info(f"📥 Fetching original message {original_message_id} from chat {original_chat_id}")
+                                    if storage_chat_id and storage_message_id:
+                                        logger.info(f"📥 BREAKTHROUGH: Fetching media from STORAGE CHANNEL message {storage_message_id} in chat {storage_chat_id}")
                                         
-                                        # Get the original message with media
-                                        original_message = await client.get_messages(original_chat_id, ids=original_message_id)
+                                        # Get the message from storage channel (bot has access!)
+                                        storage_message = await client.get_messages(storage_chat_id, ids=storage_message_id)
                                         
-                                        if original_message and original_message.media:
-                                            logger.info(f"✅ Found original message with media: {type(original_message.media)}")
+                                        if storage_message and storage_message.media:
+                                            logger.info(f"✅ STORAGE SUCCESS: Found media in storage channel: {type(storage_message.media)}")
                                             
                                             # Check worker account premium status
                                             me = await client.get_me()
@@ -1406,21 +1406,21 @@ class BumpService:
                                             logger.info(f"✅ Worker account premium status: {worker_has_premium}")
                                             
                                             if worker_has_premium and stored_entities:
-                                                logger.info(f"🎉 PERFECT SETUP: Worker has Premium + entity data + original media!")
+                                                logger.info(f"🎉 PERFECT SETUP: Worker has Premium + entity data + storage media!")
                                                 
                                                 # Convert stored entities to Telethon format
                                                 telethon_entities = self._convert_to_telethon_entities(stored_entities, original_text)
                                                 
                                                 if telethon_entities:
-                                                    # Send original media with premium emoji entities and buttons
+                                                    # Send storage media with premium emoji entities and buttons
                                                     message = await client.send_file(
                                                         chat_entity,
-                                                        original_message.media,  # Use original media object
+                                                        storage_message.media,  # Use storage channel media object
                                                         caption=original_text,
                                                         formatting_entities=telethon_entities,
                                                         buttons=telethon_buttons
                                                     )
-                                                    logger.info(f"🎉 TELETHON SUCCESS: MEDIA + PREMIUM EMOJIS + INLINE BUTTONS sent to {chat_entity.title}")
+                                                    logger.info(f"🎉 STORAGE BREAKTHROUGH: MEDIA + PREMIUM EMOJIS + INLINE BUTTONS sent to {chat_entity.title}")
                                                     
                                                     # Debug: Check if message has reply markup
                                                     if hasattr(message, 'reply_markup') and message.reply_markup:
@@ -1430,14 +1430,14 @@ class BumpService:
                                                     
                                                     continue
                                             
-                                            # Fallback: Send original media without entities but with buttons
+                                            # Fallback: Send storage media without entities but with buttons
                                             message = await client.send_file(
                                                 chat_entity,
-                                                original_message.media,  # Use original media object
+                                                storage_message.media,  # Use storage channel media object
                                                 caption=original_text,
                                                 buttons=telethon_buttons
                                             )
-                                            logger.info(f"🎉 TELETHON SUCCESS: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
+                                            logger.info(f"🎉 STORAGE SUCCESS: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
                                             
                                             # Debug: Check if message has reply markup
                                             if hasattr(message, 'reply_markup') and message.reply_markup:
@@ -1447,9 +1447,9 @@ class BumpService:
                                             
                                             continue
                                         else:
-                                            logger.warning(f"❌ Original message has no media or not found")
+                                            logger.warning(f"❌ Storage channel message has no media or not found")
                                     else:
-                                        logger.warning(f"❌ Missing original_chat_id or original_message_id")
+                                        logger.warning(f"❌ Missing storage_chat_id or storage_message_id")
                                         
                                 except Exception as telethon_media_error:
                                     logger.error(f"❌ Telethon media access failed: {telethon_media_error}")
