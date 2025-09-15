@@ -1355,10 +1355,22 @@ class BumpService:
                             original_text = stored_caption
                             
                             try:
-                                # Media download is failing - send as text with inline buttons instead
-                                # This preserves premium emojis through entity reconstruction and adds inline buttons
-                                logger.info(f"Skipping media download - using text with premium emoji reconstruction and inline buttons")
+                                # Try to download media using file_id from Bot API
+                                file_id = ad_content.get('file_id')
                                 media_file = None
+                                
+                                if file_id:
+                                    try:
+                                        logger.info(f"🔄 Attempting to download media using file_id: {file_id}")
+                                        # Use Telethon to download the media file
+                                        media_file = await client.download_media(file_id, f"temp_media_{campaign_id}_{int(time.time())}")
+                                        logger.info(f"✅ Media downloaded successfully: {media_file}")
+                                    except Exception as download_error:
+                                        logger.warning(f"⚠️ Media download failed: {download_error}")
+                                        media_file = None
+                                else:
+                                    logger.info(f"📝 No file_id available, using text with premium emoji reconstruction and inline buttons")
+                                    media_file = None
                                 
                                 if media_file and os.path.exists(media_file):
                                     # Register for cleanup
@@ -1433,6 +1445,12 @@ class BumpService:
                                         # Convert stored entities to Telethon format
                                         telethon_entities = self._convert_to_telethon_entities(stored_entities, original_text)
                                         
+                                        # Debug: Log button information
+                                        logger.info(f"🔘 DEBUG: Sending with {len(telethon_buttons) if telethon_buttons else 0} button rows")
+                                        if telethon_buttons:
+                                            for i, row in enumerate(telethon_buttons):
+                                                logger.info(f"🔘 DEBUG: Row {i}: {len(row)} buttons - {[btn.text for btn in row]}")
+                                        
                                         if telethon_entities:
                                             # Send text with premium emoji entities
                                             message = await client.send_message(
@@ -1442,6 +1460,12 @@ class BumpService:
                                                 buttons=telethon_buttons
                                             )
                                             logger.info(f"✅ Text sent with PREMIUM EMOJIS and inline buttons to {chat_entity.title}")
+                                            
+                                            # Debug: Check if message has reply markup
+                                            if hasattr(message, 'reply_markup') and message.reply_markup:
+                                                logger.info(f"🔘 DEBUG: Message has reply_markup with {len(message.reply_markup.rows)} rows")
+                                            else:
+                                                logger.warning(f"🔘 DEBUG: Message has NO reply_markup - buttons may have been ignored!")
                                         else:
                                             # Fallback: Send without entities but with buttons
                                             message = await client.send_message(
@@ -1450,6 +1474,12 @@ class BumpService:
                                                 buttons=telethon_buttons
                                             )
                                             logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
+                                            
+                                            # Debug: Check if message has reply markup
+                                            if hasattr(message, 'reply_markup') and message.reply_markup:
+                                                logger.info(f"🔘 DEBUG: Message has reply_markup with {len(message.reply_markup.rows)} rows")
+                                            else:
+                                                logger.warning(f"🔘 DEBUG: Message has NO reply_markup - buttons may have been ignored!")
                                     
                                 except Exception as text_error:
                                     logger.error(f"Text fallback failed: {text_error}")
