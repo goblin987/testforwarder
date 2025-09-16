@@ -1156,6 +1156,102 @@ class BumpService:
                 except Exception as e:
                     logger.error(f"Failed to get entity for {chat_id}: {e}")
         
+        # Create template message ONCE before processing all chats
+        template_message_id = None
+        
+        # Create template with buttons if needed
+        if buttons and len(buttons) > 0:
+            try:
+                from config import Config
+                bot = Bot(token=Config.BOT_TOKEN)
+                storage_channel_id = Config.STORAGE_CHANNEL_ID
+                
+                logger.info(f"🤖 BOT: Creating ONE template message with inline buttons for ALL groups")
+                
+                # Convert entities for Bot API
+                bot_entities = []
+                for entity in ad_content.get('caption_entities', []):
+                    entity_type = str(entity.get('type')).lower().replace('messageentitytype.', '')
+                    
+                    if entity_type == 'custom_emoji' and entity.get('custom_emoji_id'):
+                        bot_entities.append(MessageEntity(
+                            type='custom_emoji',
+                            offset=entity['offset'],
+                            length=entity['length'],
+                            custom_emoji_id=str(entity['custom_emoji_id'])
+                        ))
+                    elif entity_type == 'bold':
+                        bot_entities.append(MessageEntity(
+                            type='bold',
+                            offset=entity['offset'],
+                            length=entity['length']
+                        ))
+                    elif entity_type == 'italic':
+                        bot_entities.append(MessageEntity(
+                            type='italic',
+                            offset=entity['offset'],
+                            length=entity['length']
+                        ))
+                    elif entity_type == 'mention':
+                        bot_entities.append(MessageEntity(
+                            type='mention',
+                            offset=entity['offset'],
+                            length=entity['length']
+                        ))
+                
+                # Create inline keyboard from button data
+                inline_keyboard = []
+                current_row = []
+                for i, button in enumerate(buttons):
+                    if button.get('url'):
+                        inline_button = InlineKeyboardButton(
+                            text=button['text'],
+                            url=button['url']
+                        )
+                        current_row.append(inline_button)
+                        
+                        if len(current_row) == 2 or i == len(buttons) - 1:
+                            inline_keyboard.append(current_row)
+                            current_row = []
+                
+                reply_markup = InlineKeyboardMarkup(inline_keyboard) if inline_keyboard else None
+                
+                # Send template to storage channel
+                storage_file_id = ad_content.get('storage_file_id') or ad_content.get('file_id')
+                media_type = ad_content.get('media_type', 'video')
+                
+                if media_type == 'video':
+                    bot_message = await bot.send_video(
+                        chat_id=storage_channel_id,
+                        video=storage_file_id,
+                        caption=original_text,
+                        caption_entities=bot_entities,
+                        reply_markup=reply_markup
+                    )
+                elif media_type == 'photo':
+                    bot_message = await bot.send_photo(
+                        chat_id=storage_channel_id,
+                        photo=storage_file_id,
+                        caption=original_text,
+                        caption_entities=bot_entities,
+                        reply_markup=reply_markup
+                    )
+                else:
+                    bot_message = await bot.send_message(
+                        chat_id=storage_channel_id,
+                        text=original_text,
+                        entities=bot_entities,
+                        reply_markup=reply_markup
+                    )
+                
+                template_message_id = bot_message.message_id
+                logger.info(f"✅ Bot created ONE template message {template_message_id} for ALL groups")
+                logger.info(f"✅ Template has {len(bot_entities)} entities and {len(buttons)} buttons")
+                
+            except Exception as template_error:
+                logger.error(f"❌ Failed to create template: {template_error}")
+                template_message_id = None
+        
         for chat_entity in target_entities:
             message = None
             try:
@@ -1533,114 +1629,8 @@ class BumpService:
                                                             for j, btn in enumerate(row.buttons):
                                                                 logger.info(f"🔥 REPLY KEYBOARD DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                                 
-                                                # 🚀 ULTIMATE SOLUTION: Bot creates template, worker forwards it!
-                                                # This is how other services achieve inline buttons with worker accounts
-                                                logger.info(f"🚀 ULTIMATE: Bot creates template with buttons, worker forwards it!")
-                                                
-                                                # Step 1: Bot creates a template message in storage channel with buttons
-                                                # Step 2: Worker forwards that message (preserving the buttons!)
-                                                template_message_id = None
-                                                try:
-                                                    from config import Config
-                                                    bot = Bot(token=Config.BOT_TOKEN)
-                                                    storage_channel_id = Config.STORAGE_CHANNEL_ID
-                                                    
-                                                    # Bot creates template message in storage channel
-                                                    logger.info(f"🤖 BOT: Creating template message with inline buttons in storage channel")
-                                                    
-                                                    # Create inline keyboard for the bot's template message
-                                                    
-                                                    # Create inline keyboard from button data
-                                                    inline_keyboard = []
-                                                    if buttons and len(buttons) > 0:
-                                                        current_row = []
-                                                        for i, button in enumerate(buttons):
-                                                            if button.get('url'):
-                                                                inline_button = InlineKeyboardButton(
-                                                                    text=button['text'],
-                                                                    url=button['url']
-                                                                )
-                                                                current_row.append(inline_button)
-                                                                
-                                                                # Max 2 buttons per row
-                                                                if len(current_row) == 2 or i == len(buttons) - 1:
-                                                                    inline_keyboard.append(current_row)
-                                                                    current_row = []
-                                                    
-                                                    reply_markup = InlineKeyboardMarkup(inline_keyboard) if inline_keyboard else None
-                                                    
-                                                    # Bot sends template to STORAGE CHANNEL (not to target groups)
-                                                    storage_file_id = ad_content.get('storage_file_id') or ad_content.get('file_id')
-                                                    media_type = ad_content.get('media_type', 'video')
-                                                    
-                                                    # Convert entities for Bot API
-                                                    # Bot API entities need to be converted from our stored format
-                                                    bot_entities = []
-                                                    for entity in ad_content.get('caption_entities', []):
-                                                        # Handle both string and enum types
-                                                        entity_type = str(entity.get('type')).lower().replace('messageentitytype.', '')
-                                                        
-                                                        if entity_type == 'custom_emoji' and entity.get('custom_emoji_id'):
-                                                            # Create custom emoji entity for Bot API
-                                                            bot_entities.append(MessageEntity(
-                                                                type='custom_emoji',
-                                                                offset=entity['offset'],
-                                                                length=entity['length'],
-                                                                custom_emoji_id=str(entity['custom_emoji_id'])
-                                                            ))
-                                                        elif entity_type == 'bold':
-                                                            bot_entities.append(MessageEntity(
-                                                                type='bold',
-                                                                offset=entity['offset'],
-                                                                length=entity['length']
-                                                            ))
-                                                        elif entity_type == 'italic':
-                                                            bot_entities.append(MessageEntity(
-                                                                type='italic',
-                                                                offset=entity['offset'],
-                                                                length=entity['length']
-                                                            ))
-                                                        elif entity_type == 'mention':
-                                                            bot_entities.append(MessageEntity(
-                                                                type='mention',
-                                                                offset=entity['offset'],
-                                                                length=entity['length']
-                                                            ))
-                                                    
-                                                    logger.info(f"✅ Converted {len(bot_entities)} entities for Bot API (including {len([e for e in bot_entities if e.type == 'custom_emoji'])} premium emojis)")
-                                                    
-                                                    # Send template to storage channel with premium emojis
-                                                    if media_type == 'video':
-                                                        bot_message = await bot.send_video(
-                                                            chat_id=storage_channel_id,  # Send to STORAGE channel
-                                                            video=storage_file_id,
-                                                            caption=original_text,
-                                                            caption_entities=bot_entities,
-                                                            reply_markup=reply_markup
-                                                        )
-                                                    elif media_type == 'photo':
-                                                        bot_message = await bot.send_photo(
-                                                            chat_id=storage_channel_id,  # Send to STORAGE channel
-                                                            photo=storage_file_id,
-                                                            caption=original_text,
-                                                            caption_entities=bot_entities,
-                                                            reply_markup=reply_markup
-                                                        )
-                                                    else:
-                                                        bot_message = await bot.send_message(
-                                                            chat_id=storage_channel_id,  # Send to STORAGE channel
-                                                            text=original_text,
-                                                            entities=bot_entities,
-                                                            reply_markup=reply_markup
-                                                        )
-                                                    
-                                                    template_message_id = bot_message.message_id
-                                                    logger.info(f"✅ Bot created template message {template_message_id} in storage channel")
-                                                    logger.info(f"✅ Template has inline buttons: {bot_message.reply_markup is not None}")
-                                                    
-                                                except Exception as bot_error:
-                                                    logger.error(f"❌ Bot failed to create template: {bot_error}")
-                                                    template_message_id = None
+                                                # Use the pre-created template if available
+                                                logger.info(f"🚀 Using pre-created template for {chat_entity.title}")
                                                 
                                                 # Step 2: Worker sends NEW message (not forward) with all components
                                                 if template_message_id:
