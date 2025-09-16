@@ -1533,21 +1533,22 @@ class BumpService:
                                                             for j, btn in enumerate(row.buttons):
                                                                 logger.info(f"🔥 REPLY KEYBOARD DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                                 
-                                                # 🚀 ULTIMATE SOLUTION: BOT SENDS WITH INLINE BUTTONS!
-                                                logger.info(f"🚀 ULTIMATE: Bot will send message with inline buttons!")
+                                                # 🚀 ULTIMATE SOLUTION: Bot creates template, worker forwards it!
+                                                # This is how other services achieve inline buttons with worker accounts
+                                                logger.info(f"🚀 ULTIMATE: Bot creates template with buttons, worker forwards it!")
                                                 
-                                                # Use Bot API to send message with inline buttons
+                                                # Step 1: Bot creates a template message in storage channel with buttons
+                                                # Step 2: Worker forwards that message (preserving the buttons!)
+                                                template_message_id = None
                                                 try:
                                                     from config import Config
                                                     bot = Bot(token=Config.BOT_TOKEN)
+                                                    storage_channel_id = Config.STORAGE_CHANNEL_ID
                                                     
-                                                    # First verify the worker can still access this chat
-                                                    try:
-                                                        # This will fail if the worker isn't in the chat
-                                                        await client.get_entity(chat_entity.id)
-                                                    except Exception as access_error:
-                                                        logger.warning(f"⚠️ Worker lost access to chat {chat_entity.id}: {access_error}")
-                                                        continue  # Skip this chat
+                                                    # Bot creates template message in storage channel
+                                                    logger.info(f"🤖 BOT: Creating template message with inline buttons in storage channel")
+                                                    
+                                                    # Create inline keyboard for the bot's template message
                                                     
                                                     # Create inline keyboard from button data
                                                     inline_keyboard = []
@@ -1568,69 +1569,68 @@ class BumpService:
                                                     
                                                     reply_markup = InlineKeyboardMarkup(inline_keyboard) if inline_keyboard else None
                                                     
-                                                    # Send via Bot API with inline buttons
-                                                    # Note: Bot must be admin in the group
-                                                    # Determine media type and use appropriate send method
+                                                    # Bot sends template to STORAGE CHANNEL (not to target groups)
                                                     storage_file_id = ad_content.get('storage_file_id') or ad_content.get('file_id')
                                                     media_type = ad_content.get('media_type', 'video')
                                                     
-                                                    # Get proper chat ID for Bot API
-                                                    # Telethon's chat_entity.id should work directly for Bot API
-                                                    # Telethon already uses the correct format (-100xxx for supergroups)
-                                                    bot_chat_id = chat_entity.id
-                                                    
-                                                    # Log detailed info about the entity for debugging
-                                                    logger.info(f"🔍 Chat entity type: {type(chat_entity)}")
-                                                    logger.info(f"🔍 Chat entity ID: {chat_entity.id}")
-                                                    logger.info(f"🔍 Chat entity title: {getattr(chat_entity, 'title', 'N/A')}")
-                                                    logger.info(f"🔍 Is megagroup: {getattr(chat_entity, 'megagroup', False)}")
-                                                    logger.info(f"🔍 Is broadcast: {getattr(chat_entity, 'broadcast', False)}")
-                                                    
-                                                    logger.info(f"🤖 Bot sending to chat ID: {bot_chat_id}")
-                                                    
+                                                    # Send template to storage channel
                                                     if media_type == 'video':
                                                         bot_message = await bot.send_video(
-                                                            chat_id=bot_chat_id,
-                                                            video=storage_file_id,  # Use Bot API file_id
+                                                            chat_id=storage_channel_id,  # Send to STORAGE channel
+                                                            video=storage_file_id,
                                                             caption=original_text,
                                                             caption_entities=ad_content.get('caption_entities', []),
                                                             reply_markup=reply_markup
                                                         )
                                                     elif media_type == 'photo':
                                                         bot_message = await bot.send_photo(
-                                                            chat_id=bot_chat_id,
-                                                            photo=storage_file_id,  # Use Bot API file_id
+                                                            chat_id=storage_channel_id,  # Send to STORAGE channel
+                                                            photo=storage_file_id,
                                                             caption=original_text,
                                                             caption_entities=ad_content.get('caption_entities', []),
                                                             reply_markup=reply_markup
                                                         )
                                                     else:
                                                         bot_message = await bot.send_message(
-                                                            chat_id=bot_chat_id,
+                                                            chat_id=storage_channel_id,  # Send to STORAGE channel
                                                             text=original_text,
                                                             entities=ad_content.get('caption_entities', []),
                                                             reply_markup=reply_markup
                                                         )
                                                     
-                                                    logger.info(f"✅ Bot sent Media + Premium Emojis + Inline Buttons successfully!")
-                                                    logger.info(f"🎉 ULTIMATE SUCCESS: Bot sent to {chat_entity.title}")
-                                                    
-                                                    if bot_message.reply_markup:
-                                                        logger.info(f"✅ CONFIRMED: Message has inline buttons!")
-                                                    else:
-                                                        logger.warning(f"⚠️ WARNING: Message has NO inline buttons!")
+                                                    template_message_id = bot_message.message_id
+                                                    logger.info(f"✅ Bot created template message {template_message_id} in storage channel")
+                                                    logger.info(f"✅ Template has inline buttons: {bot_message.reply_markup is not None}")
                                                     
                                                 except Exception as bot_error:
-                                                    logger.error(f"❌ Bot send failed: {bot_error}")
-                                                    logger.error(f"❌ Error type: {type(bot_error).__name__}")
-                                                    logger.error(f"❌ Chat ID that failed: {bot_chat_id}")
-                                                    
-                                                    # Check if it's a "Chat not found" error
-                                                    if "Chat not found" in str(bot_error) or "chat not found" in str(bot_error).lower():
-                                                        logger.warning(f"⚠️ Bot is not in chat {bot_chat_id} or chat doesn't exist")
-                                                        logger.info(f"💡 Solution: Add bot as admin to group {getattr(chat_entity, 'title', 'Unknown')}")
-                                                    
-                                                    logger.info(f"📤 Fallback: Worker sends without buttons")
+                                                    logger.error(f"❌ Bot failed to create template: {bot_error}")
+                                                    template_message_id = None
+                                                
+                                                # Step 2: Worker forwards the template message to target groups
+                                                if template_message_id:
+                                                    try:
+                                                        # Get the template message using Telethon
+                                                        storage_chat_id_int = int(storage_channel_id) if isinstance(storage_channel_id, str) else storage_channel_id
+                                                        template_msg = await client.get_messages(storage_chat_id_int, ids=template_message_id)
+                                                        
+                                                        if template_msg:
+                                                            # Forward the template message (preserves inline buttons!)
+                                                            logger.info(f"📤 Worker forwarding template message to {chat_entity.title}")
+                                                            forwarded = await client.forward_messages(
+                                                                entity=chat_entity,
+                                                                messages=template_msg,
+                                                                from_peer=storage_chat_id_int
+                                                            )
+                                                            logger.info(f"✅ SUCCESS: Forwarded message with inline buttons to {chat_entity.title}!")
+                                                            buttons_sent_count += 1
+                                                            continue  # Success, move to next chat
+                                                        else:
+                                                            logger.error(f"❌ Could not retrieve template message {template_message_id}")
+                                                    except Exception as forward_error:
+                                                        logger.error(f"❌ Forward failed: {forward_error}")
+                                                
+                                                # Fallback: Worker sends without buttons if template/forward fails
+                                                logger.info(f"📤 Fallback: Worker sends without buttons")
                                                     
                                                     # Fallback to worker sending without buttons
                                                     message = await client.send_file(
