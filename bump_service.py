@@ -1662,7 +1662,7 @@ class BumpService:
                                                             sent_msg = await client.send_file(
                                                                 chat_entity,
                                                                 storage_message.media,  # Media from storage
-                                                                caption=caption_text,  # Caption text from ad_content
+                                                                caption=caption_text,  # Use caption_text from template creation
                                                                 formatting_entities=telethon_entities,  # Premium emojis and formatting
                                                                 buttons=telethon_buttons,  # Inline buttons
                                                                 parse_mode=None,
@@ -1680,7 +1680,6 @@ class BumpService:
                                                 logger.info(f"📤 Fallback: Worker sends without buttons")
                                                 
                                                 # Fallback to worker sending without buttons
-                                                caption_text = ad_content.get('caption') or ad_content.get('text', '')
                                                 message = await client.send_file(
                                                     chat_entity,
                                                     storage_message.media,
