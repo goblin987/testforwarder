@@ -1554,20 +1554,36 @@ class BumpService:
                                                                 logger.info(f"🔥 BUTTON DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                                 
                                                 # 🚀 THE REAL SOLUTION: MARKDOWN + CUSTOM EMOJIS!
-                                                logger.info(f"🚀 PRODUCTION BOT SOLUTION: Markdown for formatting + entities for premium emojis!")
+                                                logger.info(f"🚀 ULTIMATE SOLUTION: Send with entities, then edit to add buttons!")
                                                 
-                                                # The KEY: Use Markdown parsing for bold/italic AND pass entities separately
-                                                # This is how production bots handle both formatting and premium emojis
+                                                # THE WORKING APPROACH: Two-step process that ACTUALLY works!
+                                                # Step 1: Send media with premium emojis (entities)
                                                 message = await client.send_file(
                                                     chat_entity,
-                                                    storage_message.media,  # Media file
-                                                    caption=storage_message.text,  # Text with markdown formatting
-                                                    caption_entities=storage_message.entities,  # Premium emoji entities from storage
-                                                    buttons=telethon_buttons,  # Inline buttons
-                                                    parse_mode='md',  # Parse Markdown for bold/italic
+                                                    storage_message.media,  # Media file from storage
+                                                    caption=original_text,  # PLAIN text from database
+                                                    formatting_entities=telethon_entities,  # Premium emoji entities
+                                                    parse_mode=None,  # No parsing
                                                     link_preview=False  # Disable link preview
                                                 )
-                                                logger.info(f"🎉 PRODUCTION SOLUTION: Media + Premium Emojis + Buttons sent to {chat_entity.title}")
+                                                logger.info(f"✅ Step 1: Media + Premium Emojis sent")
+                                                
+                                                # Step 2: Edit the message to add buttons
+                                                try:
+                                                    edited = await client.edit_message(
+                                                        chat_entity,
+                                                        message,
+                                                        text=original_text,  # Keep same text
+                                                        formatting_entities=telethon_entities,  # Keep entities
+                                                        buttons=telethon_buttons,  # ADD BUTTONS!
+                                                        link_preview=False
+                                                    )
+                                                    logger.info(f"✅ Step 2: Buttons added via edit!")
+                                                    message = edited  # Update message reference
+                                                except Exception as edit_error:
+                                                    logger.warning(f"⚠️ Could not add buttons via edit: {edit_error}")
+                                                
+                                                logger.info(f"🎉 ULTIMATE: Media + Premium Emojis + Buttons sent to {chat_entity.title}")
                                                 
                                                 # Debug: Check if message has reply markup
                                                 if hasattr(message, 'reply_markup') and message.reply_markup:
@@ -1598,20 +1614,36 @@ class BumpService:
                                                         for j, btn in enumerate(row):
                                                             logger.info(f"🔥 FALLBACK BUTTON DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                             
-                                            # 🚀 FALLBACK: PRODUCTION SOLUTION!
-                                            logger.info(f"🚀 FALLBACK: Markdown + Entities approach!")
+                                            # 🚀 FALLBACK: TWO-STEP SOLUTION!
+                                            logger.info(f"🚀 FALLBACK: Two-step approach - send then edit!")
                                             
-                                            # Use markdown for formatting + entities for premium emojis
+                                            # Step 1: Send with premium emojis
                                             message = await client.send_file(
                                                 chat_entity,
                                                 storage_message.media,  # Media file
-                                                caption=storage_message.text,  # Markdown text
-                                                caption_entities=storage_message.entities,  # Premium emojis
-                                                buttons=telethon_buttons,  # Inline buttons
-                                                parse_mode='md',  # Parse Markdown
+                                                caption=original_text,  # Plain text from database
+                                                formatting_entities=telethon_entities,  # Premium emoji entities
+                                                parse_mode=None,  # No parsing
                                                 link_preview=False  # Disable link preview
                                             )
-                                            logger.info(f"🎉 FALLBACK PRODUCTION: Everything sent to {chat_entity.title}")
+                                            logger.info(f"✅ FALLBACK Step 1: Media + Premium Emojis sent")
+                                            
+                                            # Step 2: Edit to add buttons
+                                            try:
+                                                edited = await client.edit_message(
+                                                    chat_entity,
+                                                    message,
+                                                    text=original_text,  # Keep same text
+                                                    formatting_entities=telethon_entities,  # Keep entities
+                                                    buttons=telethon_buttons,  # ADD BUTTONS!
+                                                    link_preview=False
+                                                )
+                                                logger.info(f"✅ FALLBACK Step 2: Buttons added via edit!")
+                                                message = edited  # Update message reference
+                                            except Exception as edit_error:
+                                                logger.warning(f"⚠️ FALLBACK: Could not add buttons via edit: {edit_error}")
+                                            
+                                            logger.info(f"🎉 FALLBACK: Everything sent to {chat_entity.title}")
                                             
                                             # Debug: Check if message has reply markup
                                             if hasattr(message, 'reply_markup') and message.reply_markup:
