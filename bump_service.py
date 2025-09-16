@@ -1631,17 +1631,17 @@ class BumpService:
                                                 
                                                 # Fallback: Worker sends without buttons if template/forward fails
                                                 logger.info(f"📤 Fallback: Worker sends without buttons")
-                                                    
-                                                    # Fallback to worker sending without buttons
-                                                    message = await client.send_file(
-                                                        chat_entity,
-                                                        storage_message.media,
-                                                        caption=original_text,
-                                                        formatting_entities=telethon_entities,
-                                                        parse_mode=None,
-                                                        link_preview=False
-                                                    )
-                                                    logger.info(f"✅ Worker sent Media + Premium Emojis (no buttons)")
+                                                
+                                                # Fallback to worker sending without buttons
+                                                message = await client.send_file(
+                                                    chat_entity,
+                                                    storage_message.media,
+                                                    caption=original_text,
+                                                    formatting_entities=telethon_entities,
+                                                    parse_mode=None,
+                                                    link_preview=False
+                                                )
+                                                logger.info(f"✅ Worker sent Media + Premium Emojis (no buttons)")
                                                 
                                                 continue
                                             
