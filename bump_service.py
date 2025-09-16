@@ -28,6 +28,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from telethon import TelegramClient
+from telethon.tl.custom import Button
 from database import Database
 import json
 import threading
