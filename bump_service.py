@@ -1657,17 +1657,17 @@ class BumpService:
                                                             
                                                             logger.info(f"📤 Worker sending NEW message with all components to {chat_entity.title}")
                                                             
-                                                # Send NEW message with media, entities, and buttons
-                                                caption_text = ad_content.get('caption') or ad_content.get('text', '')
-                                                sent_msg = await client.send_file(
-                                                    chat_entity,
-                                                    storage_message.media,  # Media from storage
-                                                    caption=caption_text,  # Caption text from ad_content
-                                                    formatting_entities=telethon_entities,  # Premium emojis and formatting
-                                                    buttons=telethon_buttons,  # Inline buttons
-                                                    parse_mode=None,
-                                                    link_preview=False
-                                                )
+                                                            # Send NEW message with media, entities, and buttons
+                                                            caption_text = ad_content.get('caption') or ad_content.get('text', '')
+                                                            sent_msg = await client.send_file(
+                                                                chat_entity,
+                                                                storage_message.media,  # Media from storage
+                                                                caption=caption_text,  # Caption text from ad_content
+                                                                formatting_entities=telethon_entities,  # Premium emojis and formatting
+                                                                buttons=telethon_buttons,  # Inline buttons
+                                                                parse_mode=None,
+                                                                link_preview=False
+                                                            )
                                                             
                                                             logger.info(f"✅ SUCCESS: Sent message with media, premium emojis, AND buttons to {chat_entity.title}!")
                                                             continue  # Success, move to next chat
