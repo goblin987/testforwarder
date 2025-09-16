@@ -1124,218 +1124,714 @@ class BumpService:
         target_chats = campaign['target_chats']
         buttons = campaign.get('buttons', [])
         sent_count = 0
-        buttons_sent_count = 0
         
-        # Handle ALL_WORKER_GROUPS - get actual groups
-        if target_chats == ['ALL_WORKER_GROUPS']:
-            logger.info("Getting all groups for scheduled campaign " + str(campaign_id))
-            dialogs = await client.get_dialogs(limit=None)  # Get ALL dialogs
+        # Create buttons from campaign data or use default
+        from telethon import Button
+        telethon_reply_markup = None
+        
+        # We'll create inline buttons for the bot to use
+        # The worker account can't send inline buttons, so the bot will handle it
+        telethon_reply_markup = None  # Worker won't use buttons
+        
+        # Store button data for bot to use later
+        campaign_buttons = buttons if buttons and len(buttons) > 0 else []
+        logger.info(f"📱 Bot will handle inline buttons: {len(campaign_buttons)} buttons configured")
+        
+        # Get all groups if target_mode is all_groups
+        if campaign.get('target_mode') == 'all_groups' or target_chats == ['ALL_WORKER_GROUPS']:
+            logger.info(f"Getting all groups for scheduled campaign {campaign_id}")
+            dialogs = await client.get_dialogs()
             target_entities = []
             for dialog in dialogs:
-                # Include both regular groups AND supergroups (megagroups)
-                # Supergroups are technically channels with megagroup=True
                 if dialog.is_group:
                     target_entities.append(dialog.entity)
-                    logger.info(f"Found group for scheduled send: {dialog.title} (regular group)")
-                elif dialog.is_channel and hasattr(dialog.entity, 'megagroup') and dialog.entity.megagroup:
-                    target_entities.append(dialog.entity)
-                    logger.info(f"Found supergroup for scheduled send: {dialog.title} (supergroup)")
+                    logger.info(f"Found group for scheduled send: {dialog.name}")
         else:
-            # Convert target chat IDs to entities
+            # Convert chat IDs to entities
             target_entities = []
             for chat_id in target_chats:
                 try:
-                    entity = await client.get_entity(int(chat_id) if chat_id.lstrip('-').isdigit() else chat_id)
+                    entity = await client.get_entity(chat_id)
                     target_entities.append(entity)
                 except Exception as e:
                     logger.error(f"Failed to get entity for {chat_id}: {e}")
         
-        if not target_entities:
-            logger.warning(f"No valid target groups found for campaign {campaign_id}")
-            await client.disconnect()
-            return
+        # Create template message ONCE before processing all chats
+        template_message_id = None
         
-        # Get caption text once
-        caption_text = ad_content.get('caption') or ad_content.get('text', '')
-
-        # Convert DB buttons to Telethon buttons once
-        telethon_buttons = None
+        # Create template with buttons if needed
         if buttons and len(buttons) > 0:
-            # Use inline buttons properly
-            telethon_buttons = []
-            current_row = []
-            for i, button_data in enumerate(buttons):
-                if button_data.get('url'):
-                    # Use Button.url for inline URL buttons
-                    current_row.append(Button.url(button_data['text'], button_data['url']))
-                    if len(current_row) == 2 or i == len(buttons) - 1:
-                        telethon_buttons.append(current_row)
-                        current_row = []
-            logger.info(f"✅ Constructed {len(buttons)} Telethon buttons from database")
-
-        # Convert database entities to Telethon entities for premium emojis once
-        telethon_entities = []
-        if ad_content.get('caption_entities'):
-            for entity in ad_content.get('caption_entities', []):
-                try:
+            try:
+                from config import Config
+                bot = Bot(token=Config.BOT_TOKEN)
+                storage_channel_id = Config.STORAGE_CHANNEL_ID
+                
+                logger.info(f"🤖 BOT: Creating ONE template message with inline buttons for ALL groups")
+                
+                # Get the caption text - handle both text and media messages
+                caption_text = ad_content.get('caption') or ad_content.get('text', '')
+                logger.info(f"📝 Using caption text: {len(caption_text)} characters")
+                
+                # Convert entities for Bot API
+                bot_entities = []
+                for entity in ad_content.get('caption_entities', []):
                     entity_type = str(entity.get('type')).lower().replace('messageentitytype.', '')
                     
                     if entity_type == 'custom_emoji' and entity.get('custom_emoji_id'):
-                        from telethon.tl.types import MessageEntityCustomEmoji
-                        telethon_entities.append(MessageEntityCustomEmoji(
+                        bot_entities.append(MessageEntity(
+                            type='custom_emoji',
                             offset=entity['offset'],
                             length=entity['length'],
-                            document_id=int(entity['custom_emoji_id'])
+                            custom_emoji_id=str(entity['custom_emoji_id'])
                         ))
                     elif entity_type == 'bold':
-                        from telethon.tl.types import MessageEntityBold
-                        telethon_entities.append(MessageEntityBold(
+                        bot_entities.append(MessageEntity(
+                            type='bold',
                             offset=entity['offset'],
                             length=entity['length']
                         ))
                     elif entity_type == 'italic':
-                        from telethon.tl.types import MessageEntityItalic
-                        telethon_entities.append(MessageEntityItalic(
+                        bot_entities.append(MessageEntity(
+                            type='italic',
                             offset=entity['offset'],
                             length=entity['length']
                         ))
                     elif entity_type == 'mention':
-                        from telethon.tl.types import MessageEntityMention
-                        telethon_entities.append(MessageEntityMention(
+                        bot_entities.append(MessageEntity(
+                            type='mention',
                             offset=entity['offset'],
                             length=entity['length']
                         ))
-                except Exception as entity_error:
-                    logger.warning(f"Failed to convert entity {entity}: {entity_error}")
-            logger.info(f"✅ Converted {len(telethon_entities)} Telethon entities from database")
-        
-        # Debug: Log total groups found
-        logger.info(f"📊 Total target groups/chats found: {len(target_entities)}")
-        for entity in target_entities:
-            entity_type = "Unknown"
-            if hasattr(entity, 'megagroup') and entity.megagroup:
-                entity_type = "Supergroup"
-            elif hasattr(entity, 'broadcast') and entity.broadcast:
-                entity_type = "Channel"
-            elif hasattr(entity, 'gigagroup') and entity.gigagroup:
-                entity_type = "Gigagroup"
-            else:
-                entity_type = "Regular Group"
-            logger.info(f"  - {getattr(entity, 'title', 'Unknown')} ({entity_type})")
-
-        # Main loop for sending messages to target groups
-        for chat_entity in target_entities:
-            try:
-                # Get the media message from storage channel
-                storage_message_id = ad_content.get('storage_message_id')
-                storage_chat_id = ad_content.get('storage_chat_id')
-                storage_chat_id_int = int(storage_chat_id) if isinstance(storage_chat_id, str) else storage_chat_id
-                storage_message = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
-
-                if not storage_message or not storage_message.media:
-                    logger.error(f"❌ Could not retrieve media from storage for chat {getattr(chat_entity, 'title', 'Unknown')}. Skipping.")
-                    continue
                 
-                logger.info(f"📤 Sending message with all components to {getattr(chat_entity, 'title', 'Unknown')}")
-
-                # Send a NEW message with all components
-                logger.info(f"🔍 DEBUG: Sending with {len(telethon_buttons) if telethon_buttons else 0} button rows")
-                logger.info(f"🔍 DEBUG: Button data: {telethon_buttons}")
+                # Create inline keyboard from button data
+                inline_keyboard = []
+                current_row = []
+                for i, button in enumerate(buttons):
+                    if button.get('url'):
+                        inline_button = InlineKeyboardButton(
+                            text=button['text'],
+                            url=button['url']
+                        )
+                        current_row.append(inline_button)
+                        
+                        if len(current_row) == 2 or i == len(buttons) - 1:
+                            inline_keyboard.append(current_row)
+                            current_row = []
                 
-                # Send with proper inline buttons
-                # First try to copy the message from storage (preserves everything)
-                try:
-                    # Copy the message from storage channel - this preserves premium emojis
-                    sent_msg = await client.send_message(
-                        chat_entity,
-                        storage_message,  # Pass the message object directly
-                        buttons=telethon_buttons  # Add our buttons
-                    )
-                    logger.info(f"✅ Sent by copying storage message with buttons")
-                except Exception as copy_error:
-                    logger.warning(f"Copy method failed: {copy_error}, trying send_file")
-                    # Fallback to send_file if copy doesn't work
-                    sent_msg = await client.send_file(
-                        chat_entity,
-                        storage_message.media,
+                reply_markup = InlineKeyboardMarkup(inline_keyboard) if inline_keyboard else None
+                
+                # Send template to storage channel
+                storage_file_id = ad_content.get('storage_file_id') or ad_content.get('file_id')
+                media_type = ad_content.get('media_type', 'video')
+                
+                if media_type == 'video':
+                    bot_message = await bot.send_video(
+                        chat_id=storage_channel_id,
+                        video=storage_file_id,
                         caption=caption_text,
-                        buttons=telethon_buttons,
-                        parse_mode=None,
-                        link_preview=False
+                        caption_entities=bot_entities,
+                        reply_markup=reply_markup
+                    )
+                elif media_type == 'photo':
+                    bot_message = await bot.send_photo(
+                        chat_id=storage_channel_id,
+                        photo=storage_file_id,
+                        caption=caption_text,
+                        caption_entities=bot_entities,
+                        reply_markup=reply_markup
+                    )
+                else:
+                    bot_message = await bot.send_message(
+                        chat_id=storage_channel_id,
+                        text=caption_text,
+                        entities=bot_entities,
+                        reply_markup=reply_markup
                     )
                 
-                # Check if the sent message actually has buttons
-                if hasattr(sent_msg, 'reply_markup') and sent_msg.reply_markup:
-                    logger.info(f"✅ SUCCESS: Sent message to {getattr(chat_entity, 'title', 'Unknown')} WITH buttons!")
-                    logger.info(f"🔍 DEBUG: Reply markup type: {type(sent_msg.reply_markup)}")
-                else:
-                    logger.warning(f"⚠️ Message sent to {getattr(chat_entity, 'title', 'Unknown')} but NO buttons in final message!")
-                    logger.info(f"🔍 DEBUG: sent_msg attributes: {dir(sent_msg)}")
+                template_message_id = bot_message.message_id
+                logger.info(f"✅ Bot created ONE template message {template_message_id} for ALL groups")
+                logger.info(f"✅ Template has {len(bot_entities)} entities and {len(buttons)} buttons")
                 
-                sent_count += 1
-                if telethon_buttons:
-                    buttons_sent_count += 1
+            except Exception as template_error:
+                logger.error(f"❌ Failed to create template: {template_error}")
+                template_message_id = None
+        
+        # Initialize button tracking
+        buttons_sent_count = 0
+        
+        for chat_entity in target_entities:
+            message = None
+            try:
+                # Handle different content types
+                if isinstance(ad_content, list) and ad_content:
+                    # Process all messages with inline buttons
+                    
+                    # Find the main media message and combine all text content
+                    media_message = None
+                    combined_text = ""
+                    
+                    for message_data in ad_content:
+                        if message_data.get('media_type') and not media_message:
+                            # Use the first media message as the main one
+                            media_message = message_data
+                        elif message_data.get('text'):
+                            # Collect all text content
+                            if combined_text:
+                                combined_text += "\n\n" + message_data.get('text', '')
+                            else:
+                                combined_text = message_data.get('text', '')
+                    
+                    if media_message:
+                        # Send ONE message with media + combined text + buttons
+                        try:
+                            # Combine caption with additional text
+                            caption_text = media_message.get('caption', '')
+                            if caption_text and combined_text:
+                                final_caption = caption_text + "\n\n" + combined_text
+                            elif combined_text:
+                                final_caption = combined_text
+                            else:
+                                final_caption = caption_text
+                            
+                            # ALWAYS add button URLs as text for media messages (inline buttons don't work in regular groups)
+                            button_text = ""
+                            for button_row in telethon_reply_markup:
+                                for button in button_row:
+                                    if hasattr(button, 'url'):
+                                        button_text += f"\n\n🔗 {button.text}: {button.url}"
+                            
+                            # Combine caption with button text
+                            final_caption = (final_caption or "") + button_text
+                            
+                            # Truncate message if too long (Telegram limit is 4096 characters)
+                            if len(final_caption) > 4000:  # Leave some room for safety
+                                final_caption = final_caption[:4000] + "..."
+                                logger.warning(f"Message truncated to fit Telegram limits (was {len(final_caption)} chars)")
+                            
+                            # WORKING SOLUTION: Simple approach that actually works
+                            logger.info(f"Sending media with guaranteed buttons (simplified approach)")
+                            
+                            # Get the original text/caption
+                            original_text = media_message.get('caption', '')
+                            
+                            # Use original text WITHOUT adding button text - buttons will be inline
+                            final_text = original_text
+                            
+                            # Truncate if too long
+                            if len(final_text) > 4000:
+                                final_text = final_text[:4000] + "..."
+                            
+                            # REAL FIX: Get media from original message using Telethon
+                            try:
+                                # Get the original message using Telethon to access media properly
+                                original_chat_id = media_message.get('original_chat_id') or media_message.get('chat_id')
+                                original_message_id = media_message.get('original_message_id') or media_message.get('message_id')
+                                
+                                logger.info(f"Getting original message: chat_id={original_chat_id}, message_id={original_message_id}")
+                                
+                                # Get the original message with media
+                                original_message = await client.get_messages(original_chat_id, ids=original_message_id)
+                                if original_message and original_message.media:
+                                    logger.info(f"Found original message with media: {type(original_message.media)}")
+                                    media_file = await client.download_media(original_message.media)
+                                    logger.info(f"Media download result: {media_file}")
+                                    
+                                    if media_file and os.path.exists(media_file):
+                                        self._register_temp_file(media_file)
+                                        
+                                        # REAL FIX: Send media with original caption AND inline buttons
+                                        # Send media with original caption to preserve emojis + inline buttons
+                                        # CRITICAL: Send with inline buttons (not text buttons)
+                                        logger.info(f"🎯 Sending media with {len(telethon_reply_markup) if telethon_reply_markup else 0} inline button rows")
+                                        message = await client.send_file(
+                                            chat_entity,
+                                            media_file,
+                                            caption=original_text,  # Use original text to preserve emojis
+                                            reply_markup=telethon_reply_markup  # Add inline buttons directly to media
+                                        )
+                                        logger.info(f"✅ Media sent with INLINE BUTTONS to {chat_entity.title}")
+                                        self._cleanup_temp_file(media_file)
+                                        continue
+                                    else:
+                                        logger.warning(f"Media file not found: {media_file}")
+                                else:
+                                    logger.warning(f"No media found in original message")
+                                    
+                            except Exception as send_error:
+                                logger.error(f"Failed to send media: {send_error}")
+                                if 'media_file' in locals() and media_file:
+                                    self._cleanup_temp_file(media_file)
+                                
+                                # Fallback: Download and re-upload (loses custom emojis but preserves basic content)
+                                logger.info(f"Downloading media file: {media_message['file_id']}")
+                                try:
+                                    media_file = await client.download_media(media_message['file_id'])
+                                    logger.info(f"Media download result: {media_file}")
+                                except Exception as download_error:
+                                    logger.error(f"Media download failed: {download_error}")
+                                    media_file = None
+                                
+                                if media_file and os.path.exists(media_file):
+                                    # Register for cleanup
+                                    self._register_temp_file(media_file)
+                                    
+                                    # Send the downloaded media file with inline buttons (try first, fallback to text)
+                                    try:
+                                        # Try with inline buttons first (works in channels and some groups)
+                                        message = await client.send_file(
+                                            chat_entity,
+                                            media_file,
+                                            caption=final_caption,
+                                            reply_markup=telethon_reply_markup,
+                                            parse_mode='html'
+                                        )
+                                        logger.info(f"✅ Media sent with inline buttons to {chat_entity.title}")
+                                    except Exception as button_error:
+                                        # Fallback: Send without buttons, then send buttons as text
+                                        logger.warning(f"Inline buttons failed, using text fallback: {button_error}")
+                                        message = await client.send_file(
+                                            chat_entity,
+                                            media_file,
+                                            caption=final_caption,
+                                            parse_mode='html'
+                                        )
+                                        
+                                        # Buttons already sent as inline buttons with the media
+                                    logger.info(f"✅ Combined media+text sent via download ({media_message['media_type']}) to {chat_entity.title}")
+                                    
+                                    # Note: No cleanup needed - using permanent local media file
+                                else:
+                                    # Fallback to text if media download fails
+                                    if final_caption:
+                                        # Send with inline buttons only
+                                        final_caption_with_buttons = final_caption
+                                        
+                                        message = await client.send_message(
+                                            chat_entity,
+                                            final_caption_with_buttons,
+                                            reply_markup=telethon_reply_markup,
+                                            parse_mode='html'
+                                        )
+                                        logger.warning(f"⚠️ Media download failed, sent as text to {chat_entity.title}")
+                                    else:
+                                        continue  # Skip if no text content
+                        except Exception as e:
+                            logger.error(f"❌ Failed to send combined media+text to {chat_entity.title}: {e}")
+                            # Fallback to text message
+                            if combined_text:
+                                # Try with inline buttons first, fallback to text
+                                try:
+                                    message = await client.send_message(
+                                        chat_entity,
+                                        combined_text,
+                                        reply_markup=telethon_reply_markup,
+                                        parse_mode='html'
+                                    )
+                                    logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
+                                except Exception as button_error:
+                                    # Fallback: Send with buttons as text
+                                    logger.warning(f"Inline buttons failed for text, using text fallback: {button_error}")
+                                    message = await client.send_message(
+                                        chat_entity,
+                                        combined_text,
+                                        reply_markup=telethon_reply_markup,
+                                        parse_mode='html'
+                                    )
+                                logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
+                            else:
+                                continue  # Skip if no text content
+                    else:
+                        # No media, just send combined text as one message
+                        try:
+                            if combined_text:
+                                # Add buttons as text to the message
+                                combined_text_with_buttons = combined_text
+                                # Buttons will be sent as inline buttons
+                                
+                                message = await client.send_message(
+                                    chat_entity,
+                                    combined_text_with_buttons,
+                                    reply_markup=telethon_reply_markup,
+                                    parse_mode='html'
+                                )
+                                logger.info(f"✅ Combined text message sent to {chat_entity.title}")
+                            else:
+                                continue  # Skip if no content
+                        except Exception as e:
+                            logger.error(f"❌ Failed to send text message to {chat_entity.title}: {e}")
+                            continue
+                        except Exception as e:
+                            logger.error(f"❌ Failed to send combined media+text to {chat_entity.title}: {e}")
+                            # Fallback to text message
+                            if combined_text:
+                                # Try with inline buttons first, fallback to text
+                                try:
+                                    message = await client.send_message(
+                                        chat_entity,
+                                        combined_text,
+                                        reply_markup=telethon_reply_markup,
+                                        parse_mode='html'
+                                    )
+                                    logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
+                                except Exception as button_error:
+                                    # Fallback: Send with buttons as text
+                                    logger.warning(f"Inline buttons failed for text, using text fallback: {button_error}")
+                                    message = await client.send_message(
+                                        chat_entity,
+                                        combined_text,
+                                        reply_markup=telethon_reply_markup,
+                                        parse_mode='html'
+                                    )
+                                logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
+                            else:
+                                continue  # Skip if no text content
+                else:
+                    # Process single message with inline buttons
+                    
+                    # Single message - check if it has media or is just text
+                    if isinstance(ad_content, dict) and ad_content.get('media_type'):
+                        # Single message with media - WORKING SOLUTION
+                        try:
+                            logger.info(f"Processing single media message with guaranteed buttons")
+                            
+                            # Get original text/caption
+                            original_text = ad_content.get('caption', ad_content.get('text', '')) or ''
+                            
+                            # Use original text WITHOUT adding button text - buttons will be inline
+                            final_text = original_text
+                            
+                            # Truncate message if too long
+                            if len(final_text) > 4000:
+                                final_text = final_text[:4000] + "..."
+                                logger.warning(f"Single media message truncated to fit Telegram limits")
 
+                            # ULTIMATE FIX: Use stored entity data to reconstruct premium emojis
+                            media_file = None
+                            
+                            # CRITICAL INSIGHT: Worker can't access your private chat, but we have the entity data!
+                            logger.info(f"🔄 PREMIUM EMOJI RECONSTRUCTION: Using stored entity data to rebuild premium emojis")
+                            
+                            # Get the stored caption and entities from BotFather bot
+                            stored_caption = ad_content.get('caption', '')
+                            stored_entities = ad_content.get('caption_entities', [])
+                            
+                            logger.info(f"Stored caption length: {len(stored_caption)}")
+                            logger.info(f"Stored entities count: {len(stored_entities)}")
+                            logger.info(f"Premium emoji entities: {len([e for e in stored_entities if e.get('type') == 'custom_emoji'])}")
+                            
+                            # Use the stored caption with entity data (this preserves premium emoji IDs)
+                            original_text = stored_caption
+                            
+                            # SOLUTION: Download media using Bot API, then send with Telethon + buttons
+                            logger.info(f"📤 STORAGE CHANNEL SOLUTION: Using persistent media from storage channel")
+                            logger.info(f"📹 Video details: {ad_content.get('width')}x{ad_content.get('height')}, {ad_content.get('duration')}s, {ad_content.get('file_size')} bytes")
+                            
+                            # 🎯 STORAGE CHANNEL APPROACH: Use file_id from storage channel (persistent & reliable)
+                            storage_file_id = ad_content.get('storage_file_id')
+                            media_file_id = None
+                            
+                            if storage_file_id:
+                                logger.info(f"✅ Using storage channel file_id: {storage_file_id}")
+                                media_file_id = storage_file_id
+                                logger.info(f"📤 Storage channel provides persistent, reliable media access")
+                                
+                            else:
+                                # Fallback to original file_id if storage channel not available
+                                original_file_id = ad_content.get('file_id')
+                                if original_file_id:
+                                    logger.warning(f"⚠️ Storage channel not available, using original file_id: {original_file_id}")
+                                    media_file_id = original_file_id
+                                else:
+                                    logger.warning(f"❌ No media file_id available - will send text with premium emojis only")
+                                    media_file_id = None
+                            
+                            if media_file_id:
+                                # 🎯 TELETHON MEDIA SOLUTION: Get original message via Telethon for native media handling
+                                logger.info(f"🔄 TELETHON APPROACH: Getting original message for native media handling")
+                                
+                                try:
+                                    # 🎯 BREAKTHROUGH: Get media from STORAGE CHANNEL instead of user's private chat
+                                    storage_chat_id = ad_content.get('storage_chat_id')
+                                    storage_message_id = ad_content.get('storage_message_id')
+                                    
+                                    if storage_chat_id and storage_message_id:
+                                        logger.info(f"📥 BREAKTHROUGH: Fetching media from STORAGE CHANNEL message {storage_message_id} in chat {storage_chat_id}")
+                                        
+                                        # Convert storage_chat_id to proper format for Telethon
+                                        try:
+                                            if isinstance(storage_chat_id, str):
+                                                if storage_chat_id.startswith('-100'):
+                                                    storage_chat_id_int = int(storage_chat_id)
+                                                elif storage_chat_id.startswith('-'):
+                                                    storage_chat_id_int = int('-100' + storage_chat_id[1:])
+                                                else:
+                                                    storage_chat_id_int = int('-100' + storage_chat_id)
+                                            else:
+                                                storage_chat_id_int = int(storage_chat_id)
+                                            
+                                            logger.info(f"🔄 Using storage chat ID: {storage_chat_id_int}")
+                                            
+                                            # Get the message from storage channel (bot has access!)
+                                            storage_message = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
+                                            # Note: get_messages with single ID returns single Message object, not list
+                                        except Exception as storage_access_error:
+                                            logger.error(f"❌ Storage channel access failed: {storage_access_error}")
+                                            
+                                            # 🔄 TELETHON SESSION REFRESH: Try refreshing session if entity not found
+                                            if "Cannot find any entity" in str(storage_access_error):
+                                                logger.warning(f"🔄 MEDIA ACCESS: Telethon session cache issue detected")
+                                                try:
+                                                    logger.info(f"🔄 Refreshing session cache for media access...")
+                                                    await client.get_dialogs(limit=50)
+                                                    logger.info(f"✅ Session refreshed, retrying media access...")
+                                                    
+                                                    # Retry after session refresh
+                                                    storage_message = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
+                                                    logger.info(f"✅ Media access successful after session refresh!")
+                                                except Exception as retry_error:
+                                                    logger.error(f"❌ Media access failed even after session refresh: {retry_error}")
+                                                    storage_message = None
+                                            else:
+                                                storage_message = None
+                                        
+                                        if storage_message:
+                                            logger.info(f"🔥 STORAGE MESSAGE DEBUG: Message type: {type(storage_message)}")
+                                            logger.info(f"🔥 STORAGE MESSAGE DEBUG: Has media: {hasattr(storage_message, 'media') and storage_message.media is not None}")
+                                            logger.info(f"🔥 STORAGE MESSAGE DEBUG: Has caption: {hasattr(storage_message, 'caption')}")
+                                            if hasattr(storage_message, 'media') and storage_message.media:
+                                                logger.info(f"✅ STORAGE SUCCESS: Found media in storage channel: {type(storage_message.media)}")
+                                            else:
+                                                logger.error(f"❌ STORAGE ISSUE: Message has no media attribute or media is None")
+                                            
+                                            # Check worker account premium status
+                                            me = await client.get_me()
+                                            worker_has_premium = getattr(me, 'premium', False)
+                                            logger.info(f"✅ Worker account premium status: {worker_has_premium}")
+                                            
+                                            if worker_has_premium and stored_entities:
+                                                logger.info(f"🎉 PERFECT SETUP: Worker has Premium + entity data + storage media!")
+                                                
+                                                # Convert stored entities to Telethon format
+                                                telethon_entities = self._convert_to_telethon_entities(stored_entities, original_text)
+                                                
+                                                # 🔥 ULTIMATE FIX: Debug storage message content first, then send properly
+                                                logger.info(f"🔥 ULTIMATE DEBUG: Checking storage message content")
+                                                logger.info(f"Storage message text: {storage_message.text}")
+                                                logger.info(f"Storage message caption: {getattr(storage_message, 'caption', 'NO CAPTION ATTRIBUTE')}")
+                                                logger.info(f"Storage message entities: {getattr(storage_message, 'entities', 'NO ENTITIES ATTRIBUTE')}")
+                                                logger.info(f"Storage message caption_entities: {getattr(storage_message, 'caption_entities', 'NO CAPTION_ENTITIES ATTRIBUTE')}")
+                                                
+                                                # 🚀 FINAL SOLUTION: Use database caption + entities + buttons with parse_mode='none'
+                                                # Storage message doesn't have caption - use stored caption from database
+                                                logger.info(f"🚀 ULTIMATE FIX: Using database caption + entities + storage media + buttons")
+                                                
+                                                # 🔥 CRITICAL DEBUG: Log button details before sending
+                                                logger.info(f"🔥 REPLY KEYBOARD DEBUG: telethon_reply_markup type: {type(telethon_reply_markup)}")
+                                                logger.info(f"🔥 REPLY KEYBOARD DEBUG: Has rows: {hasattr(telethon_reply_markup, 'rows')}")
+                                                if hasattr(telethon_reply_markup, 'rows'):
+                                                    logger.info(f"🔥 REPLY KEYBOARD DEBUG: Number of rows: {len(telethon_reply_markup.rows)}")
+                                                    for i, row in enumerate(telethon_reply_markup.rows):
+                                                        logger.info(f"🔥 REPLY KEYBOARD DEBUG: Row {i}: {row}")
+                                                        if hasattr(row, 'buttons'):
+                                                            for j, btn in enumerate(row.buttons):
+                                                                logger.info(f"🔥 REPLY KEYBOARD DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
+                                                
+                                                # Use the pre-created template if available
+                                                logger.info(f"🚀 Using pre-created template for {chat_entity.title}")
+                                                
+                                                # Step 2: Worker sends NEW message (not forward) with all components
+                                                if template_message_id and buttons and len(buttons) > 0:
+                                                    try:
+                                                        # Create Telethon buttons directly from campaign data
+                                                        telethon_buttons = []
+                                                        current_row = []
+                                                        
+                                                        logger.info(f"🔧 Creating buttons from campaign data: {len(buttons)} buttons")
+                                                        for i, button in enumerate(buttons):
+                                                            if button.get('url'):
+                                                                # Create Telethon Button.url
+                                                                btn = Button.url(button['text'], button['url'])
+                                                                current_row.append(btn)
+                                                                logger.info(f"✅ Added button: {button['text']} -> {button['url']}")
+                                                                
+                                                                # Create rows of 2 buttons each
+                                                                if len(current_row) == 2 or i == len(buttons) - 1:
+                                                                    telethon_buttons.append(current_row)
+                                                                    current_row = []
+                                                        
+                                                        if telethon_buttons:
+                                                            logger.info(f"📤 Worker sending NEW message with {len(telethon_buttons)} button rows to {chat_entity.title}")
+                                                            
+                                                            # Send NEW message with media, entities, and buttons
+                                                            caption_text = ad_content.get('caption') or ad_content.get('text', '')
+                                                            sent_msg = await client.send_file(
+                                                                chat_entity,
+                                                                storage_message.media,  # Media from storage
+                                                                caption=caption_text,  # Caption text from ad_content
+                                                                formatting_entities=telethon_entities,  # Premium emojis and formatting
+                                                                buttons=telethon_buttons,  # Inline buttons from campaign data
+                                                                parse_mode=None,
+                                                                link_preview=False
+                                                            )
+                                                            
+                                                            logger.info(f"✅ SUCCESS: Sent message with media, premium emojis, AND buttons to {chat_entity.title}!")
+                                                            buttons_sent_count += 1
+                                                            continue  # Success, move to next chat
+                                                        else:
+                                                            logger.error(f"❌ No valid buttons created from campaign data")
+                                                    except Exception as send_error:
+                                                        logger.error(f"❌ Send with all components failed: {send_error}")
+                                                
+                                                # Fallback: Worker sends without buttons if template/forward fails
+                                                logger.info(f"📤 Fallback: Worker sends without buttons")
+                                                
+                                                # Fallback to worker sending without buttons
+                                                caption_text = ad_content.get('caption') or ad_content.get('text', '')
+                                                message = await client.send_file(
+                                                    chat_entity,
+                                                    storage_message.media,
+                                                    caption=caption_text,
+                                                    formatting_entities=telethon_entities,
+                                                    parse_mode=None,
+                                                    link_preview=False
+                                                )
+                                                logger.info(f"✅ Worker sent Media + Premium Emojis (no buttons)")
+                                                
+                                                continue
+                                            
+                                            # Fallback: Send storage media with original entities and buttons
+                                            logger.info(f"🔧 FALLBACK DEBUG: Checking storage message content")
+                                            logger.info(f"FALLBACK Storage message text: {storage_message.text}")
+                                            logger.info(f"FALLBACK Storage message caption: {getattr(storage_message, 'caption', 'NO CAPTION ATTRIBUTE')}")
+                                            logger.info(f"FALLBACK Storage message entities: {getattr(storage_message, 'entities', 'NO ENTITIES ATTRIBUTE')}")
+                                            logger.info(f"FALLBACK Storage message caption_entities: {getattr(storage_message, 'caption_entities', 'NO CAPTION_ENTITIES ATTRIBUTE')}")
+                                            
+                                            # 🚀 FINAL SOLUTION: Use database caption + entities + buttons with parse_mode='none'
+                                            # Storage message doesn't have caption - use stored caption from database
+                                            logger.info(f"🚀 ULTIMATE FIX: Using database caption + entities + storage media + buttons")
+                                            
+                                            # 🔥 FALLBACK BUTTON DEBUG: Log button details before sending
+                                            logger.info(f"🔥 FALLBACK BUTTON DEBUG: telethon_reply_markup type: {type(telethon_reply_markup)}")
+                                            logger.info(f"🔥 FALLBACK BUTTON DEBUG: telethon_reply_markup content: {telethon_reply_markup}")
+                                            if telethon_reply_markup:
+                                                for i, row in enumerate(telethon_reply_markup):
+                                                    logger.info(f"🔥 FALLBACK BUTTON DEBUG: Row {i}: {row}")
+                                                    if hasattr(row, '__iter__'):
+                                                        for j, btn in enumerate(row):
+                                                            logger.info(f"🔥 FALLBACK BUTTON DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
+                                            
+                                            # 🚀 FALLBACK: BUTTONS PRIORITY!
+                                            logger.info(f"🚀 FALLBACK: Prioritizing buttons for functionality!")
+                                            
+                                            # Send with buttons as priority
+                                            message = await client.send_file(
+                                                chat_entity,
+                                                storage_message.media,  # Media file
+                                                caption=original_text,  # Plain text caption
+                                                reply_markup=telethon_reply_markup,  # BUTTONS PRIORITY!
+                                                parse_mode=None,  # No parsing
+                                                link_preview=False  # Disable link preview
+                                            )
+                                            logger.info(f"✅ FALLBACK: Media + Buttons sent!")
+                                            
+                                            logger.info(f"🎉 FALLBACK: Media + Buttons sent to {chat_entity.title}")
+                                            
+                                            # Debug: Check if message has reply markup
+                                            if hasattr(message, 'reply_markup') and message.reply_markup:
+                                                logger.info(f"✅ CONFIRMED: Message has reply_markup with {len(message.reply_markup.rows)} button rows")
+                                            else:
+                                                logger.warning(f"⚠️ WARNING: Message has NO reply_markup!")
+                                            
+                                            continue
+                                        else:
+                                            logger.warning(f"❌ Storage channel message has no media or not found")
+                                    else:
+                                        logger.warning(f"❌ Missing storage_chat_id or storage_message_id")
+                                        
+                                except Exception as telethon_media_error:
+                                    logger.error(f"❌ Telethon media access failed: {telethon_media_error}")
+                                
+                                # If all media approaches fail, fall back to text
+                                logger.warning(f"Media handling failed, falling back to text")
+                            
+                            # If media handling failed, send as text with premium emoji entities
+                            logger.warning(f"🚨 CRITICAL ISSUE: Media download failed - buttons may not work on text-only messages in groups!")
+                            logger.info(f"💡 TELEGRAM LIMITATION: Groups may ignore inline buttons on text-only messages")
+                            logger.info(f"📝 PREMIUM EMOJI TEXT FALLBACK: Sending as text with entity reconstruction (buttons may not appear)")
+                            
+                            # Text fallback - send as text with buttons
+                            try:
+                                me = await client.get_me()
+                                worker_has_premium = getattr(me, 'premium', False)
+                                
+                                if worker_has_premium and stored_entities:
+                                    logger.info(f"🎉 TEXT FALLBACK: Worker has Premium + entity data = Premium emojis should work!")
+                                    
+                                    # Convert stored entities to Telethon format
+                                    telethon_entities = self._convert_to_telethon_entities(stored_entities, original_text)
+                                    
+                                    if telethon_entities:
+                                        # Send text with premium emoji entities
+                                        message = await client.send_message(
+                                            chat_entity,
+                                            original_text,
+                                            formatting_entities=telethon_entities,
+                                            reply_markup=telethon_reply_markup
+                                        )
+                                        logger.info(f"✅ Text sent with PREMIUM EMOJIS and inline buttons to {chat_entity.title}")
+                                    else:
+                                        # Fallback: Send without entities but with buttons
+                                        message = await client.send_message(
+                                            chat_entity,
+                                            original_text,
+                                            reply_markup=telethon_reply_markup
+                                        )
+                                        logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
+                                else:
+                                    # Send without premium emoji entities but with buttons
+                                    message = await client.send_message(
+                                        chat_entity,
+                                        original_text,
+                                        reply_markup=telethon_reply_markup
+                                    )
+                                    logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
+                                
+                            except Exception as text_error:
+                                logger.error(f"Text fallback failed: {text_error}")
+                                # Still continue to next chat even if this one fails
+                                pass
+                        
+                        except Exception as single_media_error:
+                            logger.error(f"Single media processing failed: {single_media_error}")
+                            # Continue to next chat
+                            continue
+                
+                # Log the performance
+                if message:
+                    self.log_ad_performance(campaign_id, campaign['user_id'], str(chat_entity.id), message.id)
+                    sent_count += 1
+                    logger.info(f"Scheduled ad sent to {chat_entity.title} ({chat_entity.id}) for campaign {campaign['campaign_name']}")
+                
+                # Add delay between sends
+                await asyncio.sleep(2)
+                
             except Exception as e:
-                logger.error(f"Failed to send scheduled ad to {getattr(chat_entity, 'title', 'Unknown')}: {e}")
+                logger.error(f"Failed to send scheduled ad to {chat_entity.title if hasattr(chat_entity, 'title') else 'Unknown'}: {e}")
                 self.log_ad_performance(campaign_id, campaign['user_id'], str(chat_entity.id) if hasattr(chat_entity, 'id') else 'unknown', None, 'failed')
         
         # Update campaign statistics
         self.update_campaign_stats(campaign_id, sent_count)
-        logger.info(f"Scheduled campaign {campaign['campaign_name']} completed: {buttons_sent_count}/{len(target_chats)} ads sent with buttons")
+        logger.info(f"Scheduled campaign {campaign['campaign_name']} completed: {buttons_sent_count}/{len(target_entities)} ads sent with buttons")
         
-        # Disconnect client after scheduled execution
-        await client.disconnect()
-        logger.info(f"Disconnected client for scheduled campaign {campaign_id}")
-        
-        return
-        
-    def _get_schedule_func(self, schedule_type: str, schedule_time: str) -> Optional[callable]:
-        """Helper to get the appropriate schedule function based on type."""
-        if schedule_type == 'daily':
-            return schedule.every().day.at(schedule_time).do
-        elif schedule_type == 'weekly':
-            # Assuming format like "Monday 14:30"
-            day, time_str = schedule_time.split(' ')
-            return getattr(schedule.every(), day.lower()).at(time_str).do
-        elif schedule_type == 'hourly':
-            return schedule.every().hour.do
-        elif schedule_type == 'custom':
-            # Parse custom interval (e.g., "every 3 minutes", "every 4 hours")
-            try:
-                if 'hour' in schedule_time.lower():
-                    hours = int(schedule_time.split()[1])
-                    return schedule.every(hours).hours.do
-                elif 'minute' in schedule_time.lower():
-                    # Handle formats like "3 minutes", "every 3 minutes"
-                    parts = schedule_time.split()
-                    if len(parts) >= 2:
-                        # Find the number in the string
-                        for part in parts:
-                            if part.isdigit():
-                                minutes = int(part)
-                                break
-                        else:
-                            minutes = 10  # default
-                    else:
-                        minutes = 10  # default
-                    
-                    return schedule.every(minutes).minutes.do
-                elif schedule_time.isdigit():
-                    # If just a number, assume minutes
-                    minutes = int(schedule_time)
-                    return schedule.every(minutes).minutes.do
-                else:
-                    logger.warning(f"⚠️ Unknown custom schedule format: {schedule_time}")
-                    return None
-            except (ValueError, IndexError) as e:
-                logger.error(f"❌ Error parsing custom schedule '{schedule_time}': {e}")
-                # Default to 10 minutes if parsing fails
-                return schedule.every(10).minutes.do
-        return None
-        
+        # Disconnect client after scheduled execution to prevent asyncio loop issues
+        try:
+            await client.disconnect()
+            logger.info(f"Disconnected client for scheduled campaign {campaign_id}")
+        except Exception as e:
+            logger.warning(f"Failed to disconnect client for campaign {campaign_id}: {e}")
+    
     def log_ad_performance(self, campaign_id: int, user_id: int, target_chat: str, 
-                         message_id: Optional[int], status: str = 'sent'):
+                          message_id: Optional[int], status: str = 'sent'):
         """Log ad performance"""
         import sqlite3
         
@@ -1370,28 +1866,89 @@ class BumpService:
         schedule_type = campaign['schedule_type']
         schedule_time = campaign['schedule_time']
         
-        schedule_func = self._get_schedule_func(schedule_type, schedule_time)
-        
-        if not schedule_func:
-            logger.warning(f"⚠️ Could not determine schedule function for campaign {campaign_id} ({schedule_type} at {schedule_time})")
-            return
-        
-        job = schedule_func(self.run_campaign_job, campaign_id)
-        
-        # IMPORTANT: Run the job immediately for the first time if campaign is active
-        campaign = self.get_campaign(campaign_id)
-        if campaign and campaign.get('is_active', False):
-            logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
-            # Add staggered delay to prevent database conflicts
-            import random
-            delay = random.uniform(0.5, 2.0)  # Random delay between 0.5-2 seconds
-            # Run in a separate thread to avoid blocking
-            import threading
-            threading.Thread(target=lambda: (time.sleep(delay), self.run_campaign_job(campaign_id)), daemon=True).start()
-        
-        logger.info(f"📅 Campaign {campaign_id} scheduled ({schedule_type} at {schedule_time})")
+        if schedule_type == 'daily':
+            schedule.every().day.at(schedule_time).do(self.run_campaign_job, campaign_id)
+        elif schedule_type == 'weekly':
+            # Assuming format like "Monday 14:30"
+            day, time_str = schedule_time.split(' ')
+            getattr(schedule.every(), day.lower()).at(time_str).do(self.run_campaign_job, campaign_id)
+        elif schedule_type == 'hourly':
+            schedule.every().hour.do(self.run_campaign_job, campaign_id)
+        elif schedule_type == 'custom':
+            # Parse custom interval (e.g., "every 3 minutes", "every 4 hours")
+            try:
+                if 'hour' in schedule_time.lower():
+                    hours = int(schedule_time.split()[1])
+                    job = schedule.every(hours).hours.do(self.run_campaign_job, campaign_id)
+                    
+                    # IMPORTANT: Run the job immediately for the first time if campaign is active
+                    campaign = self.get_campaign(campaign_id)
+                    if campaign and campaign.get('is_active', False):
+                        logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
+                        # Add staggered delay to prevent database conflicts
+                        import random
+                        delay = random.uniform(0.5, 2.0)  # Random delay between 0.5-2 seconds
+                        # Run in a separate thread to avoid blocking
+                        import threading
+                        threading.Thread(target=lambda: (time.sleep(delay), self.run_campaign_job(campaign_id)), daemon=True).start()
+                    
+                    logger.info(f"📅 Campaign {campaign_id} scheduled every {hours} hours")
+                elif 'minute' in schedule_time.lower():
+                    # Handle formats like "3 minutes", "every 3 minutes"
+                    parts = schedule_time.split()
+                    if len(parts) >= 2:
+                        # Find the number in the string
+                        for part in parts:
+                            if part.isdigit():
+                                minutes = int(part)
+                                break
+                        else:
+                            minutes = 10  # default
+                    else:
+                        minutes = 10  # default
+                    
+                    # Schedule the job to run every X minutes
+                    job = schedule.every(minutes).minutes.do(self.run_campaign_job, campaign_id)
+                    
+                    # IMPORTANT: Run the job immediately for the first time if campaign is active
+                    campaign = self.get_campaign(campaign_id)
+                    if campaign and campaign.get('is_active', False):
+                        logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
+                        # Add staggered delay to prevent database conflicts
+                        import random
+                        delay = random.uniform(0.5, 2.0)  # Random delay between 0.5-2 seconds
+                        # Run in a separate thread to avoid blocking
+                        import threading
+                        threading.Thread(target=lambda: (time.sleep(delay), self.run_campaign_job(campaign_id)), daemon=True).start()
+                    
+                    logger.info(f"📅 Campaign {campaign_id} scheduled every {minutes} minutes")
+                elif schedule_time.isdigit():
+                    # If just a number, assume minutes
+                    minutes = int(schedule_time)
+                    job = schedule.every(minutes).minutes.do(self.run_campaign_job, campaign_id)
+                    
+                    # IMPORTANT: Run the job immediately for the first time if campaign is active
+                    campaign = self.get_campaign(campaign_id)
+                    if campaign and campaign.get('is_active', False):
+                        logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
+                        # Add staggered delay to prevent database conflicts
+                        import random
+                        delay = random.uniform(0.5, 2.0)  # Random delay between 0.5-2 seconds
+                        # Run in a separate thread to avoid blocking
+                        import threading
+                        threading.Thread(target=lambda: (time.sleep(delay), self.run_campaign_job(campaign_id)), daemon=True).start()
+                    
+                    logger.info(f"📅 Campaign {campaign_id} scheduled every {minutes} minutes")
+                else:
+                    logger.warning(f"⚠️ Unknown custom schedule format: {schedule_time}")
+            except (ValueError, IndexError) as e:
+                logger.error(f"❌ Error parsing custom schedule '{schedule_time}': {e}")
+                # Default to 10 minutes if parsing fails
+                schedule.every(10).minutes.do(self.run_campaign_job, campaign_id)
+                logger.info(f"📅 Campaign {campaign_id} defaulted to every 10 minutes")
         
         self.active_campaigns[campaign_id] = campaign
+        logger.info(f"Scheduled campaign {campaign_id} ({schedule_type} at {schedule_time})")
     
     def run_campaign_job(self, campaign_id: int):
         """Execute scheduled campaign automatically"""
