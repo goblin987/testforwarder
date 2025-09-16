@@ -1565,12 +1565,13 @@ class BumpService:
                                                 )
                                                 
                                                 # Step 2: Send premium emoji text as separate message
-                                                if storage_message.text and storage_message.entities:
+                                                # Use original plain text with converted entities (not markdown from storage)
+                                                if original_text and formatting_entities:
                                                     logger.info(f"🎨 PREMIUM EMOJIS: Sending separate message with premium emojis")
                                                     await client.send_message(
                                                         chat_entity,
-                                                        message=storage_message.text,
-                                                        formatting_entities=storage_message.entities,
+                                                        message=original_text,  # Plain text from database
+                                                        formatting_entities=formatting_entities,  # Converted entities
                                                         parse_mode=None
                                                     )
                                                 logger.info(f"🎉 STORAGE BREAKTHROUGH: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
@@ -1616,12 +1617,13 @@ class BumpService:
                                             )
                                             
                                             # Step 2: Send premium emoji text as separate message
-                                            if storage_message.text and storage_message.entities:
+                                            # Use original plain text with converted entities (not markdown from storage)
+                                            if original_text and formatting_entities:
                                                 logger.info(f"🎨 FALLBACK PREMIUM EMOJIS: Sending separate message with premium emojis")
                                                 await client.send_message(
                                                     chat_entity,
-                                                    message=storage_message.text,
-                                                    formatting_entities=storage_message.entities,
+                                                    message=original_text,  # Plain text from database
+                                                    formatting_entities=formatting_entities,  # Converted entities
                                                     parse_mode=None
                                                 )
                                             logger.info(f"🎉 STORAGE SUCCESS: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
