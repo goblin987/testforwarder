@@ -1566,9 +1566,20 @@ class BumpService:
                                                     storage_file_id = ad_content.get('storage_file_id') or ad_content.get('file_id')
                                                     media_type = ad_content.get('media_type', 'video')
                                                     
+                                                    # Get proper chat ID for Bot API
+                                                    # Telethon entity.id is different from Bot API chat_id
+                                                    bot_chat_id = chat_entity.id
+                                                    # For supergroups/channels, ensure it has -100 prefix
+                                                    if hasattr(chat_entity, 'megagroup') or hasattr(chat_entity, 'broadcast'):
+                                                        bot_chat_id = int(f"-100{abs(chat_entity.id)}")
+                                                    elif bot_chat_id > 0:  # If it's a positive number, it needs -100 prefix
+                                                        bot_chat_id = int(f"-100{bot_chat_id}")
+                                                    
+                                                    logger.info(f"🤖 Bot sending to chat ID: {bot_chat_id} (from Telethon entity: {chat_entity.id})")
+                                                    
                                                     if media_type == 'video':
                                                         bot_message = await bot.send_video(
-                                                            chat_id=chat_entity.id,
+                                                            chat_id=bot_chat_id,
                                                             video=storage_file_id,  # Use Bot API file_id
                                                             caption=original_text,
                                                             caption_entities=ad_content.get('caption_entities', []),
@@ -1576,7 +1587,7 @@ class BumpService:
                                                         )
                                                     elif media_type == 'photo':
                                                         bot_message = await bot.send_photo(
-                                                            chat_id=chat_entity.id,
+                                                            chat_id=bot_chat_id,
                                                             photo=storage_file_id,  # Use Bot API file_id
                                                             caption=original_text,
                                                             caption_entities=ad_content.get('caption_entities', []),
@@ -1584,7 +1595,7 @@ class BumpService:
                                                         )
                                                     else:
                                                         bot_message = await bot.send_message(
-                                                            chat_id=chat_entity.id,
+                                                            chat_id=bot_chat_id,
                                                             text=original_text,
                                                             entities=ad_content.get('caption_entities', []),
                                                             reply_markup=reply_markup
