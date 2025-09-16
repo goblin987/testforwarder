@@ -1642,76 +1642,43 @@ class BumpService:
                                                 # Step 2: BOT sends to groups (with buttons), Worker only for channels
                                                 if template_message_id and buttons and len(buttons) > 0:
                                                     try:
-                                                        # Check if this is a group where user accounts can't send buttons
-                                                        is_group = hasattr(chat_entity, 'megagroup') and chat_entity.megagroup
+                                                        # Worker CAN send inline buttons to groups! Let's do it properly
+                                                        logger.info(f"📤 Worker sending with ALL components to {chat_entity.title}")
                                                         
-                                                        if is_group:
-                                                            # For groups: Try bot first, fallback to worker
-                                                            logger.info(f"🤖 BOT will try to send to group {chat_entity.title} to preserve buttons")
-                                                            
-                                                            try:
-                                                                from config import Config
-                                                                bot = Bot(token=Config.BOT_TOKEN)
+                                                        # Create Telethon buttons directly from campaign data
+                                                        telethon_buttons = []
+                                                        current_row = []
+                                                        
+                                                        for i, button in enumerate(buttons):
+                                                            if button.get('url'):
+                                                                btn = Button.url(button['text'], button['url'])
+                                                                current_row.append(btn)
                                                                 
-                                                                # Get chat ID for bot
-                                                                bot_chat_id = str(chat_entity.id)
-                                                                if not bot_chat_id.startswith('-'):
-                                                                    bot_chat_id = f"-100{bot_chat_id}"
-                                                                
-                                                                logger.info(f"🤖 BOT: Forwarding template {template_message_id} with buttons to {chat_entity.title}")
-                                                                
-                                                                # Bot forwards the template message (preserves buttons)
-                                                                forwarded = await bot.forward_message(
-                                                                    chat_id=bot_chat_id,
-                                                                    from_chat_id=storage_channel_id,
-                                                                    message_id=template_message_id
-                                                                )
-                                                                
-                                                                logger.info(f"✅ Bot sent message with media and buttons to {chat_entity.title}")
-                                                                buttons_sent_count += 1
-                                                                continue
-                                                                
-                                                            except Exception as bot_error:
-                                                                logger.warning(f"⚠️ Bot failed to send to group {chat_entity.title}: {bot_error}")
-                                                                if "Chat not found" in str(bot_error):
-                                                                    logger.error(f"🚫 Bot is not admin in {chat_entity.title}! Add bot as admin to enable buttons in groups.")
-                                                                logger.info(f"🔄 Falling back to worker (will have premium emojis but no buttons)")
-                                                                
-                                                                # Fall through to worker sending with premium emojis (no buttons)
-                                                                pass
-                                                            
-                                                        else:
-                                                            # For channels: Worker can send with buttons
-                                                            logger.info(f"📤 Worker sending to channel {chat_entity.title}")
-                                                            
-                                                            # Create Telethon buttons directly from campaign data
-                                                            telethon_buttons = []
-                                                            current_row = []
-                                                            
-                                                            for i, button in enumerate(buttons):
-                                                                if button.get('url'):
-                                                                    btn = Button.url(button['text'], button['url'])
-                                                                    current_row.append(btn)
-                                                                    
-                                                                    if len(current_row) == 2 or i == len(buttons) - 1:
-                                                                        telethon_buttons.append(current_row)
-                                                                        current_row = []
-                                                            
-                                                            # Send with all components
-                                                            caption_text = ad_content.get('caption') or ad_content.get('text', '')
-                                                            sent_msg = await client.send_file(
-                                                                chat_entity,
-                                                                storage_message.media,
-                                                                caption=caption_text,
-                                                                formatting_entities=telethon_entities,
-                                                                buttons=telethon_buttons,
-                                                                parse_mode=None,
-                                                                link_preview=False
-                                                            )
-                                                            
-                                                            logger.info(f"✅ Worker sent message with media, premium emojis, and buttons to channel {chat_entity.title}")
-                                                            buttons_sent_count += 1
-                                                            continue
+                                                                if len(current_row) == 2 or i == len(buttons) - 1:
+                                                                    telethon_buttons.append(current_row)
+                                                                    current_row = []
+                                                        
+                                                        logger.info(f"🔧 Created {len(telethon_buttons)} button rows with {len(buttons)} total buttons")
+                                                        
+                                                        # Send with all components - CRITICAL: Use original text and entities
+                                                        caption_text = ad_content.get('caption') or ad_content.get('text', '')
+                                                        
+                                                        logger.info(f"📝 Using caption: {len(caption_text)} chars")
+                                                        logger.info(f"🎨 Using {len(telethon_entities)} formatting entities (including {len([e for e in telethon_entities if hasattr(e, 'document_id')])} premium emojis)")
+                                                        
+                                                        sent_msg = await client.send_file(
+                                                            chat_entity,
+                                                            storage_message.media,
+                                                            caption=caption_text,
+                                                            formatting_entities=telethon_entities,  # Premium emojis
+                                                            buttons=telethon_buttons,  # Inline buttons
+                                                            parse_mode=None,  # Critical: Let entities handle formatting
+                                                            link_preview=False
+                                                        )
+                                                        
+                                                        logger.info(f"✅ Worker sent message with media, premium emojis, AND buttons to {chat_entity.title}!")
+                                                        buttons_sent_count += 1
+                                                        continue
                                                             
                                                     except Exception as send_error:
                                                         logger.error(f"❌ Send with buttons failed: {send_error}")
