@@ -1622,7 +1622,6 @@ class BumpService:
                                                                 from_peer=storage_chat_id_int
                                                             )
                                                             logger.info(f"✅ SUCCESS: Forwarded message with inline buttons to {chat_entity.title}!")
-                                                            buttons_sent_count += 1
                                                             continue  # Success, move to next chat
                                                         else:
                                                             logger.error(f"❌ Could not retrieve template message {template_message_id}")
