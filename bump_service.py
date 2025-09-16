@@ -31,6 +31,8 @@ from telethon import TelegramClient
 from telethon.tl.custom import Button
 from telethon.tl.types import ReplyKeyboardMarkup, KeyboardButtonUrl, KeyboardButtonRow
 from database import Database
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ParseMode
 import json
 import threading
 import traceback
@@ -1127,52 +1129,13 @@ class BumpService:
         from telethon import Button
         telethon_reply_markup = None
         
-        if buttons and len(buttons) > 0:
-            # Convert stored button data to Telethon REPLY KEYBOARD buttons
-            # Reply keyboards appear at the bottom of the screen like a keyboard
-            try:
-                keyboard_rows = []
-                current_row = []
-                
-                for i, button in enumerate(buttons):
-                    if button.get('url'):
-                        # URL button for reply keyboard - use KeyboardButtonUrl
-                        keyboard_button = KeyboardButtonUrl(button['text'], button['url'])
-                    else:
-                        # Reply keyboards don't support callbacks, only text or URL
-                        # Convert to URL button with default URL
-                        keyboard_button = KeyboardButtonUrl(button['text'], button.get('url', 'https://t.me/testukassdfdds'))
-                    
-                    current_row.append(keyboard_button)
-                    
-                    # Create new row every 2 buttons or at the end
-                    if len(current_row) == 2 or i == len(buttons) - 1:
-                        # Create KeyboardButtonRow for each row
-                        keyboard_rows.append(KeyboardButtonRow(buttons=current_row))
-                        current_row = []
-                
-                # Create the ReplyKeyboardMarkup with all rows
-                telethon_reply_markup = ReplyKeyboardMarkup(
-                    rows=keyboard_rows,
-                    resize=True,  # Make keyboard smaller
-                    single_use=False,  # Keep keyboard after button press
-                    selective=False  # Show to all users in group
-                )
-                logger.info(f"✅ Created REPLY KEYBOARD with {len(buttons)} buttons in {len(keyboard_rows)} rows for campaign {campaign_id}")
-            except Exception as e:
-                logger.error(f"❌ Error creating reply keyboard for campaign {campaign_id}: {e}")
-                # Fallback to default reply keyboard
-                telethon_reply_markup = ReplyKeyboardMarkup(
-                    rows=[KeyboardButtonRow(buttons=[KeyboardButtonUrl("Shop Now", "https://t.me/testukassdfdds")])],
-                    resize=True
-                )
-        else:
-            # Default reply keyboard if none specified
-            telethon_reply_markup = ReplyKeyboardMarkup(
-                rows=[KeyboardButtonRow(buttons=[KeyboardButtonUrl("Shop Now", "https://t.me/testukassdfdds")])],
-                resize=True
-            )
-            logger.info(f"Using default Shop Now reply keyboard for campaign {campaign_id}")
+        # We'll create inline buttons for the bot to use
+        # The worker account can't send inline buttons, so the bot will handle it
+        telethon_reply_markup = None  # Worker won't use buttons
+        
+        # Store button data for bot to use later
+        campaign_buttons = buttons if buttons and len(buttons) > 0 else []
+        logger.info(f"📱 Bot will handle inline buttons: {len(campaign_buttons)} buttons configured")
         
         # Get all groups if target_mode is all_groups
         if campaign.get('target_mode') == 'all_groups' or target_chats == ['ALL_WORKER_GROUPS']:
@@ -1570,29 +1533,85 @@ class BumpService:
                                                             for j, btn in enumerate(row.buttons):
                                                                 logger.info(f"🔥 REPLY KEYBOARD DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                                 
-                                                # 🚀 ULTIMATE SOLUTION: REPLY KEYBOARDS + PREMIUM EMOJIS + MEDIA!
-                                                logger.info(f"🚀 ULTIMATE: Using REPLY KEYBOARD (bottom buttons) that work with user accounts!")
+                                                # 🚀 ULTIMATE SOLUTION: BOT SENDS WITH INLINE BUTTONS!
+                                                logger.info(f"🚀 ULTIMATE: Bot will send message with inline buttons!")
                                                 
-                                                # Reply keyboards work with user accounts AND we can use formatting_entities!
-                                                # This gives us EVERYTHING: Media + Premium Emojis + Bottom Buttons
-                                                message = await client.send_file(
-                                                    chat_entity,
-                                                    storage_message.media,  # Media file from storage
-                                                    caption=original_text,  # Plain text caption
-                                                    formatting_entities=telethon_entities,  # Premium emoji entities
-                                                    reply_markup=telethon_reply_markup,  # REPLY KEYBOARD (bottom buttons)!
-                                                    parse_mode=None,  # No parsing
-                                                    link_preview=False  # Disable link preview
-                                                )
-                                                logger.info(f"✅ Media + Premium Emojis + Reply Keyboard sent successfully!")
-                                                
-                                                logger.info(f"🎉 ULTIMATE SUCCESS: Media + Premium Emojis + Reply Keyboard sent to {chat_entity.title}")
-                                                
-                                                # Debug: Check if message has reply markup
-                                                if hasattr(message, 'reply_markup') and message.reply_markup:
-                                                    logger.info(f"✅ CONFIRMED: Message has reply_markup (reply keyboard) with buttons!")
-                                                else:
-                                                    logger.warning(f"⚠️ WARNING: Message has NO reply_markup!")
+                                                # Use Bot API to send message with inline buttons
+                                                try:
+                                                    from config import Config
+                                                    bot = Bot(token=Config.BOT_TOKEN)
+                                                    
+                                                    # Create inline keyboard from button data
+                                                    inline_keyboard = []
+                                                    if buttons and len(buttons) > 0:
+                                                        current_row = []
+                                                        for i, button in enumerate(buttons):
+                                                            if button.get('url'):
+                                                                inline_button = InlineKeyboardButton(
+                                                                    text=button['text'],
+                                                                    url=button['url']
+                                                                )
+                                                                current_row.append(inline_button)
+                                                                
+                                                                # Max 2 buttons per row
+                                                                if len(current_row) == 2 or i == len(buttons) - 1:
+                                                                    inline_keyboard.append(current_row)
+                                                                    current_row = []
+                                                    
+                                                    reply_markup = InlineKeyboardMarkup(inline_keyboard) if inline_keyboard else None
+                                                    
+                                                    # Send via Bot API with inline buttons
+                                                    # Note: Bot must be admin in the group
+                                                    # Determine media type and use appropriate send method
+                                                    storage_file_id = ad_content.get('storage_file_id') or ad_content.get('file_id')
+                                                    media_type = ad_content.get('media_type', 'video')
+                                                    
+                                                    if media_type == 'video':
+                                                        bot_message = await bot.send_video(
+                                                            chat_id=chat_entity.id,
+                                                            video=storage_file_id,  # Use Bot API file_id
+                                                            caption=original_text,
+                                                            caption_entities=ad_content.get('caption_entities', []),
+                                                            reply_markup=reply_markup
+                                                        )
+                                                    elif media_type == 'photo':
+                                                        bot_message = await bot.send_photo(
+                                                            chat_id=chat_entity.id,
+                                                            photo=storage_file_id,  # Use Bot API file_id
+                                                            caption=original_text,
+                                                            caption_entities=ad_content.get('caption_entities', []),
+                                                            reply_markup=reply_markup
+                                                        )
+                                                    else:
+                                                        bot_message = await bot.send_message(
+                                                            chat_id=chat_entity.id,
+                                                            text=original_text,
+                                                            entities=ad_content.get('caption_entities', []),
+                                                            reply_markup=reply_markup
+                                                        )
+                                                    
+                                                    logger.info(f"✅ Bot sent Media + Premium Emojis + Inline Buttons successfully!")
+                                                    logger.info(f"🎉 ULTIMATE SUCCESS: Bot sent to {chat_entity.title}")
+                                                    
+                                                    if bot_message.reply_markup:
+                                                        logger.info(f"✅ CONFIRMED: Message has inline buttons!")
+                                                    else:
+                                                        logger.warning(f"⚠️ WARNING: Message has NO inline buttons!")
+                                                    
+                                                except Exception as bot_error:
+                                                    logger.error(f"❌ Bot send failed: {bot_error}")
+                                                    logger.info(f"📤 Fallback: Worker sends without buttons")
+                                                    
+                                                    # Fallback to worker sending without buttons
+                                                    message = await client.send_file(
+                                                        chat_entity,
+                                                        storage_message.media,
+                                                        caption=original_text,
+                                                        formatting_entities=telethon_entities,
+                                                        parse_mode=None,
+                                                        link_preview=False
+                                                    )
+                                                    logger.info(f"✅ Worker sent Media + Premium Emojis (no buttons)")
                                                 
                                                 continue
                                             
