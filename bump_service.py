@@ -1552,12 +1552,14 @@ class BumpService:
                                                             for j, btn in enumerate(row):
                                                                 logger.info(f"🔥 BUTTON DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                                 
+                                                # 🚀 FINAL SOLUTION: Use storage message's text and entities directly
+                                                # The storage message already has the formatted text with premium emojis
                                                 message = await client.send_file(
                                                     chat_entity,
                                                     file=storage_message.media,  # Media from storage channel
-                                                    caption=original_text,  # Caption from database
+                                                    caption=storage_message.text,  # Use storage message's formatted text
                                                     parse_mode=None,  # Critical: Don't parse, use entities directly
-                                                    entities=telethon_entities,  # Premium emoji entities from database
+                                                    entities=storage_message.entities,  # Use storage message's entities directly
                                                     buttons=telethon_buttons  # Inline buttons
                                                 )
                                                 logger.info(f"🎉 STORAGE BREAKTHROUGH: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
@@ -1591,12 +1593,13 @@ class BumpService:
                                                         for j, btn in enumerate(row):
                                                             logger.info(f"🔥 FALLBACK BUTTON DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                             
+                                            # 🚀 FALLBACK SOLUTION: Use storage message's text and entities directly
                                             message = await client.send_file(
                                                 chat_entity,
                                                 file=storage_message.media,  # Media from storage channel
-                                                caption=original_text,  # Caption from database
+                                                caption=storage_message.text,  # Use storage message's formatted text
                                                 parse_mode=None,  # Critical: Don't parse, use entities directly
-                                                entities=telethon_entities,  # Premium emoji entities from database
+                                                entities=storage_message.entities,  # Use storage message's entities directly
                                                 buttons=telethon_buttons  # Inline buttons
                                             )
                                             logger.info(f"🎉 STORAGE SUCCESS: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
