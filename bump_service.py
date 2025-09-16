@@ -1218,6 +1218,9 @@ class BumpService:
                 logger.info(f"📤 Sending message with all components to {getattr(chat_entity, 'title', 'Unknown')}")
 
                 # Send a NEW message with all components
+                logger.info(f"🔍 DEBUG: Sending with {len(telethon_buttons) if telethon_buttons else 0} button rows")
+                logger.info(f"🔍 DEBUG: Button data: {telethon_buttons}")
+                
                 sent_msg = await client.send_file(
                     chat_entity,
                     storage_message.media,
@@ -1228,7 +1231,14 @@ class BumpService:
                     link_preview=False
                 )
                 
-                logger.info(f"✅ SUCCESS: Sent message to {getattr(chat_entity, 'title', 'Unknown')}!")
+                # Check if the sent message actually has buttons
+                if hasattr(sent_msg, 'reply_markup') and sent_msg.reply_markup:
+                    logger.info(f"✅ SUCCESS: Sent message to {getattr(chat_entity, 'title', 'Unknown')} WITH buttons!")
+                    logger.info(f"🔍 DEBUG: Reply markup type: {type(sent_msg.reply_markup)}")
+                else:
+                    logger.warning(f"⚠️ Message sent to {getattr(chat_entity, 'title', 'Unknown')} but NO buttons in final message!")
+                    logger.info(f"🔍 DEBUG: sent_msg attributes: {dir(sent_msg)}")
+                
                 sent_count += 1
                 if telethon_buttons:
                     buttons_sent_count += 1
