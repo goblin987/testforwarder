@@ -1553,30 +1553,20 @@ class BumpService:
                                                             for j, btn in enumerate(row):
                                                                 logger.info(f"🔥 BUTTON DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                                 
-                                                # 🚀 HYBRID SOLUTION: Telethon entities + buttons conflict
-                                                # Solution: Send media with buttons (no entities), then send premium emoji text separately
-                                                logger.info(f"🚀 HYBRID APPROACH: Media with buttons + separate premium emoji message")
+                                                # 🚀 ULTIMATE SOLUTION: ONE message with EVERYTHING!
+                                                # Using send_message with file parameter instead of send_file
+                                                logger.info(f"🚀 SINGLE MESSAGE SOLUTION: Media + Premium Emojis + Buttons in ONE message!")
                                                 
-                                                # Step 1: Send media with buttons (no entities to avoid conflict)
-                                                # Ensure buttons are properly formatted for Telethon
-                                                message = await client.send_file(
+                                                # Send ONE message with media, premium emojis, AND buttons
+                                                message = await client.send_message(
                                                     chat_entity,
-                                                    storage_message.media,  # Media from storage channel (no 'file=' keyword)
-                                                    caption=original_text,  # Plain text caption
-                                                    buttons=telethon_buttons  # Inline buttons work without entities
+                                                    message=original_text,  # Text with premium emoji placeholders
+                                                    file=storage_message.media,  # Attach media to the message
+                                                    formatting_entities=telethon_entities,  # Premium emoji entities
+                                                    buttons=telethon_buttons,  # Inline buttons
+                                                    parse_mode=None  # Don't parse markdown
                                                 )
-                                                
-                                                # Step 2: Send premium emoji text as separate message
-                                                # Use original plain text with converted entities (not markdown from storage)
-                                                if original_text and telethon_entities:
-                                                    logger.info(f"🎨 PREMIUM EMOJIS: Sending separate message with premium emojis")
-                                                    await client.send_message(
-                                                        chat_entity,
-                                                        message=original_text,  # Plain text from database
-                                                        formatting_entities=telethon_entities,  # Converted entities
-                                                        parse_mode=None
-                                                    )
-                                                logger.info(f"🎉 STORAGE BREAKTHROUGH: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
+                                                logger.info(f"🎉 PERFECT: ONE message with media + premium emojis + buttons sent to {chat_entity.title}")
                                                 
                                                 # Debug: Check if message has reply markup
                                                 if hasattr(message, 'reply_markup') and message.reply_markup:
@@ -1607,28 +1597,19 @@ class BumpService:
                                                         for j, btn in enumerate(row):
                                                             logger.info(f"🔥 FALLBACK BUTTON DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                             
-                                            # 🚀 FALLBACK HYBRID: Media with buttons + separate premium emoji message
-                                            logger.info(f"🚀 FALLBACK HYBRID: Media with buttons + separate premium emojis")
+                                            # 🚀 FALLBACK ULTIMATE: ONE message with EVERYTHING!
+                                            logger.info(f"🚀 FALLBACK SINGLE MESSAGE: Media + Premium Emojis + Buttons in ONE!")
                                             
-                                            # Step 1: Send media with buttons (no entities)
-                                            message = await client.send_file(
+                                            # Send ONE message with media, premium emojis, AND buttons
+                                            message = await client.send_message(
                                                 chat_entity,
-                                                storage_message.media,  # Media from storage channel (no 'file=' keyword)
-                                                caption=original_text,  # Plain text caption
-                                                buttons=telethon_buttons  # Inline buttons work without entities
+                                                message=original_text,  # Text with premium emoji placeholders
+                                                file=storage_message.media,  # Attach media to the message
+                                                formatting_entities=telethon_entities,  # Premium emoji entities
+                                                buttons=telethon_buttons,  # Inline buttons
+                                                parse_mode=None  # Don't parse markdown
                                             )
-                                            
-                                            # Step 2: Send premium emoji text as separate message
-                                            # Use original plain text with converted entities (not markdown from storage)
-                                            if original_text and telethon_entities:
-                                                logger.info(f"🎨 FALLBACK PREMIUM EMOJIS: Sending separate message with premium emojis")
-                                                await client.send_message(
-                                                    chat_entity,
-                                                    message=original_text,  # Plain text from database
-                                                    formatting_entities=telethon_entities,  # Converted entities
-                                                    parse_mode=None
-                                                )
-                                            logger.info(f"🎉 STORAGE SUCCESS: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
+                                            logger.info(f"🎉 FALLBACK PERFECT: ONE message with everything sent to {chat_entity.title}")
                                             
                                             # Debug: Check if message has reply markup
                                             if hasattr(message, 'reply_markup') and message.reply_markup:
