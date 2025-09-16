@@ -1566,12 +1566,12 @@ class BumpService:
                                                 
                                                 # Step 2: Send premium emoji text as separate message
                                                 # Use original plain text with converted entities (not markdown from storage)
-                                                if original_text and formatting_entities:
+                                                if original_text and telethon_entities:
                                                     logger.info(f"🎨 PREMIUM EMOJIS: Sending separate message with premium emojis")
                                                     await client.send_message(
                                                         chat_entity,
                                                         message=original_text,  # Plain text from database
-                                                        formatting_entities=formatting_entities,  # Converted entities
+                                                        formatting_entities=telethon_entities,  # Converted entities
                                                         parse_mode=None
                                                     )
                                                 logger.info(f"🎉 STORAGE BREAKTHROUGH: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
@@ -1618,12 +1618,12 @@ class BumpService:
                                             
                                             # Step 2: Send premium emoji text as separate message
                                             # Use original plain text with converted entities (not markdown from storage)
-                                            if original_text and formatting_entities:
+                                            if original_text and telethon_entities:
                                                 logger.info(f"🎨 FALLBACK PREMIUM EMOJIS: Sending separate message with premium emojis")
                                                 await client.send_message(
                                                     chat_entity,
                                                     message=original_text,  # Plain text from database
-                                                    formatting_entities=formatting_entities,  # Converted entities
+                                                    formatting_entities=telethon_entities,  # Converted entities
                                                     parse_mode=None
                                                 )
                                             logger.info(f"🎉 STORAGE SUCCESS: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
