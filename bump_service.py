@@ -1168,6 +1168,10 @@ class BumpService:
                 
                 logger.info(f"🤖 BOT: Creating ONE template message with inline buttons for ALL groups")
                 
+                # Get the caption text - handle both text and media messages
+                caption_text = ad_content.get('caption') or ad_content.get('text', '')
+                logger.info(f"📝 Using caption text: {len(caption_text)} characters")
+                
                 # Convert entities for Bot API
                 bot_entities = []
                 for entity in ad_content.get('caption_entities', []):
@@ -1224,7 +1228,7 @@ class BumpService:
                     bot_message = await bot.send_video(
                         chat_id=storage_channel_id,
                         video=storage_file_id,
-                        caption=original_text,
+                        caption=caption_text,
                         caption_entities=bot_entities,
                         reply_markup=reply_markup
                     )
@@ -1232,14 +1236,14 @@ class BumpService:
                     bot_message = await bot.send_photo(
                         chat_id=storage_channel_id,
                         photo=storage_file_id,
-                        caption=original_text,
+                        caption=caption_text,
                         caption_entities=bot_entities,
                         reply_markup=reply_markup
                     )
                 else:
                     bot_message = await bot.send_message(
                         chat_id=storage_channel_id,
-                        text=original_text,
+                        text=caption_text,
                         entities=bot_entities,
                         reply_markup=reply_markup
                     )
@@ -1653,16 +1657,17 @@ class BumpService:
                                                             
                                                             logger.info(f"📤 Worker sending NEW message with all components to {chat_entity.title}")
                                                             
-                                                            # Send NEW message with media, entities, and buttons
-                                                            sent_msg = await client.send_file(
-                                                                chat_entity,
-                                                                storage_message.media,  # Media from storage
-                                                                caption=original_text,  # Caption text
-                                                                formatting_entities=telethon_entities,  # Premium emojis and formatting
-                                                                buttons=telethon_buttons,  # Inline buttons
-                                                                parse_mode=None,
-                                                                link_preview=False
-                                                            )
+                                                # Send NEW message with media, entities, and buttons
+                                                caption_text = ad_content.get('caption') or ad_content.get('text', '')
+                                                sent_msg = await client.send_file(
+                                                    chat_entity,
+                                                    storage_message.media,  # Media from storage
+                                                    caption=caption_text,  # Caption text from ad_content
+                                                    formatting_entities=telethon_entities,  # Premium emojis and formatting
+                                                    buttons=telethon_buttons,  # Inline buttons
+                                                    parse_mode=None,
+                                                    link_preview=False
+                                                )
                                                             
                                                             logger.info(f"✅ SUCCESS: Sent message with media, premium emojis, AND buttons to {chat_entity.title}!")
                                                             continue  # Success, move to next chat
@@ -1675,10 +1680,11 @@ class BumpService:
                                                 logger.info(f"📤 Fallback: Worker sends without buttons")
                                                 
                                                 # Fallback to worker sending without buttons
+                                                caption_text = ad_content.get('caption') or ad_content.get('text', '')
                                                 message = await client.send_file(
                                                     chat_entity,
                                                     storage_message.media,
-                                                    caption=original_text,
+                                                    caption=caption_text,
                                                     formatting_entities=telethon_entities,
                                                     parse_mode=None,
                                                     link_preview=False
