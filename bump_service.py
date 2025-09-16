@@ -1642,27 +1642,44 @@ class BumpService:
                                                     logger.error(f"❌ Bot failed to create template: {bot_error}")
                                                     template_message_id = None
                                                 
-                                                # Step 2: Worker forwards the template message to target groups
+                                                # Step 2: Worker sends NEW message (not forward) with all components
                                                 if template_message_id:
                                                     try:
-                                                        # Get the template message using Telethon
+                                                        # Get the template message using Telethon to extract buttons
                                                         storage_chat_id_int = int(storage_channel_id) if isinstance(storage_channel_id, str) else storage_channel_id
                                                         template_msg = await client.get_messages(storage_chat_id_int, ids=template_message_id)
                                                         
-                                                        if template_msg:
-                                                            # Copy the template message instead of forwarding
-                                                            # This preserves both inline buttons AND premium emojis!
-                                                            logger.info(f"📤 Worker copying template message to {chat_entity.title}")
+                                                        if template_msg and template_msg.reply_markup:
+                                                            # Extract buttons from the template
+                                                            telethon_buttons = []
+                                                            for row in template_msg.reply_markup.rows:
+                                                                button_row = []
+                                                                for button in row.buttons:
+                                                                    # Convert to Telethon Button.url
+                                                                    if hasattr(button, 'url'):
+                                                                        button_row.append(Button.url(button.text, button.url))
+                                                                if button_row:
+                                                                    telethon_buttons.append(button_row)
                                                             
-                                                            # Use send_message to copy the content
-                                                            copied = await template_msg.send_to(chat_entity)
+                                                            logger.info(f"📤 Worker sending NEW message with all components to {chat_entity.title}")
                                                             
-                                                            logger.info(f"✅ SUCCESS: Copied message with inline buttons AND premium emojis to {chat_entity.title}!")
+                                                            # Send NEW message with media, entities, and buttons
+                                                            sent_msg = await client.send_file(
+                                                                chat_entity,
+                                                                storage_message.media,  # Media from storage
+                                                                caption=original_text,  # Caption text
+                                                                formatting_entities=telethon_entities,  # Premium emojis and formatting
+                                                                buttons=telethon_buttons,  # Inline buttons
+                                                                parse_mode=None,
+                                                                link_preview=False
+                                                            )
+                                                            
+                                                            logger.info(f"✅ SUCCESS: Sent message with media, premium emojis, AND buttons to {chat_entity.title}!")
                                                             continue  # Success, move to next chat
                                                         else:
-                                                            logger.error(f"❌ Could not retrieve template message {template_message_id}")
-                                                    except Exception as forward_error:
-                                                        logger.error(f"❌ Forward failed: {forward_error}")
+                                                            logger.error(f"❌ Template message has no buttons or not found")
+                                                    except Exception as send_error:
+                                                        logger.error(f"❌ Send with all components failed: {send_error}")
                                                 
                                                 # Fallback: Worker sends without buttons if template/forward fails
                                                 logger.info(f"📤 Fallback: Worker sends without buttons")
