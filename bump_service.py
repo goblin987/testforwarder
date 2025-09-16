@@ -1614,14 +1614,14 @@ class BumpService:
                                                         template_msg = await client.get_messages(storage_chat_id_int, ids=template_message_id)
                                                         
                                                         if template_msg:
-                                                            # Forward the template message (preserves inline buttons!)
-                                                            logger.info(f"📤 Worker forwarding template message to {chat_entity.title}")
-                                                            forwarded = await client.forward_messages(
-                                                                entity=chat_entity,
-                                                                messages=template_msg,
-                                                                from_peer=storage_chat_id_int
-                                                            )
-                                                            logger.info(f"✅ SUCCESS: Forwarded message with inline buttons to {chat_entity.title}!")
+                                                            # Copy the template message instead of forwarding
+                                                            # This preserves both inline buttons AND premium emojis!
+                                                            logger.info(f"📤 Worker copying template message to {chat_entity.title}")
+                                                            
+                                                            # Use send_message to copy the content
+                                                            copied = await template_msg.send_to(chat_entity)
+                                                            
+                                                            logger.info(f"✅ SUCCESS: Copied message with inline buttons AND premium emojis to {chat_entity.title}!")
                                                             continue  # Success, move to next chat
                                                         else:
                                                             logger.error(f"❌ Could not retrieve template message {template_message_id}")
