@@ -1134,7 +1134,7 @@ class BumpService:
                 
                 for i, button in enumerate(buttons):
                     if button.get('url'):
-                        # URL button
+                        # URL button - use Button helper for proper formatting
                         telethon_button = Button.url(button['text'], button['url'])
                     else:
                         # Regular callback button (for inline responses)
@@ -1558,9 +1558,10 @@ class BumpService:
                                                 logger.info(f"🚀 HYBRID APPROACH: Media with buttons + separate premium emoji message")
                                                 
                                                 # Step 1: Send media with buttons (no entities to avoid conflict)
+                                                # Ensure buttons are properly formatted for Telethon
                                                 message = await client.send_file(
                                                     chat_entity,
-                                                    file=storage_message.media,  # Media from storage channel
+                                                    storage_message.media,  # Media from storage channel (no 'file=' keyword)
                                                     caption=original_text,  # Plain text caption
                                                     buttons=telethon_buttons  # Inline buttons work without entities
                                                 )
@@ -1612,7 +1613,7 @@ class BumpService:
                                             # Step 1: Send media with buttons (no entities)
                                             message = await client.send_file(
                                                 chat_entity,
-                                                file=storage_message.media,  # Media from storage channel
+                                                storage_message.media,  # Media from storage channel (no 'file=' keyword)
                                                 caption=original_text,  # Plain text caption
                                                 buttons=telethon_buttons  # Inline buttons work without entities
                                             )
