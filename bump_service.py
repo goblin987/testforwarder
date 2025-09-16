@@ -1126,6 +1126,30 @@ class BumpService:
         sent_count = 0
         buttons_sent_count = 0
         
+        # Handle ALL_WORKER_GROUPS - get actual groups
+        if target_chats == ['ALL_WORKER_GROUPS']:
+            logger.info("Getting all groups for scheduled campaign " + str(campaign_id))
+            dialogs = await client.get_dialogs()
+            target_entities = []
+            for dialog in dialogs:
+                if dialog.is_group and not dialog.is_channel:
+                    target_entities.append(dialog.entity)
+                    logger.info(f"Found group for scheduled send: {dialog.title}")
+        else:
+            # Convert target chat IDs to entities
+            target_entities = []
+            for chat_id in target_chats:
+                try:
+                    entity = await client.get_entity(int(chat_id) if chat_id.lstrip('-').isdigit() else chat_id)
+                    target_entities.append(entity)
+                except Exception as e:
+                    logger.error(f"Failed to get entity for {chat_id}: {e}")
+        
+        if not target_entities:
+            logger.warning(f"No valid target groups found for campaign {campaign_id}")
+            await client.disconnect()
+            return
+        
         # Get caption text once
         caption_text = ad_content.get('caption') or ad_content.get('text', '')
 
@@ -1178,7 +1202,8 @@ class BumpService:
                     logger.warning(f"Failed to convert entity {entity}: {entity_error}")
             logger.info(f"✅ Converted {len(telethon_entities)} Telethon entities from database")
 
-        for chat_entity in target_chats:
+        # Main loop for sending messages to target groups
+        for chat_entity in target_entities:
             try:
                 # Get the media message from storage channel
                 storage_message_id = ad_content.get('storage_message_id')
@@ -1187,10 +1212,10 @@ class BumpService:
                 storage_message = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
 
                 if not storage_message or not storage_message.media:
-                    logger.error(f"❌ Could not retrieve media from storage for chat {chat_entity.title}. Skipping.")
+                    logger.error(f"❌ Could not retrieve media from storage for chat {getattr(chat_entity, 'title', 'Unknown')}. Skipping.")
                     continue
                 
-                logger.info(f"📤 Sending message with all components to {chat_entity.title}")
+                logger.info(f"📤 Sending message with all components to {getattr(chat_entity, 'title', 'Unknown')}")
 
                 # Send a NEW message with all components
                 sent_msg = await client.send_file(
@@ -1203,13 +1228,13 @@ class BumpService:
                     link_preview=False
                 )
                 
-                logger.info(f"✅ SUCCESS: Sent message to {chat_entity.title}!")
+                logger.info(f"✅ SUCCESS: Sent message to {getattr(chat_entity, 'title', 'Unknown')}!")
                 sent_count += 1
                 if telethon_buttons:
                     buttons_sent_count += 1
 
             except Exception as e:
-                logger.error(f"Failed to send scheduled ad to {chat_entity.title if hasattr(chat_entity, 'title') else 'Unknown'}: {e}")
+                logger.error(f"Failed to send scheduled ad to {getattr(chat_entity, 'title', 'Unknown')}: {e}")
                 self.log_ad_performance(campaign_id, campaign['user_id'], str(chat_entity.id) if hasattr(chat_entity, 'id') else 'unknown', None, 'failed')
         
         # Update campaign statistics
