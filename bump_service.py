@@ -1129,12 +1129,17 @@ class BumpService:
         # Handle ALL_WORKER_GROUPS - get actual groups
         if target_chats == ['ALL_WORKER_GROUPS']:
             logger.info("Getting all groups for scheduled campaign " + str(campaign_id))
-            dialogs = await client.get_dialogs()
+            dialogs = await client.get_dialogs(limit=None)  # Get ALL dialogs
             target_entities = []
             for dialog in dialogs:
-                if dialog.is_group and not dialog.is_channel:
+                # Include both regular groups AND supergroups (megagroups)
+                # Supergroups are technically channels with megagroup=True
+                if dialog.is_group:
                     target_entities.append(dialog.entity)
-                    logger.info(f"Found group for scheduled send: {dialog.title}")
+                    logger.info(f"Found group for scheduled send: {dialog.title} (regular group)")
+                elif dialog.is_channel and hasattr(dialog.entity, 'megagroup') and dialog.entity.megagroup:
+                    target_entities.append(dialog.entity)
+                    logger.info(f"Found supergroup for scheduled send: {dialog.title} (supergroup)")
         else:
             # Convert target chat IDs to entities
             target_entities = []
@@ -1156,10 +1161,12 @@ class BumpService:
         # Convert DB buttons to Telethon buttons once
         telethon_buttons = None
         if buttons and len(buttons) > 0:
+            # Use inline buttons properly
             telethon_buttons = []
             current_row = []
             for i, button_data in enumerate(buttons):
                 if button_data.get('url'):
+                    # Use Button.url for inline URL buttons
                     current_row.append(Button.url(button_data['text'], button_data['url']))
                     if len(current_row) == 2 or i == len(buttons) - 1:
                         telethon_buttons.append(current_row)
@@ -1201,6 +1208,20 @@ class BumpService:
                 except Exception as entity_error:
                     logger.warning(f"Failed to convert entity {entity}: {entity_error}")
             logger.info(f"✅ Converted {len(telethon_entities)} Telethon entities from database")
+        
+        # Debug: Log total groups found
+        logger.info(f"📊 Total target groups/chats found: {len(target_entities)}")
+        for entity in target_entities:
+            entity_type = "Unknown"
+            if hasattr(entity, 'megagroup') and entity.megagroup:
+                entity_type = "Supergroup"
+            elif hasattr(entity, 'broadcast') and entity.broadcast:
+                entity_type = "Channel"
+            elif hasattr(entity, 'gigagroup') and entity.gigagroup:
+                entity_type = "Gigagroup"
+            else:
+                entity_type = "Regular Group"
+            logger.info(f"  - {getattr(entity, 'title', 'Unknown')} ({entity_type})")
 
         # Main loop for sending messages to target groups
         for chat_entity in target_entities:
@@ -1221,21 +1242,19 @@ class BumpService:
                 logger.info(f"🔍 DEBUG: Sending with {len(telethon_buttons) if telethon_buttons else 0} button rows")
                 logger.info(f"🔍 DEBUG: Button data: {telethon_buttons}")
                 
-                # Try using the storage message's text and entities directly
-                # This should preserve premium emojis from the storage message
-                if hasattr(storage_message, 'text') and storage_message.text:
-                    # Storage message has text (caption stored as text)
-                    sent_msg = await client.send_file(
+                # Send with proper inline buttons
+                # First try to copy the message from storage (preserves everything)
+                try:
+                    # Copy the message from storage channel - this preserves premium emojis
+                    sent_msg = await client.send_message(
                         chat_entity,
-                        storage_message.media,
-                        caption=storage_message.text,
-                        caption_entities=storage_message.entities,
-                        buttons=telethon_buttons,
-                        parse_mode=None,
-                        link_preview=False
+                        storage_message,  # Pass the message object directly
+                        buttons=telethon_buttons  # Add our buttons
                     )
-                else:
-                    # Fallback: use plain caption with buttons
+                    logger.info(f"✅ Sent by copying storage message with buttons")
+                except Exception as copy_error:
+                    logger.warning(f"Copy method failed: {copy_error}, trying send_file")
+                    # Fallback to send_file if copy doesn't work
                     sent_msg = await client.send_file(
                         chat_entity,
                         storage_message.media,
