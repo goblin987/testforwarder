@@ -1221,15 +1221,29 @@ class BumpService:
                 logger.info(f"🔍 DEBUG: Sending with {len(telethon_buttons) if telethon_buttons else 0} button rows")
                 logger.info(f"🔍 DEBUG: Button data: {telethon_buttons}")
                 
-                sent_msg = await client.send_file(
-                    chat_entity,
-                    storage_message.media,
-                    caption=caption_text,
-                    formatting_entities=telethon_entities,
-                    buttons=telethon_buttons,
-                    parse_mode=None,
-                    link_preview=False
-                )
+                # Try using the storage message's text and entities directly
+                # This should preserve premium emojis from the storage message
+                if hasattr(storage_message, 'text') and storage_message.text:
+                    # Storage message has text (caption stored as text)
+                    sent_msg = await client.send_file(
+                        chat_entity,
+                        storage_message.media,
+                        caption=storage_message.text,
+                        caption_entities=storage_message.entities,
+                        buttons=telethon_buttons,
+                        parse_mode=None,
+                        link_preview=False
+                    )
+                else:
+                    # Fallback: use plain caption with buttons
+                    sent_msg = await client.send_file(
+                        chat_entity,
+                        storage_message.media,
+                        caption=caption_text,
+                        buttons=telethon_buttons,
+                        parse_mode=None,
+                        link_preview=False
+                    )
                 
                 # Check if the sent message actually has buttons
                 if hasattr(sent_msg, 'reply_markup') and sent_msg.reply_markup:
