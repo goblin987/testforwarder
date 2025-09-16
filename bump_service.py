@@ -1141,7 +1141,7 @@ class BumpService:
                         telethon_buttons.append(current_row)
                         current_row = []
             logger.info(f"✅ Constructed {len(buttons)} Telethon buttons from database")
-        
+
         # Convert database entities to Telethon entities for premium emojis once
         telethon_entities = []
         if ad_content.get('caption_entities'):
@@ -1178,134 +1178,7 @@ class BumpService:
                     logger.warning(f"Failed to convert entity {entity}: {entity_error}")
             logger.info(f"✅ Converted {len(telethon_entities)} Telethon entities from database")
 
-        # We'll create inline buttons for the bot to use
-        # The worker account can't send inline buttons, so the bot will handle it
-        telethon_reply_markup = None  # Worker won't use buttons
-        
-        # Store button data for bot to use later
-        campaign_buttons = buttons if buttons and len(buttons) > 0 else []
-        logger.info(f"📱 Bot will handle inline buttons: {len(campaign_buttons)} buttons configured")
-        
-        # Get all groups if target_mode is all_groups
-        if campaign.get('target_mode') == 'all_groups' or target_chats == ['ALL_WORKER_GROUPS']:
-            logger.info(f"Getting all groups for scheduled campaign {campaign_id}")
-            dialogs = await client.get_dialogs()
-            target_entities = []
-            for dialog in dialogs:
-                if dialog.is_group:
-                    target_entities.append(dialog.entity)
-                    logger.info(f"Found group for scheduled send: {dialog.name}")
-        else:
-            # Convert chat IDs to entities
-            target_entities = []
-            for chat_id in target_chats:
-                try:
-                    entity = await client.get_entity(chat_id)
-                    target_entities.append(entity)
-                except Exception as e:
-                    logger.error(f"Failed to get entity for {chat_id}: {e}")
-        
-        # Create template message ONCE before processing all chats
-        template_message_id = None
-        
-        # Create template with buttons if needed
-        if buttons and len(buttons) > 0:
-            try:
-                from config import Config
-                bot = Bot(token=Config.BOT_TOKEN)
-                storage_channel_id = Config.STORAGE_CHANNEL_ID
-                
-                logger.info(f"🤖 BOT: Creating ONE template message with inline buttons for ALL groups")
-                
-                # Get the caption text - handle both text and media messages
-                caption_text = ad_content.get('caption') or ad_content.get('text', '')
-                logger.info(f"📝 Using caption text: {len(caption_text)} characters")
-                
-                # Convert entities for Bot API
-                bot_entities = []
-                for entity in ad_content.get('caption_entities', []):
-                    entity_type = str(entity.get('type')).lower().replace('messageentitytype.', '')
-                    
-                    if entity_type == 'custom_emoji' and entity.get('custom_emoji_id'):
-                        bot_entities.append(MessageEntity(
-                            type='custom_emoji',
-                            offset=entity['offset'],
-                            length=entity['length'],
-                            custom_emoji_id=str(entity['custom_emoji_id'])
-                        ))
-                    elif entity_type == 'bold':
-                        bot_entities.append(MessageEntity(
-                            type='bold',
-                            offset=entity['offset'],
-                            length=entity['length']
-                        ))
-                    elif entity_type == 'italic':
-                        bot_entities.append(MessageEntity(
-                            type='italic',
-                            offset=entity['offset'],
-                            length=entity['length']
-                        ))
-                    elif entity_type == 'mention':
-                        bot_entities.append(MessageEntity(
-                            type='mention',
-                            offset=entity['offset'],
-                            length=entity['length']
-                        ))
-                
-                # Create inline keyboard from button data
-                inline_keyboard = []
-                current_row = []
-                for i, button in enumerate(buttons):
-                    if button.get('url'):
-                        inline_button = InlineKeyboardButton(
-                            text=button['text'],
-                            url=button['url']
-                        )
-                        current_row.append(inline_button)
-                        
-                        if len(current_row) == 2 or i == len(buttons) - 1:
-                            inline_keyboard.append(current_row)
-                            current_row = []
-                
-                reply_markup = InlineKeyboardMarkup(inline_keyboard) if inline_keyboard else None
-                
-                # Send template to storage channel
-                storage_file_id = ad_content.get('storage_file_id') or ad_content.get('file_id')
-                media_type = ad_content.get('media_type', 'video')
-                
-                if media_type == 'video':
-                    bot_message = await bot.send_video(
-                        chat_id=storage_channel_id,
-                        video=storage_file_id,
-                        caption=caption_text,
-                        caption_entities=bot_entities,
-                        reply_markup=reply_markup
-                    )
-                elif media_type == 'photo':
-                    bot_message = await bot.send_photo(
-                        chat_id=storage_channel_id,
-                        photo=storage_file_id,
-                        caption=caption_text,
-                        caption_entities=bot_entities,
-                        reply_markup=reply_markup
-                    )
-                else:
-                    bot_message = await bot.send_message(
-                        chat_id=storage_channel_id,
-                        text=caption_text,
-                        entities=bot_entities,
-                        reply_markup=reply_markup
-                    )
-                
-                template_message_id = bot_message.message_id
-                logger.info(f"✅ Bot created ONE template message {template_message_id} for ALL groups")
-                logger.info(f"✅ Template has {len(bot_entities)} entities and {len(buttons)} buttons")
-                
-            except Exception as template_error:
-                logger.error(f"❌ Failed to create template: {template_error}")
-                template_message_id = None
-        
-        for chat_entity in target_entities:
+        for chat_entity in target_chats:
             try:
                 # Get the media message from storage channel
                 storage_message_id = ad_content.get('storage_message_id')
@@ -1341,16 +1214,16 @@ class BumpService:
         
         # Update campaign statistics
         self.update_campaign_stats(campaign_id, sent_count)
-        logger.info(f"Scheduled campaign {campaign['campaign_name']} completed: {buttons_sent_count}/{len(target_entities)} ads sent with buttons")
+        logger.info(f"Scheduled campaign {campaign['campaign_name']} completed: {buttons_sent_count}/{len(target_chats)} ads sent with buttons")
         
-        # Disconnect client after scheduled execution to prevent asyncio loop issues
+        # Disconnect client after scheduled execution
         await client.disconnect()
         logger.info(f"Disconnected client for scheduled campaign {campaign_id}")
         
         return
-    
+        
     def log_ad_performance(self, campaign_id: int, user_id: int, target_chat: str, 
-                          message_id: Optional[int], status: str = 'sent'):
+                         message_id: Optional[int], status: str = 'sent'):
         """Log ad performance"""
         import sqlite3
         
@@ -1385,89 +1258,28 @@ class BumpService:
         schedule_type = campaign['schedule_type']
         schedule_time = campaign['schedule_time']
         
-        if schedule_type == 'daily':
-            schedule.every().day.at(schedule_time).do(self.run_campaign_job, campaign_id)
-        elif schedule_type == 'weekly':
-            # Assuming format like "Monday 14:30"
-            day, time_str = schedule_time.split(' ')
-            getattr(schedule.every(), day.lower()).at(time_str).do(self.run_campaign_job, campaign_id)
-        elif schedule_type == 'hourly':
-            schedule.every().hour.do(self.run_campaign_job, campaign_id)
-        elif schedule_type == 'custom':
-            # Parse custom interval (e.g., "every 3 minutes", "every 4 hours")
-            try:
-                if 'hour' in schedule_time.lower():
-                    hours = int(schedule_time.split()[1])
-                    job = schedule.every(hours).hours.do(self.run_campaign_job, campaign_id)
-                    
-                    # IMPORTANT: Run the job immediately for the first time if campaign is active
-                    campaign = self.get_campaign(campaign_id)
-                    if campaign and campaign.get('is_active', False):
-                        logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
-                        # Add staggered delay to prevent database conflicts
-                        import random
-                        delay = random.uniform(0.5, 2.0)  # Random delay between 0.5-2 seconds
-                        # Run in a separate thread to avoid blocking
-                        import threading
-                        threading.Thread(target=lambda: (time.sleep(delay), self.run_campaign_job(campaign_id)), daemon=True).start()
-                    
-                    logger.info(f"📅 Campaign {campaign_id} scheduled every {hours} hours")
-                elif 'minute' in schedule_time.lower():
-                    # Handle formats like "3 minutes", "every 3 minutes"
-                    parts = schedule_time.split()
-                    if len(parts) >= 2:
-                        # Find the number in the string
-                        for part in parts:
-                            if part.isdigit():
-                                minutes = int(part)
-                                break
-                        else:
-                            minutes = 10  # default
-                    else:
-                        minutes = 10  # default
-                    
-                    # Schedule the job to run every X minutes
-                    job = schedule.every(minutes).minutes.do(self.run_campaign_job, campaign_id)
-                    
-                    # IMPORTANT: Run the job immediately for the first time if campaign is active
-                    campaign = self.get_campaign(campaign_id)
-                    if campaign and campaign.get('is_active', False):
-                        logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
-                        # Add staggered delay to prevent database conflicts
-                        import random
-                        delay = random.uniform(0.5, 2.0)  # Random delay between 0.5-2 seconds
-                        # Run in a separate thread to avoid blocking
-                        import threading
-                        threading.Thread(target=lambda: (time.sleep(delay), self.run_campaign_job(campaign_id)), daemon=True).start()
-                    
-                    logger.info(f"📅 Campaign {campaign_id} scheduled every {minutes} minutes")
-                elif schedule_time.isdigit():
-                    # If just a number, assume minutes
-                    minutes = int(schedule_time)
-                    job = schedule.every(minutes).minutes.do(self.run_campaign_job, campaign_id)
-                    
-                    # IMPORTANT: Run the job immediately for the first time if campaign is active
-                    campaign = self.get_campaign(campaign_id)
-                    if campaign and campaign.get('is_active', False):
-                        logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
-                        # Add staggered delay to prevent database conflicts
-                        import random
-                        delay = random.uniform(0.5, 2.0)  # Random delay between 0.5-2 seconds
-                        # Run in a separate thread to avoid blocking
-                        import threading
-                        threading.Thread(target=lambda: (time.sleep(delay), self.run_campaign_job(campaign_id)), daemon=True).start()
-                    
-                    logger.info(f"📅 Campaign {campaign_id} scheduled every {minutes} minutes")
-                else:
-                    logger.warning(f"⚠️ Unknown custom schedule format: {schedule_time}")
-            except (ValueError, IndexError) as e:
-                logger.error(f"❌ Error parsing custom schedule '{schedule_time}': {e}")
-                # Default to 10 minutes if parsing fails
-                schedule.every(10).minutes.do(self.run_campaign_job, campaign_id)
-                logger.info(f"📅 Campaign {campaign_id} defaulted to every 10 minutes")
+        schedule_func = self._get_schedule_func(schedule_type, schedule_time)
+        
+        if not schedule_func:
+            logger.warning(f"⚠️ Could not determine schedule function for campaign {campaign_id} ({schedule_type} at {schedule_time})")
+            return
+        
+        job = schedule_func(self.run_campaign_job, campaign_id)
+        
+        # IMPORTANT: Run the job immediately for the first time if campaign is active
+        campaign = self.get_campaign(campaign_id)
+        if campaign and campaign.get('is_active', False):
+            logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
+            # Add staggered delay to prevent database conflicts
+            import random
+            delay = random.uniform(0.5, 2.0)  # Random delay between 0.5-2 seconds
+            # Run in a separate thread to avoid blocking
+            import threading
+            threading.Thread(target=lambda: (time.sleep(delay), self.run_campaign_job(campaign_id)), daemon=True).start()
+        
+        logger.info(f"📅 Campaign {campaign_id} scheduled ({schedule_type} at {schedule_time})")
         
         self.active_campaigns[campaign_id] = campaign
-        logger.info(f"Scheduled campaign {campaign_id} ({schedule_type} at {schedule_time})")
     
     def run_campaign_job(self, campaign_id: int):
         """Execute scheduled campaign automatically"""
