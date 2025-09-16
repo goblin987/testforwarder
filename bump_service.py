@@ -1222,6 +1222,50 @@ class BumpService:
         
         return
         
+    def _get_schedule_func(self, schedule_type: str, schedule_time: str) -> Optional[callable]:
+        """Helper to get the appropriate schedule function based on type."""
+        if schedule_type == 'daily':
+            return schedule.every().day.at(schedule_time).do
+        elif schedule_type == 'weekly':
+            # Assuming format like "Monday 14:30"
+            day, time_str = schedule_time.split(' ')
+            return getattr(schedule.every(), day.lower()).at(time_str).do
+        elif schedule_type == 'hourly':
+            return schedule.every().hour.do
+        elif schedule_type == 'custom':
+            # Parse custom interval (e.g., "every 3 minutes", "every 4 hours")
+            try:
+                if 'hour' in schedule_time.lower():
+                    hours = int(schedule_time.split()[1])
+                    return schedule.every(hours).hours.do
+                elif 'minute' in schedule_time.lower():
+                    # Handle formats like "3 minutes", "every 3 minutes"
+                    parts = schedule_time.split()
+                    if len(parts) >= 2:
+                        # Find the number in the string
+                        for part in parts:
+                            if part.isdigit():
+                                minutes = int(part)
+                                break
+                        else:
+                            minutes = 10  # default
+                    else:
+                        minutes = 10  # default
+                    
+                    return schedule.every(minutes).minutes.do
+                elif schedule_time.isdigit():
+                    # If just a number, assume minutes
+                    minutes = int(schedule_time)
+                    return schedule.every(minutes).minutes.do
+                else:
+                    logger.warning(f"⚠️ Unknown custom schedule format: {schedule_time}")
+                    return None
+            except (ValueError, IndexError) as e:
+                logger.error(f"❌ Error parsing custom schedule '{schedule_time}': {e}")
+                # Default to 10 minutes if parsing fails
+                return schedule.every(10).minutes.do
+        return None
+        
     def log_ad_performance(self, campaign_id: int, user_id: int, target_chat: str, 
                          message_id: Optional[int], status: str = 'sent'):
         """Log ad performance"""
