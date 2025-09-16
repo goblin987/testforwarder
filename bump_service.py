@@ -1651,14 +1651,24 @@ class BumpService:
                                                         
                                                         for i, button in enumerate(buttons):
                                                             if button.get('url'):
-                                                                btn = Button.url(button['text'], button['url'])
-                                                                current_row.append(btn)
-                                                                
-                                                                if len(current_row) == 2 or i == len(buttons) - 1:
-                                                                    telethon_buttons.append(current_row)
-                                                                    current_row = []
+                                                                try:
+                                                                    btn = Button.url(button['text'], button['url'])
+                                                                    logger.info(f"🔧 Created Button: '{button['text']}' -> '{button['url']}' (type: {type(btn)})")
+                                                                    current_row.append(btn)
+                                                                    
+                                                                    if len(current_row) == 2 or i == len(buttons) - 1:
+                                                                        telethon_buttons.append(current_row)
+                                                                        current_row = []
+                                                                except Exception as btn_error:
+                                                                    logger.error(f"❌ Button creation failed: {btn_error}")
+                                                                    logger.error(f"❌ Button data: text='{button.get('text')}', url='{button.get('url')}'")
                                                         
                                                         logger.info(f"🔧 Created {len(telethon_buttons)} button rows with {len(buttons)} total buttons")
+                                                        
+                                                        # DEBUG: Log button details
+                                                        for i, row in enumerate(telethon_buttons):
+                                                            for j, btn in enumerate(row):
+                                                                logger.info(f"🔘 Button {i+1}-{j+1}: '{btn.text}' -> '{btn.url}'")
                                                         
                                                         # Send with all components - CRITICAL: Use original text and entities
                                                         caption_text = ad_content.get('caption') or ad_content.get('text', '')
@@ -1675,6 +1685,14 @@ class BumpService:
                                                             parse_mode=None,  # Critical: Let entities handle formatting
                                                             link_preview=False
                                                         )
+                                                        
+                                                        # DEBUG: Verify sent message has buttons
+                                                        if hasattr(sent_msg, 'reply_markup') and sent_msg.reply_markup:
+                                                            logger.info(f"✅ CONFIRMED: Sent message HAS reply_markup with buttons!")
+                                                            if hasattr(sent_msg.reply_markup, 'rows'):
+                                                                logger.info(f"✅ CONFIRMED: Reply markup has {len(sent_msg.reply_markup.rows)} button rows")
+                                                        else:
+                                                            logger.error(f"❌ PROBLEM: Sent message has NO reply_markup!")
                                                         
                                                         logger.info(f"✅ Worker sent message with media, premium emojis, AND buttons to {chat_entity.title}!")
                                                         buttons_sent_count += 1
