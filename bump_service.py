@@ -31,7 +31,7 @@ from telethon import TelegramClient
 from telethon.tl.custom import Button
 from telethon.tl.types import ReplyKeyboardMarkup, KeyboardButtonUrl, KeyboardButtonRow
 from database import Database
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity
 from telegram.constants import ParseMode
 import json
 import threading
@@ -1573,13 +1573,49 @@ class BumpService:
                                                     storage_file_id = ad_content.get('storage_file_id') or ad_content.get('file_id')
                                                     media_type = ad_content.get('media_type', 'video')
                                                     
-                                                    # Send template to storage channel
+                                                    # Convert entities for Bot API
+                                                    # Bot API entities need to be converted from our stored format
+                                                    bot_entities = []
+                                                    for entity in ad_content.get('caption_entities', []):
+                                                        # Handle both string and enum types
+                                                        entity_type = str(entity.get('type')).lower().replace('messageentitytype.', '')
+                                                        
+                                                        if entity_type == 'custom_emoji' and entity.get('custom_emoji_id'):
+                                                            # Create custom emoji entity for Bot API
+                                                            bot_entities.append(MessageEntity(
+                                                                type='custom_emoji',
+                                                                offset=entity['offset'],
+                                                                length=entity['length'],
+                                                                custom_emoji_id=str(entity['custom_emoji_id'])
+                                                            ))
+                                                        elif entity_type == 'bold':
+                                                            bot_entities.append(MessageEntity(
+                                                                type='bold',
+                                                                offset=entity['offset'],
+                                                                length=entity['length']
+                                                            ))
+                                                        elif entity_type == 'italic':
+                                                            bot_entities.append(MessageEntity(
+                                                                type='italic',
+                                                                offset=entity['offset'],
+                                                                length=entity['length']
+                                                            ))
+                                                        elif entity_type == 'mention':
+                                                            bot_entities.append(MessageEntity(
+                                                                type='mention',
+                                                                offset=entity['offset'],
+                                                                length=entity['length']
+                                                            ))
+                                                    
+                                                    logger.info(f"✅ Converted {len(bot_entities)} entities for Bot API (including {len([e for e in bot_entities if e.type == 'custom_emoji'])} premium emojis)")
+                                                    
+                                                    # Send template to storage channel with premium emojis
                                                     if media_type == 'video':
                                                         bot_message = await bot.send_video(
                                                             chat_id=storage_channel_id,  # Send to STORAGE channel
                                                             video=storage_file_id,
                                                             caption=original_text,
-                                                            caption_entities=ad_content.get('caption_entities', []),
+                                                            caption_entities=bot_entities,
                                                             reply_markup=reply_markup
                                                         )
                                                     elif media_type == 'photo':
@@ -1587,14 +1623,14 @@ class BumpService:
                                                             chat_id=storage_channel_id,  # Send to STORAGE channel
                                                             photo=storage_file_id,
                                                             caption=original_text,
-                                                            caption_entities=ad_content.get('caption_entities', []),
+                                                            caption_entities=bot_entities,
                                                             reply_markup=reply_markup
                                                         )
                                                     else:
                                                         bot_message = await bot.send_message(
                                                             chat_id=storage_channel_id,  # Send to STORAGE channel
                                                             text=original_text,
-                                                            entities=ad_content.get('caption_entities', []),
+                                                            entities=bot_entities,
                                                             reply_markup=reply_markup
                                                         )
                                                     
