@@ -1553,19 +1553,21 @@ class BumpService:
                                                             for j, btn in enumerate(row):
                                                                 logger.info(f"🔥 BUTTON DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                                 
-                                                # 🚀 ABSOLUTE FINAL SOLUTION: ONE message with EVERYTHING!
-                                                logger.info(f"🚀 FINAL SOLUTION: Prioritizing BUTTONS - they MUST work!")
+                                                # 🚀 THE REAL SOLUTION: MARKDOWN + CUSTOM EMOJIS!
+                                                logger.info(f"🚀 PRODUCTION BOT SOLUTION: Markdown for formatting + entities for premium emojis!")
                                                 
-                                                # CRITICAL: Remove formatting_entities to make buttons work!
-                                                # We'll sacrifice premium emojis for working buttons
+                                                # The KEY: Use Markdown parsing for bold/italic AND pass entities separately
+                                                # This is how production bots handle both formatting and premium emojis
                                                 message = await client.send_file(
                                                     chat_entity,
-                                                    storage_message.media,  # Media file (positional)
-                                                    caption=original_text,  # Caption text (plain, no entities)
-                                                    buttons=telethon_buttons,  # Inline buttons - MUST WORK!
-                                                    parse_mode=None  # Don't parse markdown
+                                                    storage_message.media,  # Media file
+                                                    caption=storage_message.text,  # Text with markdown formatting
+                                                    caption_entities=storage_message.entities,  # Premium emoji entities from storage
+                                                    buttons=telethon_buttons,  # Inline buttons
+                                                    parse_mode='md',  # Parse Markdown for bold/italic
+                                                    link_preview=False  # Disable link preview
                                                 )
-                                                logger.info(f"🎉 SUCCESS: ONE message with media + premium emojis + buttons sent to {chat_entity.title}")
+                                                logger.info(f"🎉 PRODUCTION SOLUTION: Media + Premium Emojis + Buttons sent to {chat_entity.title}")
                                                 
                                                 # Debug: Check if message has reply markup
                                                 if hasattr(message, 'reply_markup') and message.reply_markup:
@@ -1596,18 +1598,20 @@ class BumpService:
                                                         for j, btn in enumerate(row):
                                                             logger.info(f"🔥 FALLBACK BUTTON DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                             
-                                            # 🚀 FALLBACK FINAL: ONE message with EVERYTHING!
-                                            logger.info(f"🚀 FALLBACK FINAL: Prioritizing BUTTONS!")
+                                            # 🚀 FALLBACK: PRODUCTION SOLUTION!
+                                            logger.info(f"🚀 FALLBACK: Markdown + Entities approach!")
                                             
-                                            # CRITICAL: Remove formatting_entities to make buttons work!
+                                            # Use markdown for formatting + entities for premium emojis
                                             message = await client.send_file(
                                                 chat_entity,
-                                                storage_message.media,  # Media file (positional)
-                                                caption=original_text,  # Caption text (plain)
-                                                buttons=telethon_buttons,  # Inline buttons - MUST WORK!
-                                                parse_mode=None  # Don't parse markdown
+                                                storage_message.media,  # Media file
+                                                caption=storage_message.text,  # Markdown text
+                                                caption_entities=storage_message.entities,  # Premium emojis
+                                                buttons=telethon_buttons,  # Inline buttons
+                                                parse_mode='md',  # Parse Markdown
+                                                link_preview=False  # Disable link preview
                                             )
-                                            logger.info(f"🎉 FALLBACK SUCCESS: ONE message with everything sent to {chat_entity.title}")
+                                            logger.info(f"🎉 FALLBACK PRODUCTION: Everything sent to {chat_entity.title}")
                                             
                                             # Debug: Check if message has reply markup
                                             if hasattr(message, 'reply_markup') and message.reply_markup:
