@@ -1570,7 +1570,7 @@ class BumpService:
                                                     await client.send_message(
                                                         chat_entity,
                                                         message=storage_message.text,
-                                                        entities=storage_message.entities,
+                                                        formatting_entities=storage_message.entities,
                                                         parse_mode=None
                                                     )
                                                 logger.info(f"🎉 STORAGE BREAKTHROUGH: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
@@ -1621,7 +1621,7 @@ class BumpService:
                                                 await client.send_message(
                                                     chat_entity,
                                                     message=storage_message.text,
-                                                    entities=storage_message.entities,
+                                                    formatting_entities=storage_message.entities,
                                                     parse_mode=None
                                                 )
                                             logger.info(f"🎉 STORAGE SUCCESS: MEDIA + INLINE BUTTONS sent to {chat_entity.title}")
