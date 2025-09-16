@@ -1541,6 +1541,14 @@ class BumpService:
                                                     from config import Config
                                                     bot = Bot(token=Config.BOT_TOKEN)
                                                     
+                                                    # First verify the worker can still access this chat
+                                                    try:
+                                                        # This will fail if the worker isn't in the chat
+                                                        await client.get_entity(chat_entity.id)
+                                                    except Exception as access_error:
+                                                        logger.warning(f"⚠️ Worker lost access to chat {chat_entity.id}: {access_error}")
+                                                        continue  # Skip this chat
+                                                    
                                                     # Create inline keyboard from button data
                                                     inline_keyboard = []
                                                     if buttons and len(buttons) > 0:
@@ -1567,15 +1575,18 @@ class BumpService:
                                                     media_type = ad_content.get('media_type', 'video')
                                                     
                                                     # Get proper chat ID for Bot API
-                                                    # Telethon entity.id is different from Bot API chat_id
+                                                    # Telethon's chat_entity.id should work directly for Bot API
+                                                    # Telethon already uses the correct format (-100xxx for supergroups)
                                                     bot_chat_id = chat_entity.id
-                                                    # For supergroups/channels, ensure it has -100 prefix
-                                                    if hasattr(chat_entity, 'megagroup') or hasattr(chat_entity, 'broadcast'):
-                                                        bot_chat_id = int(f"-100{abs(chat_entity.id)}")
-                                                    elif bot_chat_id > 0:  # If it's a positive number, it needs -100 prefix
-                                                        bot_chat_id = int(f"-100{bot_chat_id}")
                                                     
-                                                    logger.info(f"🤖 Bot sending to chat ID: {bot_chat_id} (from Telethon entity: {chat_entity.id})")
+                                                    # Log detailed info about the entity for debugging
+                                                    logger.info(f"🔍 Chat entity type: {type(chat_entity)}")
+                                                    logger.info(f"🔍 Chat entity ID: {chat_entity.id}")
+                                                    logger.info(f"🔍 Chat entity title: {getattr(chat_entity, 'title', 'N/A')}")
+                                                    logger.info(f"🔍 Is megagroup: {getattr(chat_entity, 'megagroup', False)}")
+                                                    logger.info(f"🔍 Is broadcast: {getattr(chat_entity, 'broadcast', False)}")
+                                                    
+                                                    logger.info(f"🤖 Bot sending to chat ID: {bot_chat_id}")
                                                     
                                                     if media_type == 'video':
                                                         bot_message = await bot.send_video(
@@ -1611,6 +1622,14 @@ class BumpService:
                                                     
                                                 except Exception as bot_error:
                                                     logger.error(f"❌ Bot send failed: {bot_error}")
+                                                    logger.error(f"❌ Error type: {type(bot_error).__name__}")
+                                                    logger.error(f"❌ Chat ID that failed: {bot_chat_id}")
+                                                    
+                                                    # Check if it's a "Chat not found" error
+                                                    if "Chat not found" in str(bot_error) or "chat not found" in str(bot_error).lower():
+                                                        logger.warning(f"⚠️ Bot is not in chat {bot_chat_id} or chat doesn't exist")
+                                                        logger.info(f"💡 Solution: Add bot as admin to group {getattr(chat_entity, 'title', 'Unknown')}")
+                                                    
                                                     logger.info(f"📤 Fallback: Worker sends without buttons")
                                                     
                                                     # Fallback to worker sending without buttons
