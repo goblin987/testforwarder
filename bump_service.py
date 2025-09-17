@@ -1167,73 +1167,8 @@ class BumpService:
         # Create template message ONCE before processing all chats
         template_message_id = None
         
-        # Create template with buttons if needed - USE WORKER ACCOUNT (not bot!)
-        if buttons and len(buttons) > 0:
-            try:
-                from config import Config
-                storage_channel_id = Config.STORAGE_CHANNEL_ID
-                
-                logger.info(f"👤 WORKER: Creating template message with premium emojis and buttons")
-                logger.info(f"🔄 Using worker account (not bot) to preserve premium emojis!")
-                
-                # Get the caption text - handle both text and media messages
-                caption_text = ad_content.get('caption') or ad_content.get('text', '')
-                logger.info(f"📝 Using caption text: {len(caption_text)} characters")
-                
-                # Convert buttons to Telethon format
-                logger.info(f"🔧 Converting buttons to Telethon format for template...")
-                buttons_rows = []
-                for button_info in buttons:
-                    if button_info.get('url'):
-                        try:
-                            # Use Button.url from telethon.tl.custom
-                            btn = Button.url(button_info['text'], button_info['url'])
-                            buttons_rows.append([btn])  # Each button gets its own row
-                            logger.info(f"✅ Template button: '{button_info['text']}' -> '{button_info['url']}'")
-                        except Exception as btn_error:
-                            logger.error(f"❌ Template button creation failed: {btn_error}")
-                
-                # Convert entities for template creation
-                logger.info(f"🔄 Converting entities for template creation...")
-                stored_entities = ad_content.get('caption_entities', [])
-                telethon_entities = self._convert_to_telethon_entities(stored_entities, caption_text)
-                logger.info(f"✅ Converted {len(telethon_entities)} entities for template")
-                
-                # Get media from storage channel
-                storage_chat_id_int = int(storage_channel_id) if isinstance(storage_channel_id, str) else storage_channel_id
-                storage_message_id = ad_content.get('storage_message_id')
-                
-                if storage_message_id:
-                    logger.info(f"📥 Getting media from storage message {storage_message_id}")
-                    storage_message = await client.get_messages(storage_chat_id_int, ids=storage_message_id)
-                    
-                    if storage_message and storage_message.media:
-                        logger.info(f"✅ Found storage media: {type(storage_message.media)}")
-                        
-                        # Send template using worker account (preserves premium emojis!)
-                        template_msg = await client.send_file(
-                            storage_chat_id_int,  # Send to storage channel
-                            file=storage_message.media,  # Media from storage
-                            caption=caption_text,  # Caption text
-                            buttons=buttons_rows,  # Correct Telethon buttons parameter
-                            formatting_entities=telethon_entities,  # Premium emojis!
-                            parse_mode=None,  # Let entities handle formatting
-                            link_preview=False
-                        )
-                        
-                        template_message_id = template_msg.id
-                        logger.info(f"✅ Worker created template message {template_message_id} with premium emojis!")
-                        logger.info(f"✅ Template has {len(telethon_entities)} entities and {len(buttons_rows)} button rows")
-                    else:
-                        logger.error(f"❌ Storage message has no media!")
-                        template_message_id = None
-                else:
-                    logger.error(f"❌ No storage message ID found!")
-                    template_message_id = None
-                
-            except Exception as template_error:
-                logger.error(f"❌ Failed to create template: {template_error}")
-                template_message_id = None
+        # No template creation needed - send directly to target groups
+        template_message_id = None
         
         # Initialize button tracking
         buttons_sent_count = 0
@@ -1615,89 +1550,67 @@ class BumpService:
                                                             for j, btn in enumerate(row.buttons):
                                                                 logger.info(f"🔥 REPLY KEYBOARD DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                                 
-                                                # Use the pre-created template if available
-                                                logger.info(f"🚀 Using pre-created template for {chat_entity.title}")
+                                                # Send directly with all components (media + premium emojis + buttons)
+                                                logger.info(f"🚀 Sending message with ALL components to {chat_entity.title}")
                                                 
-                                                # Step 2: BOT sends to groups (with buttons), Worker only for channels
-                                                if template_message_id and buttons and len(buttons) > 0:
+                                                # Send with buttons if available
+                                                if buttons and len(buttons) > 0:
                                                     try:
-                                                        # SIMPLE SOLUTION: Use send_file with all components
-                                                        logger.info(f"📤 Worker sending NEW message with ALL components to {chat_entity.title}")
-                                                        logger.info(f"🔄 Using simple send_file approach - media + caption + buttons + entities")
+                                                        # Convert buttons to Telethon format
+                                                        logger.info(f"🔧 Converting buttons to Telethon format...")
+                                                        buttons_rows = []
                                                         
-                                                        # Step 1: Get template message to extract buttons
-                                                        logger.info(f"🔍 Getting template message {template_message_id} for button data")
+                                                        # Convert from database format to Telethon Button objects
+                                                        for button_info in buttons:
+                                                            if button_info.get('url'):
+                                                                try:
+                                                                    # Use Button.url from telethon.tl.custom
+                                                                    btn = Button.url(button_info['text'], button_info['url'])
+                                                                    # Each button gets its own row (list with one button)
+                                                                    buttons_rows.append([btn])
+                                                                    logger.info(f"✅ Created button: '{button_info['text']}' -> '{button_info['url']}'")
+                                                                except Exception as btn_error:
+                                                                    logger.error(f"❌ Button creation failed: {btn_error}")
                                                         
-                                                        try:
-                                                            storage_chat_id_int = int(storage_channel_id) if isinstance(storage_channel_id, str) else storage_channel_id
-                                                            template_msg = await client.get_messages(storage_chat_id_int, ids=template_message_id)
-                                                            
-                                                            if not template_msg or not template_msg.reply_markup:
-                                                                logger.error(f"❌ Template message has no reply_markup!")
-                                                                raise Exception("No reply_markup in template")
-                                                            
-                                                            logger.info(f"✅ Found template with {len(template_msg.reply_markup.rows)} button rows")
-                                                            
-                                                            # Step 2: Extract all data from template
-                                                            caption_text = ad_content.get('caption') or ad_content.get('text', '')
-                                                            video_file = storage_message.media
-                                                            
-                                                            # Step 3: Convert buttons to proper Telethon format
-                                                            logger.info(f"🔧 Converting buttons to Telethon format...")
-                                                            buttons_rows = []
-                                                            
-                                                            # Convert from database format to Telethon Button objects
-                                                            for button_info in buttons:
-                                                                if button_info.get('url'):
-                                                                    try:
-                                                                        # Use Button.url from telethon.tl.custom
-                                                                        btn = Button.url(button_info['text'], button_info['url'])
-                                                                        # Each button gets its own row (list with one button)
-                                                                        buttons_rows.append([btn])
-                                                                        logger.info(f"✅ Created button: '{button_info['text']}' -> '{button_info['url']}'")
-                                                                    except Exception as btn_error:
-                                                                        logger.error(f"❌ Button creation failed: {btn_error}")
-                                                            
-                                                            logger.info(f"📝 Caption: {len(caption_text)} chars")
-                                                            logger.info(f"🎨 Entities: {len(telethon_entities)} (including {len([e for e in telethon_entities if hasattr(e, 'document_id')])} premium emojis)")
-                                                            logger.info(f"🔘 Buttons: {len(buttons_rows)} rows (Telethon format)")
-                                                            
-                                                            # Step 4: Send NEW message with ALL components using send_file
-                                                            logger.info(f"🚀 Sending NEW message with send_file() - CORRECT FORMAT!")
-                                                            
-                                                            sent_msg = await client.send_file(
-                                                                chat_entity,           # Target group
-                                                                file=video_file,       # Video file from storage
-                                                                caption=caption_text,  # Caption text
-                                                                buttons=buttons_rows,  # Correct Telethon buttons parameter
-                                                                formatting_entities=telethon_entities,  # Premium emojis
-                                                                parse_mode=None,       # Let entities handle formatting
-                                                                link_preview=False
-                                                            )
-                                                            
-                                                            # DEBUG: Verify sent message has buttons
-                                                            if hasattr(sent_msg, 'reply_markup') and sent_msg.reply_markup:
-                                                                logger.info(f"✅ CONFIRMED: Sent message HAS reply_markup with buttons!")
-                                                                if hasattr(sent_msg.reply_markup, 'rows'):
-                                                                    logger.info(f"✅ CONFIRMED: Reply markup has {len(sent_msg.reply_markup.rows)} button rows")
-                                                            else:
-                                                                logger.error(f"❌ PROBLEM: Sent message has NO reply_markup!")
-                                                            
-                                                            logger.info(f"✅ SUCCESS: Worker sent NEW message with media + premium emojis + buttons to {chat_entity.title}!")
-                                                            buttons_sent_count += 1
-                                                            continue
-                                                            
-                                                        except Exception as send_error:
-                                                            logger.error(f"❌ Send failed: {send_error}")
-                                                            logger.info(f"🔄 This should not happen - send_file should work!")
-                                                            
+                                                        # Get caption text and media
+                                                        caption_text = ad_content.get('caption') or ad_content.get('text', '')
+                                                        video_file = storage_message.media
+                                                        
+                                                        logger.info(f"📝 Caption: {len(caption_text)} chars")
+                                                        logger.info(f"🎨 Entities: {len(telethon_entities)} (including {len([e for e in telethon_entities if hasattr(e, 'document_id')])} premium emojis)")
+                                                        logger.info(f"🔘 Buttons: {len(buttons_rows)} rows (Telethon format)")
+                                                        
+                                                        # Send message with ALL components using send_file
+                                                        logger.info(f"🚀 Sending message with send_file() - media + premium emojis + buttons")
+                                                        
+                                                        sent_msg = await client.send_file(
+                                                            chat_entity,           # Target group
+                                                            file=video_file,       # Video file from storage
+                                                            caption=caption_text,  # Caption text
+                                                            buttons=buttons_rows,  # Correct Telethon buttons parameter
+                                                            formatting_entities=telethon_entities,  # Premium emojis
+                                                            parse_mode=None,       # Let entities handle formatting
+                                                            link_preview=False
+                                                        )
+                                                        
+                                                        # DEBUG: Verify sent message has buttons
+                                                        if hasattr(sent_msg, 'reply_markup') and sent_msg.reply_markup:
+                                                            logger.info(f"✅ CONFIRMED: Sent message HAS reply_markup with buttons!")
+                                                            if hasattr(sent_msg.reply_markup, 'rows'):
+                                                                logger.info(f"✅ CONFIRMED: Reply markup has {len(sent_msg.reply_markup.rows)} button rows")
+                                                        else:
+                                                            logger.error(f"❌ PROBLEM: Sent message has NO reply_markup!")
+                                                        
+                                                        logger.info(f"✅ SUCCESS: Worker sent message with media + premium emojis + buttons to {chat_entity.title}!")
+                                                        buttons_sent_count += 1
+                                                        continue
+                                                        
                                                     except Exception as send_error:
                                                         logger.error(f"❌ Send with buttons failed: {send_error}")
                                                 
                                                 # Fallback: Worker sends without buttons if everything fails
-                                                logger.info(f"📤 Final fallback: Worker sends without buttons")
+                                                logger.info(f"📤 Fallback: Worker sends without buttons")
                                                 
-                                                # Fallback to worker sending without buttons
                                                 caption_text = ad_content.get('caption') or ad_content.get('text', '')
                                                 message = await client.send_file(
                                                     chat_entity,
