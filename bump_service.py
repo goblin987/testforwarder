@@ -29,7 +29,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from telethon import TelegramClient
 from telethon.tl.custom import Button
-from telethon.tl.types import ReplyKeyboardMarkup, KeyboardButtonUrl, KeyboardButtonRow, ReplyInlineMarkup, KeyboardButtonURL
+from telethon.tl.types import ReplyKeyboardMarkup, KeyboardButtonUrl, KeyboardButtonRow, ReplyInlineMarkup
 from database import Database
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity
 from telegram.constants import ParseMode
@@ -1178,8 +1178,8 @@ class BumpService:
                 for button_info in buttons:
                     if button_info.get('url'):
                         try:
-                            # Use correct MTProto types for inline buttons
-                            btn = KeyboardButtonURL(text=button_info['text'], url=button_info['url'])
+                            # Use Button.url from telethon.tl.custom
+                            btn = Button.url(button_info['text'], button_info['url'])
                             buttons_rows.append([btn])  # Each button gets its own row
                             logger.info(f"✅ Template button: '{button_info['text']}' -> '{button_info['url']}'")
                         except Exception as btn_error:
@@ -1201,7 +1201,7 @@ class BumpService:
                             storage_chat_id_int,  # Send to storage channel
                             file=storage_message.media,  # Media from storage
                             caption=caption_text,  # Caption text
-                            reply_markup=ReplyInlineMarkup(rows=buttons_rows),  # Correct MTProto inline markup
+                            buttons=buttons_rows,  # Correct Telethon buttons parameter
                             formatting_entities=telethon_entities,  # Premium emojis!
                             parse_mode=None,  # Let entities handle formatting
                             link_preview=False
@@ -1636,8 +1636,8 @@ class BumpService:
                                                             for button_info in buttons:
                                                                 if button_info.get('url'):
                                                                     try:
-                                                                        # Use correct MTProto types for inline buttons
-                                                                        btn = KeyboardButtonURL(text=button_info['text'], url=button_info['url'])
+                                                                        # Use Button.url from telethon.tl.custom
+                                                                        btn = Button.url(button_info['text'], button_info['url'])
                                                                         # Each button gets its own row (list with one button)
                                                                         buttons_rows.append([btn])
                                                                         logger.info(f"✅ Created button: '{button_info['text']}' -> '{button_info['url']}'")
@@ -1655,7 +1655,7 @@ class BumpService:
                                                                 chat_entity,           # Target group
                                                                 file=video_file,       # Video file from storage
                                                                 caption=caption_text,  # Caption text
-                                                                reply_markup=ReplyInlineMarkup(rows=buttons_rows),  # Correct MTProto inline markup
+                                                                buttons=buttons_rows,  # Correct Telethon buttons parameter
                                                                 formatting_entities=telethon_entities,  # Premium emojis
                                                                 parse_mode=None,       # Let entities handle formatting
                                                                 link_preview=False
