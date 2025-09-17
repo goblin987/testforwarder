@@ -860,7 +860,9 @@ class BumpService:
         await asyncio.sleep(0.2)
         
         # Handle session creation (same as bot.py)
-        temp_session_path = f"bump_session_{account_id}"
+        import tempfile
+        temp_dir = tempfile.gettempdir()
+        temp_session_path = os.path.join(temp_dir, f"bump_session_{account_id}")
         session_file_path = f"{temp_session_path}.session"
         
         # Register for cleanup
@@ -1583,6 +1585,10 @@ class BumpService:
                                                         caption_text = ad_content.get('caption') or ad_content.get('text', '')
                                                         video_file = storage_message.media
                                                         
+                                                        # Convert entities for premium emojis
+                                                        stored_entities = ad_content.get('caption_entities', [])
+                                                        telethon_entities = self._convert_to_telethon_entities(stored_entities, caption_text)
+                                                        
                                                         logger.info(f"📝 Caption: {len(caption_text)} chars")
                                                         logger.info(f"🎨 Entities: {len(telethon_entities)} (including {len([e for e in telethon_entities if hasattr(e, 'document_id')])} premium emojis)")
                                                         logger.info(f"🔘 Buttons: {len(buttons_rows)} rows (Telethon format)")
@@ -1619,6 +1625,10 @@ class BumpService:
                                                 logger.info(f"📤 Fallback: Worker sends without buttons")
                                                 
                                                 caption_text = ad_content.get('caption') or ad_content.get('text', '')
+                                                # Convert entities for premium emojis in fallback too
+                                                stored_entities = ad_content.get('caption_entities', [])
+                                                telethon_entities = self._convert_to_telethon_entities(stored_entities, caption_text)
+                                                
                                                 message = await client.send_file(
                                                     chat_entity,
                                                     storage_message.media,
