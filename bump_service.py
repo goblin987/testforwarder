@@ -860,9 +860,8 @@ class BumpService:
         await asyncio.sleep(0.2)
         
         # Handle session creation (same as bot.py)
-        # Use current working directory with unique filename to avoid conflicts
-        temp_session_path = f"bump_session_{account_id}_{int(time.time())}"
-        session_file_path = f"{temp_session_path}.session"
+        # Use memory-based session to avoid file permission issues
+        session_file_path = None  # Use memory-based session
         
         # Register for cleanup
         self._register_temp_file(session_file_path)
@@ -1140,19 +1139,20 @@ class BumpService:
         telethon_reply_markup = None
         if buttons and len(buttons) > 0:
             try:
-                # Use Telethon's built-in button creation (simpler and more reliable)
-                button_list = []
+                # Create button rows for Telethon
+                button_rows = []
                 for button_info in buttons:
                     if button_info.get('url'):
-                        # Create individual button rows
-                        button_list.append([Button.url(button_info['text'], button_info['url'])])
+                        # Create a single button in its own row
+                        button_row = [Button.url(button_info['text'], button_info['url'])]
+                        button_rows.append(button_row)
                         logger.info(f"✅ Created button: '{button_info['text']}' -> '{button_info['url']}'")
                 
-                if button_list:
-                    # Let Telethon handle the ReplyInlineMarkup creation internally
-                    telethon_reply_markup = button_list  # Use the button list directly
-                    logger.info(f"🔘 Created button list with {len(button_list)} button rows")
-                    logger.info(f"🔘 Button list type: {type(telethon_reply_markup)}")
+                if button_rows:
+                    # Use the button rows directly for send_file
+                    telethon_reply_markup = button_rows
+                    logger.info(f"🔘 Created {len(button_rows)} button rows for Telethon")
+                    logger.info(f"🔘 Button rows type: {type(telethon_reply_markup)}")
                 else:
                     logger.warning(f"⚠️ No valid buttons created")
                     telethon_reply_markup = None
