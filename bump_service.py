@@ -29,7 +29,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from telethon import TelegramClient
 from telethon.tl.custom import Button
-from telethon.tl.types import ReplyKeyboardMarkup, KeyboardButtonUrl, KeyboardButtonRow, ReplyInlineMarkup
+from telethon.tl.types import ReplyKeyboardMarkup, KeyboardButton, KeyboardButtonRow
 from database import Database
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 import json
@@ -189,7 +189,7 @@ class BumpService:
                         chat_entity,
                         original_message.media,
                         caption=original_message.message,
-                        buttons=telethon_reply_markup
+                        reply_markup=telethon_reply_markup
                     )
                     logger.info(f"✅ Bridge channel media forwarded with PREMIUM EMOJIS and buttons to {chat_entity.title}")
                 else:
@@ -197,7 +197,7 @@ class BumpService:
                     message = await client.send_message(
                         chat_entity,
                         original_message.message,
-                        buttons=telethon_reply_markup
+                        reply_markup=telethon_reply_markup
                     )
                     logger.info(f"✅ Bridge channel text forwarded with PREMIUM EMOJIS and buttons to {chat_entity.title}")
                 
@@ -860,8 +860,12 @@ class BumpService:
         await asyncio.sleep(0.2)
         
         # Handle session creation (same as bot.py)
-        # Use memory-based session to avoid file permission issues
-        session_file_path = None  # Use memory-based session
+        # Use temp directory to avoid permission issues
+        import tempfile
+        import os
+        temp_dir = tempfile.gettempdir()
+        temp_session_path = f"bump_session_{account_id}_{int(time.time())}"
+        session_file_path = os.path.join(temp_dir, f"{temp_session_path}.session")
         
         # Register for cleanup
         self._register_temp_file(session_file_path)
@@ -1135,44 +1139,49 @@ class BumpService:
         
         # Create buttons from campaign data or use default
         
-        # Create Telethon buttons for worker account using the correct approach
+        # Create ReplyKeyboardMarkup for worker account (persistent bottom keyboard)
         telethon_reply_markup = None
         if buttons and len(buttons) > 0:
             try:
-                # Create button rows for Telethon
+                # Create button rows for ReplyKeyboardMarkup
                 button_rows = []
                 for button_info in buttons:
-                    if button_info.get('url'):
-                        # Create a single button in its own row
-                        button_row = [Button.url(button_info['text'], button_info['url'])]
+                    if button_info.get('text'):
+                        # Create a single button in its own row for ReplyKeyboardMarkup
+                        button_row = [KeyboardButton(button_info['text'])]
                         button_rows.append(button_row)
-                        logger.info(f"✅ Created button: '{button_info['text']}' -> '{button_info['url']}'")
+                        logger.info(f"✅ Created ReplyKeyboard button: '{button_info['text']}'")
                 
                 if button_rows:
-                    # Use the button rows directly for send_file
-                    telethon_reply_markup = button_rows
-                    logger.info(f"🔘 Created {len(button_rows)} button rows for Telethon")
-                    logger.info(f"🔘 Button rows type: {type(telethon_reply_markup)}")
+                    # Create ReplyKeyboardMarkup with persistent=True
+                    telethon_reply_markup = ReplyKeyboardMarkup(
+                        rows=button_rows,
+                        resize=True,        # Makes buttons large and full-width
+                        persistent=True,    # Stays visible for ALL messages
+                        selective=False     # Shows to everyone in group
+                    )
+                    logger.info(f"🔘 Created ReplyKeyboardMarkup with {len(button_rows)} button rows")
+                    logger.info(f"🔘 ReplyKeyboardMarkup type: {type(telethon_reply_markup)}")
                 else:
                     logger.warning(f"⚠️ No valid buttons created")
                     telethon_reply_markup = None
             except Exception as e:
-                logger.error(f"❌ Button creation failed: {e}")
+                logger.error(f"❌ ReplyKeyboardMarkup creation failed: {e}")
                 telethon_reply_markup = None
         
         # Store button data for bot to use later
         campaign_buttons = buttons if buttons and len(buttons) > 0 else []
-        logger.info(f"📱 Bot will handle inline buttons: {len(campaign_buttons)} buttons configured")
+        logger.info(f"📱 Bot will handle ReplyKeyboardMarkup: {len(campaign_buttons)} buttons configured")
         
         # Debug button creation
         if telethon_reply_markup:
-            logger.info(f"🔘 SUCCESS: Created {len(telethon_reply_markup)} button rows for worker account")
-            for i, row in enumerate(telethon_reply_markup):
-                logger.info(f"🔘 Row {i}: {len(row)} buttons")
-                for j, btn in enumerate(row):
-                    logger.info(f"🔘 Button {i},{j}: {btn.text} -> {btn.url}")
+            logger.info(f"🔘 SUCCESS: Created ReplyKeyboardMarkup with {len(telethon_reply_markup.rows)} button rows for worker account")
+            for i, row in enumerate(telethon_reply_markup.rows):
+                logger.info(f"🔘 Row {i}: {len(row.buttons)} buttons")
+                for j, btn in enumerate(row.buttons):
+                    logger.info(f"🔘 Button {i},{j}: {btn.text}")
         else:
-            logger.warning(f"⚠️ No buttons created for worker account")
+            logger.warning(f"⚠️ No ReplyKeyboardMarkup created for worker account")
         
         # Get all groups if target_mode is all_groups
         if campaign.get('target_mode') == 'all_groups' or target_chats == ['ALL_WORKER_GROUPS']:
@@ -1291,7 +1300,7 @@ class BumpService:
                                             chat_entity,
                                             media_file,
                                             caption=original_text,  # Use original text to preserve emojis
-                                            buttons=telethon_reply_markup  # Add inline buttons directly to media
+                                            reply_markup=telethon_reply_markup  # Add inline buttons directly to media
                                         )
                                         logger.info(f"✅ Media sent with INLINE BUTTONS to {chat_entity.title}")
                                         self._cleanup_temp_file(media_file)
@@ -1326,7 +1335,7 @@ class BumpService:
                                             chat_entity,
                                             media_file,
                                             caption=final_caption,
-                                            buttons=telethon_reply_markup,
+                                            reply_markup=telethon_reply_markup,
                                             parse_mode='html'
                                         )
                                         logger.info(f"✅ Media sent with inline buttons to {chat_entity.title}")
@@ -1337,7 +1346,7 @@ class BumpService:
                                             chat_entity,
                                             media_file,
                                             caption=final_caption,
-                                            buttons=telethon_reply_markup,
+                                            reply_markup=telethon_reply_markup,
                                             parse_mode='html'
                                         )
                                         
@@ -1354,7 +1363,7 @@ class BumpService:
                                         message = await client.send_message(
                                             chat_entity,
                                             final_caption_with_buttons,
-                                            buttons=telethon_reply_markup,
+                                            reply_markup=telethon_reply_markup,
                                             parse_mode='html'
                                         )
                                         logger.warning(f"⚠️ Media download failed, sent as text to {chat_entity.title}")
@@ -1369,7 +1378,7 @@ class BumpService:
                                     message = await client.send_message(
                                         chat_entity,
                                         combined_text,
-                                        buttons=telethon_reply_markup,
+                                        reply_markup=telethon_reply_markup,
                                         parse_mode='html'
                                     )
                                     logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
@@ -1379,7 +1388,7 @@ class BumpService:
                                     message = await client.send_message(
                                         chat_entity,
                                         combined_text,
-                                        buttons=telethon_reply_markup,
+                                        reply_markup=telethon_reply_markup,
                                         parse_mode='html'
                                     )
                                 logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
@@ -1396,7 +1405,7 @@ class BumpService:
                                 message = await client.send_message(
                                     chat_entity,
                                     combined_text_with_buttons,
-                                    buttons=telethon_reply_markup,
+                                    reply_markup=telethon_reply_markup,
                                     parse_mode='html'
                                 )
                                 logger.info(f"✅ Combined text message sent to {chat_entity.title}")
@@ -1414,7 +1423,7 @@ class BumpService:
                                     message = await client.send_message(
                                         chat_entity,
                                         combined_text,
-                                        buttons=telethon_reply_markup,
+                                        reply_markup=telethon_reply_markup,
                                         parse_mode='html'
                                     )
                                     logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
@@ -1424,7 +1433,7 @@ class BumpService:
                                     message = await client.send_message(
                                         chat_entity,
                                         combined_text,
-                                        buttons=telethon_reply_markup,
+                                        reply_markup=telethon_reply_markup,
                                         parse_mode='html'
                                     )
                                 logger.info(f"📝 Sent as text fallback to {chat_entity.title}")
@@ -1611,7 +1620,7 @@ class BumpService:
                                                             chat_entity,           # Target group
                                                             file=video_file,       # Video file from storage
                                                             caption=caption_text,  # Caption text
-                                                            buttons=reply_markup,  # Use buttons parameter for button list
+                                                            reply_markup=reply_markup,  # Use reply_markup for ReplyKeyboardMarkup
                                                             formatting_entities=telethon_entities,  # Premium emojis
                                                             parse_mode=None,       # Let entities handle formatting
                                                             link_preview=False
@@ -1644,7 +1653,7 @@ class BumpService:
                                                     chat_entity,
                                                     storage_message.media,
                                                     caption=caption_text,
-                                                    buttons=telethon_reply_markup,
+                                                    reply_markup=telethon_reply_markup,
                                                     formatting_entities=telethon_entities,
                                                     parse_mode=None,
                                                     link_preview=False
@@ -1682,7 +1691,7 @@ class BumpService:
                                                 chat_entity,
                                                 storage_message.media,  # Media file
                                                 caption=original_text,  # Plain text caption
-                                                buttons=telethon_reply_markup,  # BUTTONS PRIORITY!
+                                                reply_markup=telethon_reply_markup,  # BUTTONS PRIORITY!
                                                 parse_mode=None,  # No parsing
                                                 link_preview=False  # Disable link preview
                                             )
@@ -1730,7 +1739,7 @@ class BumpService:
                                             chat_entity,
                                             original_text,
                                             formatting_entities=telethon_entities,
-                                            buttons=telethon_reply_markup
+                                            reply_markup=telethon_reply_markup
                                         )
                                         logger.info(f"✅ Text sent with PREMIUM EMOJIS and inline buttons to {chat_entity.title}")
                                     else:
@@ -1738,7 +1747,7 @@ class BumpService:
                                         message = await client.send_message(
                                             chat_entity,
                                             original_text,
-                                            buttons=telethon_reply_markup
+                                            reply_markup=telethon_reply_markup
                                         )
                                         logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
                                 else:
@@ -1746,7 +1755,7 @@ class BumpService:
                                     message = await client.send_message(
                                         chat_entity,
                                         original_text,
-                                        buttons=telethon_reply_markup
+                                        reply_markup=telethon_reply_markup
                                     )
                                     logger.info(f"✅ Text sent with inline buttons to {chat_entity.title}")
                                 
