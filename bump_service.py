@@ -1572,6 +1572,13 @@ class BumpService:
                                                                 except Exception as btn_error:
                                                                     logger.error(f"❌ Button creation failed: {btn_error}")
                                                         
+                                                        # Create ReplyInlineMarkup object
+                                                        from telethon.tl.types import ReplyInlineMarkup, KeyboardButtonRow
+                                                        if buttons_rows:
+                                                            reply_markup = ReplyInlineMarkup(rows=[KeyboardButtonRow(buttons=row) for row in buttons_rows])
+                                                        else:
+                                                            reply_markup = None
+                                                        
                                                         # Get caption text and media
                                                         caption_text = ad_content.get('caption') or ad_content.get('text', '')
                                                         video_file = storage_message.media
@@ -1587,7 +1594,7 @@ class BumpService:
                                                             chat_entity,           # Target group
                                                             file=video_file,       # Video file from storage
                                                             caption=caption_text,  # Caption text
-                                                            buttons=buttons_rows,  # Correct Telethon buttons parameter
+                                                            reply_markup=reply_markup,  # Correct Telethon reply_markup parameter
                                                             formatting_entities=telethon_entities,  # Premium emojis
                                                             parse_mode=None,       # Let entities handle formatting
                                                             link_preview=False
