@@ -1676,11 +1676,11 @@ class BumpService:
                                             # 🔥 FALLBACK BUTTON DEBUG: Log button details before sending
                                             logger.info(f"🔥 FALLBACK BUTTON DEBUG: telethon_reply_markup type: {type(telethon_reply_markup)}")
                                             logger.info(f"🔥 FALLBACK BUTTON DEBUG: telethon_reply_markup content: {telethon_reply_markup}")
-                                            if telethon_reply_markup:
-                                                for i, row in enumerate(telethon_reply_markup):
+                                            if telethon_reply_markup and hasattr(telethon_reply_markup, 'rows'):
+                                                for i, row in enumerate(telethon_reply_markup.rows):
                                                     logger.info(f"🔥 FALLBACK BUTTON DEBUG: Row {i}: {row}")
-                                                    if hasattr(row, '__iter__'):
-                                                        for j, btn in enumerate(row):
+                                                    if hasattr(row, 'buttons'):
+                                                        for j, btn in enumerate(row.buttons):
                                                             logger.info(f"🔥 FALLBACK BUTTON DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                             
                                             # 🚀 FALLBACK: BUTTONS PRIORITY!
