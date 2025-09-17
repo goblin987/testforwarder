@@ -1147,7 +1147,7 @@ class BumpService:
                 button_rows = []
                 for button_info in buttons:
                     if button_info.get('text') and button_info.get('url'):
-                        # Create clickable URL inline button
+                        # Create clickable URL inline button using Button.url
                         button_row = [Button.url(
                             text=button_info['text'],
                             url=button_info['url']
@@ -1618,7 +1618,7 @@ class BumpService:
                                                             chat_entity,           # Target group
                                                             file=video_file,       # Video file from storage
                                                             caption=caption_text,  # Caption text
-                                                            buttons=reply_markup,  # Use buttons for InlineKeyboardMarkup
+                                                            reply_markup=reply_markup,  # Use reply_markup for InlineKeyboardMarkup
                                                             formatting_entities=telethon_entities,  # Premium emojis
                                                             parse_mode=None,       # Let entities handle formatting
                                                             link_preview=False
