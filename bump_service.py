@@ -1139,34 +1139,33 @@ class BumpService:
         
         # Create buttons from campaign data or use default
         
-        # Create InlineKeyboardMarkup for worker account (user accounts CAN send inline buttons)
+        # Create clickable text with URLs for user accounts (inline buttons don't work for user accounts in groups)
         telethon_reply_markup = None
         if buttons and len(buttons) > 0:
             try:
-                # Create inline buttons for user accounts (ReplyKeyboardMarkup only works for bots)
-                button_rows = []
+                # For user accounts, we'll add clickable URLs directly in the caption text
+                # This is the only way to make clickable links work with user accounts
+                button_texts = []
                 for button_info in buttons:
                     if button_info.get('text') and button_info.get('url'):
-                        # Create clickable URL inline button using Button.url
-                        button_row = [Button.url(
-                            text=button_info['text'],
-                            url=button_info['url']
-                        )]
-                        button_rows.append(button_row)
-                        logger.info(f"✅ Created URL inline button: '{button_info['text']}' -> '{button_info['url']}'")
+                        # Create clickable text format for user accounts
+                        button_text = f"🔗 {button_info['text']}: {button_info['url']}"
+                        button_texts.append(button_text)
+                        logger.info(f"✅ Created clickable text button: '{button_info['text']}' -> '{button_info['url']}'")
                 
-                if button_rows:
-                    # Create InlineKeyboardMarkup (works with user accounts)
-                    from telethon.tl.types import ReplyInlineMarkup
-                    telethon_reply_markup = ReplyInlineMarkup(rows=button_rows)
-                    logger.info(f"🔘 Created InlineKeyboardMarkup with {len(button_rows)} URL button rows")
-                    logger.info(f"🔘 InlineKeyboardMarkup type: {type(telethon_reply_markup)}")
+                if button_texts:
+                    # Add button texts to the caption
+                    button_section = "\n\n" + "\n".join(button_texts)
+                    logger.info(f"🔘 Created {len(button_texts)} clickable text buttons for user account")
+                    logger.info(f"🔘 Button texts: {button_texts}")
                 else:
                     logger.warning(f"⚠️ No valid URL buttons created")
-                    telethon_reply_markup = None
+                    button_section = ""
             except Exception as e:
-                logger.error(f"❌ InlineKeyboardMarkup creation failed: {e}")
-                telethon_reply_markup = None
+                logger.error(f"❌ Clickable text button creation failed: {e}")
+                button_section = ""
+        else:
+            button_section = ""
         
         # Store button data for bot to use later
         campaign_buttons = buttons if buttons and len(buttons) > 0 else []
@@ -1599,6 +1598,12 @@ class BumpService:
                                                         
                                                         # Get caption text and media
                                                         caption_text = ad_content.get('caption') or ad_content.get('text', '')
+                                                        
+                                                        # Add clickable button texts to the caption
+                                                        if button_section:
+                                                            caption_text += button_section
+                                                            logger.info(f"🔗 Added {len(button_texts)} clickable buttons to caption")
+                                                        
                                                         video_file = storage_message.media
                                                         
                                                         # Convert entities for premium emojis
@@ -1610,29 +1615,28 @@ class BumpService:
                                                         logger.info(f"🔘 Buttons: {len(telethon_reply_markup.rows) if telethon_reply_markup and hasattr(telethon_reply_markup, 'rows') else 0} rows (Telethon format)")
                                                         
                                                         # Send message with ALL components using send_file
-                                                        logger.info(f"🚀 Sending message with send_file() - media + premium emojis + buttons")
+                                                        logger.info(f"🚀 Sending message with send_file() - media + premium emojis + clickable text buttons")
                                                         logger.info(f"🔍 DEBUG: reply_markup type: {type(reply_markup)}")
                                                         logger.info(f"🔍 DEBUG: reply_markup value: {reply_markup}")
                                                         
                                                         sent_msg = await client.send_file(
                                                             chat_entity,           # Target group
                                                             file=video_file,       # Video file from storage
-                                                            caption=caption_text,  # Caption text
-                                                            reply_markup=reply_markup,  # Use reply_markup for InlineKeyboardMarkup
+                                                            caption=caption_text,  # Caption text with clickable buttons
                                                             formatting_entities=telethon_entities,  # Premium emojis
                                                             parse_mode=None,       # Let entities handle formatting
                                                             link_preview=False
                                                         )
                                                         
                                                         # DEBUG: Verify sent message has buttons
-                                                        if hasattr(sent_msg, 'reply_markup') and sent_msg.reply_markup:
-                                                            logger.info(f"✅ CONFIRMED: Sent message HAS inline buttons!")
-                                                            if hasattr(sent_msg.reply_markup, 'rows'):
-                                                                logger.info(f"✅ CONFIRMED: Inline buttons has {len(sent_msg.reply_markup.rows)} button rows")
+                                                        # DEBUG: Verify sent message has clickable text buttons
+                                                        if button_section and button_section in caption_text:
+                                                            logger.info(f"✅ CONFIRMED: Sent message HAS clickable text buttons!")
+                                                            logger.info(f"✅ CONFIRMED: Button section added to caption: {button_section[:100]}...")
                                                         else:
-                                                            logger.error(f"❌ PROBLEM: Sent message has NO inline buttons!")
+                                                            logger.error(f"❌ PROBLEM: Sent message has NO clickable text buttons!")
                                                         
-                                                        logger.info(f"✅ SUCCESS: Worker sent message with media + premium emojis + buttons to {chat_entity.title}!")
+                                                        logger.info(f"✅ SUCCESS: Worker sent message with media + premium emojis + clickable text buttons to {chat_entity.title}!")
                                                         buttons_sent_count += 1
                                                         continue
                                                         
@@ -1643,6 +1647,11 @@ class BumpService:
                                                 logger.info(f"📤 Fallback: Worker sends without buttons")
                                                 
                                                 caption_text = ad_content.get('caption') or ad_content.get('text', '')
+                                                
+                                                # Add clickable button texts to the caption
+                                                if button_section:
+                                                    caption_text += button_section
+                                                    logger.info(f"🔗 Added {len(button_texts)} clickable buttons to caption")
                                                 # Convert entities for premium emojis in fallback too
                                                 stored_entities = ad_content.get('caption_entities', [])
                                                 telethon_entities = self._convert_to_telethon_entities(stored_entities, caption_text)
@@ -1651,12 +1660,11 @@ class BumpService:
                                                     chat_entity,
                                                     storage_message.media,
                                                     caption=caption_text,
-                                                    reply_markup=telethon_reply_markup,
                                                     formatting_entities=telethon_entities,
                                                     parse_mode=None,
                                                     link_preview=False
                                                 )
-                                                logger.info(f"✅ Worker sent Media + Premium Emojis + Buttons")
+                                                logger.info(f"✅ Worker sent Media + Premium Emojis + Clickable Text Buttons")
                                                 
                                                 continue
                                             
