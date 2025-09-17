@@ -855,14 +855,14 @@ class BumpService:
         import os
         import time
         import random
+        import time
         
         # Small delay to ensure clean separation between initializations
         await asyncio.sleep(0.2)
         
         # Handle session creation (same as bot.py)
-        import tempfile
-        temp_dir = tempfile.gettempdir()
-        temp_session_path = os.path.join(temp_dir, f"bump_session_{account_id}")
+        # Use current working directory with unique filename to avoid conflicts
+        temp_session_path = f"bump_session_{account_id}_{int(time.time())}"
         session_file_path = f"{temp_session_path}.session"
         
         # Register for cleanup
@@ -1578,8 +1578,10 @@ class BumpService:
                                                         from telethon.tl.types import ReplyInlineMarkup, KeyboardButtonRow
                                                         if buttons_rows:
                                                             reply_markup = ReplyInlineMarkup(rows=[KeyboardButtonRow(buttons=row) for row in buttons_rows])
+                                                            logger.info(f"🔘 Created ReplyInlineMarkup with {len(reply_markup.rows)} rows")
                                                         else:
                                                             reply_markup = None
+                                                            logger.warning(f"⚠️ No buttons_rows, reply_markup is None")
                                                         
                                                         # Get caption text and media
                                                         caption_text = ad_content.get('caption') or ad_content.get('text', '')
@@ -1595,6 +1597,8 @@ class BumpService:
                                                         
                                                         # Send message with ALL components using send_file
                                                         logger.info(f"🚀 Sending message with send_file() - media + premium emojis + buttons")
+                                                        logger.info(f"🔍 DEBUG: reply_markup type: {type(reply_markup)}")
+                                                        logger.info(f"🔍 DEBUG: reply_markup value: {reply_markup}")
                                                         
                                                         sent_msg = await client.send_file(
                                                             chat_entity,           # Target group
