@@ -1673,7 +1673,7 @@ class BumpService:
                                                                 caption_text,
                                                                 file=storage_message.media,  # Media as file parameter
                                                                 formatting_entities=telethon_entities,  # Premium emojis
-                                                                reply_markup=template_msg.reply_markup,  # Copy reply_markup from template
+                                                                buttons=template_msg.reply_markup,  # Copy reply_markup from template (use 'buttons' not 'reply_markup')
                                                                 parse_mode=None,  # Let entities handle formatting
                                                                 link_preview=False
                                                             )
