@@ -1180,8 +1180,8 @@ class BumpService:
         if telethon_reply_markup:
             logger.info(f"🔘 SUCCESS: Created ReplyKeyboardMarkup with {len(telethon_reply_markup.rows)} button rows for worker account")
             for i, row in enumerate(telethon_reply_markup.rows):
-                logger.info(f"🔘 Row {i}: {len(row.buttons)} buttons")
-                for j, btn in enumerate(row.buttons):
+                logger.info(f"🔘 Row {i}: {len(row)} buttons")
+                for j, btn in enumerate(row):
                     logger.info(f"🔘 Button {i},{j}: {btn.text}")
         else:
             logger.warning(f"⚠️ No ReplyKeyboardMarkup created for worker account")
@@ -1252,7 +1252,7 @@ class BumpService:
                             button_text = ""
                             if telethon_reply_markup and hasattr(telethon_reply_markup, 'rows'):
                                 for button_row in telethon_reply_markup.rows:
-                                    for button in button_row.buttons:
+                                    for button in button_row:
                                         if hasattr(button, 'url'):
                                             button_text += f"\n\n🔗 {button.text}: {button.url}"
                             
@@ -1589,9 +1589,8 @@ class BumpService:
                                                     logger.info(f"🔥 REPLY KEYBOARD DEBUG: Number of rows: {len(telethon_reply_markup.rows)}")
                                                     for i, row in enumerate(telethon_reply_markup.rows):
                                                         logger.info(f"🔥 REPLY KEYBOARD DEBUG: Row {i}: {row}")
-                                                        if hasattr(row, 'buttons'):
-                                                            for j, btn in enumerate(row.buttons):
-                                                                logger.info(f"🔥 REPLY KEYBOARD DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
+                                                        for j, btn in enumerate(row):
+                                                            logger.info(f"🔥 REPLY KEYBOARD DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                                 
                                                 # Send directly with all components (media + premium emojis + buttons)
                                                 logger.info(f"🚀 Sending message with ALL components to {chat_entity.title}")
@@ -1682,9 +1681,8 @@ class BumpService:
                                             if telethon_reply_markup and hasattr(telethon_reply_markup, 'rows'):
                                                 for i, row in enumerate(telethon_reply_markup.rows):
                                                     logger.info(f"🔥 FALLBACK BUTTON DEBUG: Row {i}: {row}")
-                                                    if hasattr(row, 'buttons'):
-                                                        for j, btn in enumerate(row.buttons):
-                                                            logger.info(f"🔥 FALLBACK BUTTON DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
+                                                    for j, btn in enumerate(row):
+                                                        logger.info(f"🔥 FALLBACK BUTTON DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                             
                                             # 🚀 FALLBACK: BUTTONS PRIORITY!
                                             logger.info(f"🚀 FALLBACK: Prioritizing buttons for functionality!")
