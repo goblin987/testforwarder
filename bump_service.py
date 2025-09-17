@@ -1193,6 +1193,12 @@ class BumpService:
                         except Exception as btn_error:
                             logger.error(f"❌ Template button creation failed: {btn_error}")
                 
+                # Convert entities for template creation
+                logger.info(f"🔄 Converting entities for template creation...")
+                stored_entities = ad_content.get('caption_entities', [])
+                telethon_entities = self._convert_to_telethon_entities(stored_entities, caption_text)
+                logger.info(f"✅ Converted {len(telethon_entities)} entities for template")
+                
                 # Get media from storage channel
                 storage_chat_id_int = int(storage_channel_id) if isinstance(storage_channel_id, str) else storage_channel_id
                 storage_message_id = ad_content.get('storage_message_id')
