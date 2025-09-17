@@ -955,14 +955,60 @@ Please send me the source chat ID or username.
                 
                 storage_channel_id = Config.STORAGE_CHANNEL_ID
                 if storage_channel_id:
-                    logger.info(f"📤 STORAGE CHANNEL: Forwarding {ad_data['media_type']} to storage channel")
+                    logger.info(f"📤 STORAGE CHANNEL: Creating message with ReplyKeyboardMarkup buttons in storage channel")
                     
-                    # Forward the message to storage channel to get a permanent file_id
-                    forwarded_message = await context.bot.forward_message(
-                        chat_id=storage_channel_id,
-                        from_chat_id=message.chat_id,
-                        message_id=message.message_id
-                    )
+                    # Create a new message with ReplyKeyboardMarkup buttons in storage channel
+                    # This preserves the original content but adds the buttons
+                    from telegram import ReplyKeyboardMarkup, KeyboardButton
+                    
+                    # Create ReplyKeyboardMarkup from campaign buttons
+                    keyboard_buttons = []
+                    if 'buttons' in ad_data and ad_data['buttons']:
+                        for button in ad_data['buttons']:
+                            if button.get('text') and button.get('url'):
+                                # Create clickable URL button
+                                keyboard_buttons.append([KeyboardButton(button['text'], url=button['url'])])
+                    
+                    reply_markup = None
+                    if keyboard_buttons:
+                        reply_markup = ReplyKeyboardMarkup(
+                            keyboard_buttons,
+                            resize_keyboard=True,
+                            one_time_keyboard=False
+                        )
+                        logger.info(f"✅ Created ReplyKeyboardMarkup with {len(keyboard_buttons)} buttons")
+                    else:
+                        logger.info(f"ℹ️ No buttons to add to storage message")
+                    
+                    # Send message with ReplyKeyboardMarkup to storage channel
+                    if message.video:
+                        forwarded_message = await context.bot.send_video(
+                            chat_id=storage_channel_id,
+                            video=message.video.file_id,
+                            caption=message.caption,
+                            reply_markup=reply_markup
+                        )
+                    elif message.photo:
+                        forwarded_message = await context.bot.send_photo(
+                            chat_id=storage_channel_id,
+                            photo=message.photo[-1].file_id,
+                            caption=message.caption,
+                            reply_markup=reply_markup
+                        )
+                    elif message.document:
+                        forwarded_message = await context.bot.send_document(
+                            chat_id=storage_channel_id,
+                            document=message.document.file_id,
+                            caption=message.caption,
+                            reply_markup=reply_markup
+                        )
+                    else:
+                        # Fallback: forward original message
+                        forwarded_message = await context.bot.forward_message(
+                            chat_id=storage_channel_id,
+                            from_chat_id=message.chat_id,
+                            message_id=message.message_id
+                        )
                     
                     # Extract the new file_id from the forwarded message
                     storage_file_id = None
@@ -3641,15 +3687,15 @@ Targets: {len(enhanced_campaign_data['target_chats'])} chat(s)
         # Validate configuration
         Config.validate()
         
-        # Start bump service scheduler
-        self.bump_service.start_scheduler()
-        logger.info("Bump service scheduler started")
-        
-        # Create application
+        # Create application first
         application = Application.builder().token(Config.BOT_TOKEN).build()
         
         # Initialize bump service with bot instance
         self.bump_service = BumpService(bot_instance=application.bot)
+        
+        # Start bump service scheduler
+        self.bump_service.start_scheduler()
+        logger.info("Bump service scheduler started")
         
         # Add error handler
         application.add_error_handler(self.error_handler)
