@@ -1099,6 +1099,14 @@ class BumpService:
         
         try:
             campaign = self.get_campaign(campaign_id)
+            if not campaign:
+                logger.error(f"❌ Campaign {campaign_id} not found!")
+                return False
+            
+            logger.info(f"📋 Campaign found: {campaign['campaign_name']}")
+            logger.info(f"👤 Account ID: {campaign['account_id']}")
+            logger.info(f"🎯 Target chats: {campaign.get('target_chats', [])}")
+            logger.info(f"🔘 Buttons: {len(campaign.get('buttons', []))} buttons")
             if not campaign or not campaign['is_active']:
                 logger.warning(f"Campaign {campaign_id} not found or inactive")
                 return
@@ -1871,7 +1879,11 @@ class BumpService:
             day, time_str = schedule_time.split(' ')
             getattr(schedule.every(), day.lower()).at(time_str).do(self.run_campaign_job, campaign_id)
         elif schedule_type == 'hourly':
-            schedule.every().hour.do(self.run_campaign_job, campaign_id)
+            job = schedule.every().hour.do(self.run_campaign_job, campaign_id)
+            # Run immediately for the first time if campaign is active
+            if campaign.get('is_active', False):
+                logger.info(f"🚀 Running campaign {campaign_id} immediately on hourly schedule activation")
+                self.run_campaign_job(campaign_id)
         elif schedule_type == 'custom':
             # Parse custom interval (e.g., "every 3 minutes", "every 4 hours")
             try:
@@ -1971,6 +1983,23 @@ class BumpService:
                     del self.active_campaigns[campaign_id]
                 return
             
+            # Log campaign details
+            logger.info(f"📋 Campaign {campaign_id}: {campaign['campaign_name']}")
+            logger.info(f"📅 Schedule: {campaign['schedule_type']} at {campaign['schedule_time']}")
+            logger.info(f"👤 Account ID: {campaign['account_id']}")
+            
+            # Check account status
+            account = self.db.get_account(campaign['account_id'])
+            if not account:
+                logger.error(f"❌ Account {campaign['account_id']} not found for campaign {campaign_id}")
+                return
+            
+            if not account.get('session_string'):
+                logger.error(f"❌ Account {campaign['account_id']} has no session string")
+                return
+            
+            logger.info(f"✅ Account {account.get('account_name', 'Unknown')} is ready")
+            
             # Log next scheduled run
             logger.info(f"📅 Next run for campaign {campaign_id} will be in {campaign['schedule_time']}")
             
@@ -1978,10 +2007,14 @@ class BumpService:
             def execute_async():
                 try:
                     import asyncio
+                    logger.info(f"🚀 Starting async execution for campaign {campaign_id}")
                     # Run the campaign asynchronously
                     asyncio.run(self.execute_scheduled_campaign(campaign_id, campaign))
+                    logger.info(f"✅ Async execution completed for campaign {campaign_id}")
                 except Exception as e:
-                    logger.error(f"Error executing scheduled campaign {campaign_id}: {e}")
+                    logger.error(f"❌ Error executing scheduled campaign {campaign_id}: {e}")
+                    import traceback
+                    logger.error(f"Stack trace: {traceback.format_exc()}")
             
             # Start execution in separate thread
             execution_thread = threading.Thread(target=execute_async, daemon=True)
