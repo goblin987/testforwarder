@@ -1136,15 +1136,41 @@ class BumpService:
         
         # Create buttons from campaign data or use default
         from telethon import Button
-        telethon_reply_markup = None
+        from telethon.tl.types import ReplyInlineMarkup, KeyboardButtonRow
         
-        # We'll create inline buttons for the bot to use
-        # The worker account can't send inline buttons, so the bot will handle it
-        telethon_reply_markup = None  # Worker won't use buttons
+        # Create Telethon buttons for worker account
+        telethon_reply_markup = None
+        if buttons and len(buttons) > 0:
+            try:
+                buttons_rows = []
+                for button_info in buttons:
+                    if button_info.get('url'):
+                        btn = Button.url(button_info['text'], button_info['url'])
+                        buttons_rows.append([btn])  # Each button gets its own row
+                        logger.info(f"✅ Created button: '{button_info['text']}' -> '{button_info['url']}'")
+                
+                if buttons_rows:
+                    telethon_reply_markup = ReplyInlineMarkup(rows=[KeyboardButtonRow(buttons=row) for row in buttons_rows])
+                    logger.info(f"🔘 Created ReplyInlineMarkup with {len(telethon_reply_markup.rows)} rows")
+                else:
+                    logger.warning(f"⚠️ No valid buttons created")
+            except Exception as e:
+                logger.error(f"❌ Button creation failed: {e}")
+                telethon_reply_markup = None
         
         # Store button data for bot to use later
         campaign_buttons = buttons if buttons and len(buttons) > 0 else []
         logger.info(f"📱 Bot will handle inline buttons: {len(campaign_buttons)} buttons configured")
+        
+        # Debug button creation
+        if telethon_reply_markup:
+            logger.info(f"🔘 SUCCESS: Created {len(telethon_reply_markup.rows)} button rows for worker account")
+            for i, row in enumerate(telethon_reply_markup.rows):
+                logger.info(f"🔘 Row {i}: {len(row.buttons)} buttons")
+                for j, btn in enumerate(row.buttons):
+                    logger.info(f"🔘 Button {i},{j}: {btn.text} -> {btn.url}")
+        else:
+            logger.warning(f"⚠️ No buttons created for worker account")
         
         # Get all groups if target_mode is all_groups
         if campaign.get('target_mode') == 'all_groups' or target_chats == ['ALL_WORKER_GROUPS']:
@@ -1557,30 +1583,8 @@ class BumpService:
                                                 # Send with buttons if available
                                                 if buttons and len(buttons) > 0:
                                                     try:
-                                                        # Convert buttons to Telethon format
-                                                        logger.info(f"🔧 Converting buttons to Telethon format...")
-                                                        buttons_rows = []
-                                                        
-                                                        # Convert from database format to Telethon Button objects
-                                                        for button_info in buttons:
-                                                            if button_info.get('url'):
-                                                                try:
-                                                                    # Use Button.url from telethon.tl.custom
-                                                                    btn = Button.url(button_info['text'], button_info['url'])
-                                                                    # Each button gets its own row (list with one button)
-                                                                    buttons_rows.append([btn])
-                                                                    logger.info(f"✅ Created button: '{button_info['text']}' -> '{button_info['url']}'")
-                                                                except Exception as btn_error:
-                                                                    logger.error(f"❌ Button creation failed: {btn_error}")
-                                                        
-                                                        # Create ReplyInlineMarkup object
-                                                        from telethon.tl.types import ReplyInlineMarkup, KeyboardButtonRow
-                                                        if buttons_rows:
-                                                            reply_markup = ReplyInlineMarkup(rows=[KeyboardButtonRow(buttons=row) for row in buttons_rows])
-                                                            logger.info(f"🔘 Created ReplyInlineMarkup with {len(reply_markup.rows)} rows")
-                                                        else:
-                                                            reply_markup = None
-                                                            logger.warning(f"⚠️ No buttons_rows, reply_markup is None")
+                                                        # Use the global telethon_reply_markup we created earlier
+                                                        reply_markup = telethon_reply_markup
                                                         
                                                         # Get caption text and media
                                                         caption_text = ad_content.get('caption') or ad_content.get('text', '')
@@ -1592,7 +1596,7 @@ class BumpService:
                                                         
                                                         logger.info(f"📝 Caption: {len(caption_text)} chars")
                                                         logger.info(f"🎨 Entities: {len(telethon_entities)} (including {len([e for e in telethon_entities if hasattr(e, 'document_id')])} premium emojis)")
-                                                        logger.info(f"🔘 Buttons: {len(buttons_rows)} rows (Telethon format)")
+                                                        logger.info(f"🔘 Buttons: {len(telethon_reply_markup.rows) if telethon_reply_markup else 0} rows (Telethon format)")
                                                         
                                                         # Send message with ALL components using send_file
                                                         logger.info(f"🚀 Sending message with send_file() - media + premium emojis + buttons")
