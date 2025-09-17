@@ -29,7 +29,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from telethon import TelegramClient
 from telethon.tl.custom import Button
-from telethon.tl.types import ReplyKeyboardMarkup, KeyboardButton, KeyboardButtonRow
+from telethon.tl.types import ReplyKeyboardMarkup, KeyboardButton, KeyboardButtonUrl, KeyboardButtonRow
 from database import Database
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 import json
@@ -1139,18 +1139,21 @@ class BumpService:
         
         # Create buttons from campaign data or use default
         
-        # Create ReplyKeyboardMarkup for worker account (persistent bottom keyboard)
+        # Create ReplyKeyboardMarkup for worker account (persistent bottom keyboard with URL buttons)
         telethon_reply_markup = None
         if buttons and len(buttons) > 0:
             try:
-                # Create button rows for ReplyKeyboardMarkup
+                # Create button rows for ReplyKeyboardMarkup with URL buttons
                 button_rows = []
                 for button_info in buttons:
-                    if button_info.get('text'):
-                        # Create a single button in its own row for ReplyKeyboardMarkup
-                        button_row = [KeyboardButton(button_info['text'])]
+                    if button_info.get('text') and button_info.get('url'):
+                        # Create clickable URL button for bottom keyboard
+                        button_row = [KeyboardButtonUrl(
+                            text=button_info['text'],
+                            url=button_info['url']
+                        )]
                         button_rows.append(button_row)
-                        logger.info(f"✅ Created ReplyKeyboard button: '{button_info['text']}'")
+                        logger.info(f"✅ Created URL ReplyKeyboard button: '{button_info['text']}' -> '{button_info['url']}'")
                 
                 if button_rows:
                     # Create ReplyKeyboardMarkup with persistent=True
@@ -1160,10 +1163,10 @@ class BumpService:
                         persistent=True,    # Stays visible for ALL messages
                         selective=False     # Shows to everyone in group
                     )
-                    logger.info(f"🔘 Created ReplyKeyboardMarkup with {len(button_rows)} button rows")
+                    logger.info(f"🔘 Created ReplyKeyboardMarkup with {len(button_rows)} URL button rows")
                     logger.info(f"🔘 ReplyKeyboardMarkup type: {type(telethon_reply_markup)}")
                 else:
-                    logger.warning(f"⚠️ No valid buttons created")
+                    logger.warning(f"⚠️ No valid URL buttons created")
                     telethon_reply_markup = None
             except Exception as e:
                 logger.error(f"❌ ReplyKeyboardMarkup creation failed: {e}")
