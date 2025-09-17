@@ -1247,9 +1247,9 @@ class BumpService:
                             
                             # ALWAYS add button URLs as text for media messages (inline buttons don't work in regular groups)
                             button_text = ""
-                            if telethon_reply_markup:
-                                for button_row in telethon_reply_markup:
-                                    for button in button_row:
+                            if telethon_reply_markup and hasattr(telethon_reply_markup, 'rows'):
+                                for button_row in telethon_reply_markup.rows:
+                                    for button in button_row.buttons:
                                         if hasattr(button, 'url'):
                                             button_text += f"\n\n🔗 {button.text}: {button.url}"
                             
@@ -1609,7 +1609,7 @@ class BumpService:
                                                         
                                                         logger.info(f"📝 Caption: {len(caption_text)} chars")
                                                         logger.info(f"🎨 Entities: {len(telethon_entities)} (including {len([e for e in telethon_entities if hasattr(e, 'document_id')])} premium emojis)")
-                                                        logger.info(f"🔘 Buttons: {len(telethon_reply_markup) if telethon_reply_markup else 0} rows (Telethon format)")
+                                                        logger.info(f"🔘 Buttons: {len(telethon_reply_markup.rows) if telethon_reply_markup and hasattr(telethon_reply_markup, 'rows') else 0} rows (Telethon format)")
                                                         
                                                         # Send message with ALL components using send_file
                                                         logger.info(f"🚀 Sending message with send_file() - media + premium emojis + buttons")
