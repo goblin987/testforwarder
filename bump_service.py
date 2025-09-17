@@ -31,8 +31,7 @@ from telethon import TelegramClient
 from telethon.tl.custom import Button
 from telethon.tl.types import ReplyKeyboardMarkup, KeyboardButtonUrl, KeyboardButtonRow, ReplyInlineMarkup
 from database import Database
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity
-from telegram.constants import ParseMode
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 import json
 import threading
 import traceback
@@ -2109,33 +2108,6 @@ class BumpService:
                 'failed_sends': row[2] or 0,
                 'success_rate': (row[1] / row[0] * 100) if row[0] > 0 else 0
             }
-    
-    async def test_campaign(self, campaign_id: int, test_chat: str) -> bool:
-        """Test campaign by sending to a single chat"""
-        campaign = self.get_campaign(campaign_id)
-        if not campaign:
-            return False
-        
-        # Use fresh client for scheduled execution to avoid asyncio loop issues
-        client = self.initialize_telegram_client(campaign['account_id'], cache_client=False)
-        if not client:
-            return False
-        
-        try:
-            test_content = f"🧪 **TEST AD**\n\n{campaign['ad_content']}\n\n_This is a test message for campaign: {campaign['campaign_name']}_"
-            await client.send_message(test_chat, test_content)
-            logger.info(f"Test ad sent for campaign {campaign_id}")
-            return True
-        except Exception as e:
-            logger.error(f"Test ad failed for campaign {campaign_id}: {e}")
-            return False
-        finally:
-            # Always disconnect client after test
-            try:
-                await client.disconnect()
-                logger.info(f"Disconnected test client for campaign {campaign_id}")
-            except Exception as e:
-                logger.warning(f"Failed to disconnect test client for campaign {campaign_id}: {e}")
     
     async def close(self):
         """Close all connections"""

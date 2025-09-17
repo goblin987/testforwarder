@@ -25,10 +25,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 from telegram.constants import ParseMode
 from config import Config
 from database import Database
-from plugins import PluginManager
-from forwarder import MessageForwarder
 from bump_service import BumpService
-import json
 
 # Configure professional logging
 logging.basicConfig(
@@ -67,8 +64,6 @@ class TgcfBot:
 
     def __init__(self):
         self.db = Database()
-        self.plugin_manager = PluginManager()
-        self.forwarder = MessageForwarder()
         self.bump_service = BumpService()
         self.user_sessions = {}  # Store user session data
     
@@ -1892,36 +1887,6 @@ Buttons will appear as an inline keyboard below your ad message.
             reply_markup=reply_markup
         )
     
-    async def show_web_interface(self, query):
-        """Show web interface information"""
-        text = f"""
-🌐 **Web Interface**
-
-Access the full-featured web interface for advanced configuration:
-
-**URL:** `https://your-render-app.onrender.com`
-
-**Features:**
-• Visual configuration editor
-• Real-time message preview
-• Advanced plugin settings
-• Bulk configuration management
-• Message statistics
-
-**Login:** Use your Telegram user ID as username
-        """
-        
-        keyboard = [
-            [InlineKeyboardButton("🔗 Open Web Interface", url="https://your-render-app.onrender.com")],
-            [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="main_menu")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            text,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
     
     async def show_help(self, query):
         """Show help information"""
