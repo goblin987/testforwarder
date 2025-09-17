@@ -1337,6 +1337,7 @@ class BumpService:
                                             chat_entity,
                                             media_file,
                                             caption=final_caption,
+                                            buttons=telethon_reply_markup,
                                             parse_mode='html'
                                         )
                                         
@@ -1643,11 +1644,12 @@ class BumpService:
                                                     chat_entity,
                                                     storage_message.media,
                                                     caption=caption_text,
+                                                    buttons=telethon_reply_markup,
                                                     formatting_entities=telethon_entities,
                                                     parse_mode=None,
                                                     link_preview=False
                                                 )
-                                                logger.info(f"✅ Worker sent Media + Premium Emojis (no buttons)")
+                                                logger.info(f"✅ Worker sent Media + Premium Emojis + Buttons")
                                                 
                                                 continue
                                             
