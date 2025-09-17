@@ -64,7 +64,7 @@ class TgcfBot:
 
     def __init__(self):
         self.db = Database()
-        self.bump_service = BumpService()
+        self.bump_service = None  # Will be initialized after bot is created
         self.user_sessions = {}  # Store user session data
     
     def validate_input(self, text: str, max_length: int = 1000, allowed_chars: str = None) -> tuple[bool, str]:
@@ -3647,6 +3647,9 @@ Targets: {len(enhanced_campaign_data['target_chats'])} chat(s)
         
         # Create application
         application = Application.builder().token(Config.BOT_TOKEN).build()
+        
+        # Initialize bump service with bot instance
+        self.bump_service = BumpService(bot_instance=application.bot)
         
         # Add error handler
         application.add_error_handler(self.error_handler)

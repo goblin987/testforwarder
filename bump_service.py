@@ -117,7 +117,7 @@ class AdCampaign:
 class BumpService:
     """Service for managing automated ad bumping/posting"""
     
-    def __init__(self):
+    def __init__(self, bot_instance=None):
         self.db = Database()
         self.active_campaigns = {}
         self.scheduler_thread = None
@@ -125,6 +125,7 @@ class BumpService:
         self.telegram_clients = {}
         self.client_init_semaphore = threading.Semaphore(1)  # Thread-safe semaphore
         self.temp_files = set()  # Track temporary files for cleanup
+        self.bot_instance = bot_instance  # Store bot instance for ReplyKeyboardMarkup
         self.init_bump_database()
     
     def _get_db_connection(self):
@@ -1139,33 +1140,34 @@ class BumpService:
         
         # Create buttons from campaign data or use default
         
-        # Create clickable text with URLs for user accounts (inline buttons don't work for user accounts in groups)
+        # Create inline buttons for user accounts (this works with Telethon)
         telethon_reply_markup = None
         if buttons and len(buttons) > 0:
             try:
-                # For user accounts, we'll add clickable URLs directly in the caption text
-                # This is the only way to make clickable links work with user accounts
-                button_texts = []
+                # Create inline buttons using Telethon Button.url (this works with user accounts)
+                button_rows = []
                 for button_info in buttons:
                     if button_info.get('text') and button_info.get('url'):
-                        # Create clickable text format for user accounts
-                        button_text = f"🔗 {button_info['text']}: {button_info['url']}"
-                        button_texts.append(button_text)
-                        logger.info(f"✅ Created clickable text button: '{button_info['text']}' -> '{button_info['url']}'")
+                        # Create clickable URL inline button using Button.url
+                        button_row = [Button.url(
+                            text=button_info['text'],
+                            url=button_info['url']
+                        )]
+                        button_rows.append(button_row)
+                        logger.info(f"✅ Created URL inline button: '{button_info['text']}' -> '{button_info['url']}'")
                 
-                if button_texts:
-                    # Add button texts to the caption
-                    button_section = "\n\n" + "\n".join(button_texts)
-                    logger.info(f"🔘 Created {len(button_texts)} clickable text buttons for user account")
-                    logger.info(f"🔘 Button texts: {button_texts}")
+                if button_rows:
+                    # Create ReplyInlineMarkup (works with user accounts via Telethon)
+                    from telethon.tl.types import ReplyInlineMarkup
+                    telethon_reply_markup = ReplyInlineMarkup(rows=button_rows)
+                    logger.info(f"🔘 Created InlineKeyboardMarkup with {len(button_rows)} URL button rows")
+                    logger.info(f"🔘 InlineKeyboardMarkup type: {type(telethon_reply_markup)}")
                 else:
                     logger.warning(f"⚠️ No valid URL buttons created")
-                    button_section = ""
+                    telethon_reply_markup = None
             except Exception as e:
-                logger.error(f"❌ Clickable text button creation failed: {e}")
-                button_section = ""
-        else:
-            button_section = ""
+                logger.error(f"❌ InlineKeyboardMarkup creation failed: {e}")
+                telethon_reply_markup = None
         
         # Store button data for bot to use later
         campaign_buttons = buttons if buttons and len(buttons) > 0 else []
@@ -1598,12 +1600,6 @@ class BumpService:
                                                         
                                                         # Get caption text and media
                                                         caption_text = ad_content.get('caption') or ad_content.get('text', '')
-                                                        
-                                                        # Add clickable button texts to the caption
-                                                        if button_section:
-                                                            caption_text += button_section
-                                                            logger.info(f"🔗 Added {len(button_texts)} clickable buttons to caption")
-                                                        
                                                         video_file = storage_message.media
                                                         
                                                         # Convert entities for premium emojis
@@ -1615,28 +1611,42 @@ class BumpService:
                                                         logger.info(f"🔘 Buttons: {len(telethon_reply_markup.rows) if telethon_reply_markup and hasattr(telethon_reply_markup, 'rows') else 0} rows (Telethon format)")
                                                         
                                                         # Send message with ALL components using send_file
-                                                        logger.info(f"🚀 Sending message with send_file() - media + premium emojis + clickable text buttons")
+                                                        logger.info(f"🚀 FORWARDING message to preserve ReplyKeyboardMarkup buttons")
                                                         logger.info(f"🔍 DEBUG: reply_markup type: {type(reply_markup)}")
                                                         logger.info(f"🔍 DEBUG: reply_markup value: {reply_markup}")
                                                         
-                                                        sent_msg = await client.send_file(
-                                                            chat_entity,           # Target group
-                                                            file=video_file,       # Video file from storage
-                                                            caption=caption_text,  # Caption text with clickable buttons
-                                                            formatting_entities=telethon_entities,  # Premium emojis
-                                                            parse_mode=None,       # Let entities handle formatting
-                                                            link_preview=False
-                                                        )
+                                                        # FORWARD the storage message to preserve ReplyKeyboardMarkup buttons!
+                                                        # This is how user accounts can send ReplyKeyboardMarkup - by forwarding!
+                                                        try:
+                                                            # Forward the original storage message (preserves buttons and formatting)
+                                                            sent_msg = await client.forward_messages(
+                                                                chat_entity,           # Target group
+                                                                storage_message,       # Original message from storage
+                                                                from_peer=storage_chat_entity  # Source chat
+                                                            )
+                                                            logger.info(f"✅ FORWARDED message with ReplyKeyboardMarkup buttons to {chat_entity.title}")
+                                                        except Exception as forward_error:
+                                                            logger.warning(f"⚠️ Forward failed for {chat_entity.title}: {forward_error}")
+                                                            # Fallback: Send new message without buttons
+                                                            sent_msg = await client.send_file(
+                                                                chat_entity,           # Target group
+                                                                file=video_file,       # Video file from storage
+                                                                caption=caption_text,  # Caption text
+                                                                formatting_entities=telethon_entities,  # Premium emojis
+                                                                parse_mode=None,       # Let entities handle formatting
+                                                                link_preview=False
+                                                            )
+                                                            logger.info(f"✅ Sent new message without buttons to {chat_entity.title}")
                                                         
-                                                        # DEBUG: Verify sent message has buttons
-                                                        # DEBUG: Verify sent message has clickable text buttons
-                                                        if button_section and button_section in caption_text:
-                                                            logger.info(f"✅ CONFIRMED: Sent message HAS clickable text buttons!")
-                                                            logger.info(f"✅ CONFIRMED: Button section added to caption: {button_section[:100]}...")
+                                                        # DEBUG: Verify sent message has ReplyKeyboardMarkup buttons
+                                                        if hasattr(sent_msg, 'reply_markup') and sent_msg.reply_markup:
+                                                            logger.info(f"✅ CONFIRMED: Sent message HAS ReplyKeyboardMarkup buttons!")
+                                                            if hasattr(sent_msg.reply_markup, 'rows'):
+                                                                logger.info(f"✅ CONFIRMED: ReplyKeyboardMarkup has {len(sent_msg.reply_markup.rows)} button rows")
                                                         else:
-                                                            logger.error(f"❌ PROBLEM: Sent message has NO clickable text buttons!")
+                                                            logger.error(f"❌ PROBLEM: Sent message has NO ReplyKeyboardMarkup buttons!")
                                                         
-                                                        logger.info(f"✅ SUCCESS: Worker sent message with media + premium emojis + clickable text buttons to {chat_entity.title}!")
+                                                        logger.info(f"✅ SUCCESS: Worker forwarded message with ReplyKeyboardMarkup buttons to {chat_entity.title}!")
                                                         buttons_sent_count += 1
                                                         continue
                                                         
@@ -1647,11 +1657,6 @@ class BumpService:
                                                 logger.info(f"📤 Fallback: Worker sends without buttons")
                                                 
                                                 caption_text = ad_content.get('caption') or ad_content.get('text', '')
-                                                
-                                                # Add clickable button texts to the caption
-                                                if button_section:
-                                                    caption_text += button_section
-                                                    logger.info(f"🔗 Added {len(button_texts)} clickable buttons to caption")
                                                 # Convert entities for premium emojis in fallback too
                                                 stored_entities = ad_content.get('caption_entities', [])
                                                 telethon_entities = self._convert_to_telethon_entities(stored_entities, caption_text)
