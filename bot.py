@@ -853,7 +853,7 @@ Please send me the source chat ID or username.
             'has_premium_emojis': False
         }
         
-        # Check if this is media with text (not caption) - handle as single message
+        # Check if this is media-only message (new approach)
         has_media = bool(message.video or message.photo or message.document or message.audio)
         has_caption = bool(message.caption)
         has_text = bool(message.text)
@@ -863,26 +863,57 @@ Please send me the source chat ID or username.
         logger.info(f"🔍 MESSAGE DEBUG: message.text='{message.text}'")
         logger.info(f"🔍 MESSAGE DEBUG: message.caption='{message.caption}'")
         
-        if has_media and has_text and not has_caption:
-            # Media with text (not caption) - treat text as caption
-            logger.info("Media with text detected, treating text as caption")
-            ad_data['caption'] = message.text
-            ad_data['caption_entities'] = []
-            
-            # Process text entities as caption entities
-            if message.entities:
-                for entity in message.entities:
-                    entity_data = {
-                        'type': entity.type,
-                        'offset': entity.offset,
-                        'length': entity.length,
-                        'url': entity.url if hasattr(entity, 'url') else None,
-                        'custom_emoji_id': entity.custom_emoji_id if hasattr(entity, 'custom_emoji_id') else None
-                    }
-                    ad_data['caption_entities'].append(entity_data)
-                    
-                    if entity.type == 'custom_emoji':
-                        ad_data['has_custom_emojis'] = True
+        if has_media and not has_text and not has_caption:
+            # Media-only message - store it and ask for text
+            logger.info("Media-only message detected, storing and asking for text")
+            session['pending_media_data'] = ad_data
+            session['step'] = 'ad_text_input'
+            await update.message.reply_text(
+                "📤 **Media received!**\n\nNow send me the **text with premium emojis** that should be the caption for this media.\n\n**Just type or forward the text message now!**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        elif has_media and (has_text or has_caption):
+            # Media with text/caption - process normally
+            logger.info("Media with text/caption detected, processing normally")
+            if has_text and not has_caption:
+                # Text is not caption, treat as caption
+                ad_data['caption'] = message.text
+                ad_data['caption_entities'] = []
+                
+                # Process text entities as caption entities
+                if message.entities:
+                    for entity in message.entities:
+                        entity_data = {
+                            'type': entity.type,
+                            'offset': entity.offset,
+                            'length': entity.length,
+                            'url': entity.url if hasattr(entity, 'url') else None,
+                            'custom_emoji_id': entity.custom_emoji_id if hasattr(entity, 'custom_emoji_id') else None
+                        }
+                        ad_data['caption_entities'].append(entity_data)
+                        
+                        if entity.type == 'custom_emoji':
+                            ad_data['has_custom_emojis'] = True
+            elif has_caption:
+                # Use existing caption
+                ad_data['caption'] = message.caption
+                ad_data['caption_entities'] = []
+                
+                # Process caption entities
+                if message.caption_entities:
+                    for entity in message.caption_entities:
+                        entity_data = {
+                            'type': entity.type,
+                            'offset': entity.offset,
+                            'length': entity.length,
+                            'url': entity.url if hasattr(entity, 'url') else None,
+                            'custom_emoji_id': entity.custom_emoji_id if hasattr(entity, 'custom_emoji_id') else None
+                        }
+                        ad_data['caption_entities'].append(entity_data)
+                        
+                        if entity.type == 'custom_emoji':
+                            ad_data['has_custom_emojis'] = True
         
         # Preserve text entities (formatting, emojis, links) - only if not already processed as caption
         if message.entities and not (has_media and has_text and not has_caption):
@@ -1291,6 +1322,182 @@ Buttons will appear as an inline keyboard below your ad message."""
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
+    
+    async def handle_ad_text_input(self, update: Update, session: dict, context: ContextTypes.DEFAULT_TYPE = None):
+        """Handle text input for media (new approach)"""
+        user_id = update.effective_user.id
+        message = update.message
+        
+        # Get the pending media data
+        if 'pending_media_data' not in session:
+            await update.message.reply_text(
+                "❌ **No pending media found.**\n\nPlease start over by sending the media first.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        # Get the text content and entities
+        text_content = message.text or ""
+        text_entities = message.entities or []
+        
+        if not text_content:
+            await update.message.reply_text(
+                "❌ **No text received.**\n\nPlease send me the text with premium emojis that should be the caption for your media.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        # Combine with pending media data
+        ad_data = session['pending_media_data']
+        ad_data['caption'] = text_content
+        ad_data['caption_entities'] = []
+        
+        # Process text entities (premium emojis, formatting, etc.)
+        for entity in text_entities:
+            entity_data = {
+                'type': entity.type,
+                'offset': entity.offset,
+                'length': entity.length,
+                'url': entity.url if hasattr(entity, 'url') else None,
+                'custom_emoji_id': entity.custom_emoji_id if hasattr(entity, 'custom_emoji_id') else None
+            }
+            ad_data['caption_entities'].append(entity_data)
+            
+            if entity.type == 'custom_emoji':
+                ad_data['has_custom_emojis'] = True
+        
+        # Clear pending data
+        del session['pending_media_data']
+        
+        # Process the complete ad data
+        await self._process_complete_ad_data(ad_data, update, session, context)
+    
+    async def _process_complete_ad_data(self, ad_data: dict, update: Update, session: dict, context: ContextTypes.DEFAULT_TYPE = None):
+        """Process complete ad data and create storage message"""
+        try:
+            # Process media type and file info
+            message = update.message
+            
+            if message.video:
+                ad_data['media_type'] = 'video'
+                ad_data['file_id'] = message.video.file_id
+                ad_data['file_unique_id'] = message.video.file_unique_id
+                ad_data['file_size'] = getattr(message.video, 'file_size', None)
+                ad_data['duration'] = getattr(message.video, 'duration', None)
+                ad_data['width'] = getattr(message.video, 'width', None)
+                ad_data['height'] = getattr(message.video, 'height', None)
+            elif message.photo:
+                ad_data['media_type'] = 'photo'
+                ad_data['file_id'] = message.photo[-1].file_id
+                ad_data['file_unique_id'] = message.photo[-1].file_unique_id
+                ad_data['file_size'] = getattr(message.photo[-1], 'file_size', None)
+                ad_data['width'] = getattr(message.photo[-1], 'width', None)
+                ad_data['height'] = getattr(message.photo[-1], 'height', None)
+            elif message.document:
+                ad_data['media_type'] = 'document'
+                ad_data['file_id'] = message.document.file_id
+                ad_data['file_unique_id'] = message.document.file_unique_id
+                ad_data['file_size'] = getattr(message.document, 'file_size', None)
+            elif message.audio:
+                ad_data['media_type'] = 'audio'
+                ad_data['file_id'] = message.audio.file_id
+                ad_data['file_unique_id'] = message.audio.file_unique_id
+                ad_data['file_size'] = getattr(message.audio, 'file_size', None)
+                ad_data['duration'] = getattr(message.audio, 'duration', None)
+                ad_data['performer'] = getattr(message.audio, 'performer', None)
+                ad_data['title'] = getattr(message.audio, 'title', None)
+            
+            # Create storage message with caption and entities
+            await self._create_storage_message_with_caption(ad_data, update, session, context)
+            
+        except Exception as e:
+            logger.error(f"Error processing complete ad data: {e}")
+            await update.message.reply_text(
+                "❌ **Error processing your message.**\n\nPlease try again or contact support if the problem persists.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+    
+    async def _create_storage_message_with_caption(self, ad_data: dict, update: Update, session: dict, context: ContextTypes.DEFAULT_TYPE = None):
+        """Create storage message with caption and entities"""
+        try:
+            from config import Config
+            
+            storage_channel_id = Config.STORAGE_CHANNEL_ID
+            if storage_channel_id and ad_data.get('file_id'):
+                logger.info(f"📤 STORAGE CHANNEL: Creating message with caption in storage channel")
+                
+                # Convert stored entities to Bot API format for storage message
+                from telegram import MessageEntity
+                bot_entities = []
+                if ad_data.get('caption_entities'):
+                    for entity_data in ad_data['caption_entities']:
+                        try:
+                            entity = MessageEntity(
+                                type=entity_data['type'],
+                                offset=entity_data['offset'],
+                                length=entity_data['length'],
+                                url=entity_data.get('url'),
+                                custom_emoji_id=entity_data.get('custom_emoji_id')
+                            )
+                            bot_entities.append(entity)
+                        except Exception as e:
+                            logger.warning(f"Failed to create entity: {e}")
+                            continue
+                
+                # Create storage message with caption and entities
+                if ad_data['media_type'] == 'video':
+                    forwarded_message = await context.bot.send_video(
+                        chat_id=storage_channel_id,
+                        video=ad_data['file_id'],
+                        caption=ad_data.get('caption'),
+                        caption_entities=bot_entities,
+                        reply_markup=None
+                    )
+                elif ad_data['media_type'] == 'photo':
+                    forwarded_message = await context.bot.send_photo(
+                        chat_id=storage_channel_id,
+                        photo=ad_data['file_id'],
+                        caption=ad_data.get('caption'),
+                        caption_entities=bot_entities,
+                        reply_markup=None
+                    )
+                elif ad_data['media_type'] == 'document':
+                    forwarded_message = await context.bot.send_document(
+                        chat_id=storage_channel_id,
+                        document=ad_data['file_id'],
+                        caption=ad_data.get('caption'),
+                        caption_entities=bot_entities,
+                        reply_markup=None
+                    )
+                else:
+                    # Fallback: send text message
+                    forwarded_message = await context.bot.send_message(
+                        chat_id=storage_channel_id,
+                        text=ad_data.get('caption', ''),
+                        entities=bot_entities,
+                        reply_markup=None
+                    )
+                
+                # Store the storage message info
+                ad_data['storage_file_id'] = forwarded_message.video.file_id if forwarded_message.video else forwarded_message.photo[-1].file_id if forwarded_message.photo else forwarded_message.document.file_id if forwarded_message.document else None
+                ad_data['storage_message_id'] = forwarded_message.message_id
+                ad_data['storage_chat_id'] = str(storage_channel_id)
+                
+                logger.info(f"✅ Media with caption stored in channel: {ad_data['storage_file_id']}")
+                
+                # Add to campaign data
+                session['campaign_data']['ad_messages'] = [ad_data]
+                
+                # Move to next step
+                session['step'] = 'add_buttons_choice'
+                await self.show_add_buttons_choice(update, session)
+                
+        except Exception as e:
+            logger.error(f"Error creating storage message with caption: {e}")
+            await update.message.reply_text(
+                "❌ **Error creating storage message.**\n\nPlease try again or contact support if the problem persists.",
+                parse_mode=ParseMode.MARKDOWN
+            )
     
     async def handle_add_buttons_yes(self, query):
         """Handle user choosing to add buttons"""
@@ -2426,7 +2633,7 @@ Buttons will appear as an inline keyboard below your ad message.
                 session['step'] = 'ad_content'
                 
                 await update.message.reply_text(
-                    "✅ **Campaign name set!**\n\n**Step 2/6: Ad Content**\n\n📤 **Forward me the message you want to advertise**\n\n**What I'll do:**\n• Forward your message with **INLINE BUTTONS** underneath\n• Preserve text, media, and emojis as much as possible\n• Add your custom buttons as **clickable buttons under the message**\n\n**Just forward your message now!**",
+                    "✅ **Campaign name set!**\n\n**Step 2/6: Ad Content**\n\n📤 **Send me the MEDIA first** (video, photo, or document)\n\n**What I'll do:**\n• Store your media in a private channel\n• Then ask for text with premium emojis\n• Add your custom buttons\n• Create a complete ad with media + text + buttons\n\n**Send your media now!**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             
@@ -2434,6 +2641,9 @@ Buttons will appear as an inline keyboard below your ad message.
                 # Handle forwarded message with full fidelity
                 await self.handle_forwarded_ad_content(update, session, context)
             
+            elif session['step'] == 'ad_text_input':
+                # Handle text input for media
+                await self.handle_ad_text_input(update, session, context)
             
             elif session['step'] == 'add_buttons_choice':
                 # Handle button addition choice
