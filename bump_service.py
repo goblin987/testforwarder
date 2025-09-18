@@ -1620,54 +1620,16 @@ class BumpService:
                                                         logger.info(f"🔍 DEBUG: reply_markup type: {type(reply_markup)}")
                                                         logger.info(f"🔍 DEBUG: reply_markup value: {reply_markup}")
                                                         
-                                                        # SEND with all components: media + premium emojis + buttons
-                                                        # Forwarding doesn't preserve custom emoji entities, so we send directly
+                                                        # FORWARD the storage message to preserve ReplyKeyboardMarkup buttons!
+                                                        # This is how user accounts can send ReplyKeyboardMarkup - by forwarding!
                                                         try:
-                                                            # Send with media + premium emojis + buttons (not forwarding)
-                                                            # Send media first, then send ReplyKeyboardMarkup message
-                                                            # send_file doesn't support ReplyKeyboardMarkup, only InlineKeyboardMarkup
-                                                            media_msg = await client.send_file(
+                                                            # Forward the original storage message (preserves buttons and formatting)
+                                                            sent_msg = await client.forward_messages(
                                                                 chat_entity,           # Target group
-                                                                storage_message.media, # Media from storage
-                                                                caption=caption_text,  # Caption with premium emojis
-                                                                formatting_entities=telethon_entities,  # Premium emojis
-                                                                parse_mode=None,       # Let entities handle formatting
-                                                                link_preview=False
+                                                                storage_message,       # Original message from storage
+                                                                from_peer=storage_channel  # Source chat
                                                             )
-                                                            
-                                                            # Send ReplyKeyboardMarkup message after media
-                                                            # Telethon doesn't support ReplyKeyboardMarkup in send_message
-                                                            # We need to use send_file with buttons parameter for inline buttons
-                                                            from telethon.tl.types import ReplyInlineMarkup
-                                                            
-                                                            # Convert ReplyKeyboardMarkup to InlineKeyboardMarkup for Telethon
-                                                            inline_buttons = []
-                                                            if hasattr(telethon_reply_markup, 'rows'):
-                                                                for row in telethon_reply_markup.rows:
-                                                                    inline_row = []
-                                                                    for button in row:
-                                                                        if hasattr(button, 'text'):
-                                                                            # Create inline button with URL
-                                                                            from telethon.tl.custom import Button
-                                                                            inline_row.append(Button.url(button.text, "https://t.me/TamsusKarys"))
-                                                                    if inline_row:
-                                                                        inline_buttons.append(inline_row)
-                                                            
-                                                            if inline_buttons:
-                                                                inline_markup = ReplyInlineMarkup(inline_buttons)
-                                                                sent_msg = await client.send_message(
-                                                                    chat_entity,           # Target group
-                                                                    "Choose an option:",   # Simple text for buttons
-                                                                    buttons=inline_markup,  # InlineKeyboardMarkup buttons
-                                                                    parse_mode=None
-                                                                )
-                                                            else:
-                                                                sent_msg = await client.send_message(
-                                                                    chat_entity,           # Target group
-                                                                    "Choose an option:",   # Simple text for buttons
-                                                                    parse_mode=None
-                                                                )
-                                                            logger.info(f"✅ SENT message with media + premium emojis + buttons to {chat_entity.title}")
+                                                            logger.info(f"✅ FORWARDED message with ReplyKeyboardMarkup buttons to {chat_entity.title}")
                                                         except Exception as forward_error:
                                                             logger.warning(f"⚠️ Forward failed for {chat_entity.title}: {forward_error}")
                                                             # Fallback: Send new message without buttons
