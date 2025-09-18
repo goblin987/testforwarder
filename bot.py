@@ -1458,6 +1458,7 @@ Buttons will appear as an inline keyboard below your ad message."""
         try:
             from config import Config
             import asyncio
+            import time
             from telethon import TelegramClient
             from telethon.tl.types import MessageEntityCustomEmoji, MessageEntityBold, MessageEntityItalic, MessageEntityMention
             
@@ -1531,17 +1532,33 @@ Buttons will appear as an inline keyboard below your ad message."""
                 
                 # Create Telethon client with proper session path
                 import os
+                import tempfile
                 session_dir = "sessions"
                 if not os.path.exists(session_dir):
                     os.makedirs(session_dir, exist_ok=True)
                 
+                # Use a unique session file to avoid conflicts
+                session_name = f"storage_{account['id']}_{int(time.time())}"
+                session_path = f"{session_dir}/{session_name}"
+                
                 client = TelegramClient(
-                    f"{session_dir}/storage_{account['id']}",
+                    session_path,
                     account['api_id'],
                     account['api_hash']
                 )
                 
-                await client.start(phone=account['phone_number'])
+                # Start client with better error handling
+                try:
+                    await client.start(phone=account['phone_number'])
+                except Exception as start_error:
+                    logger.error(f"Failed to start Telethon client: {start_error}")
+                    # Try to clean up corrupted session
+                    try:
+                        if os.path.exists(f"{session_path}.session"):
+                            os.remove(f"{session_path}.session")
+                    except:
+                        pass
+                    raise start_error
                 
                 try:
                     # Send media with caption and entities using Telethon
@@ -1624,6 +1641,12 @@ Buttons will appear as an inline keyboard below your ad message."""
                     
                 finally:
                     await client.disconnect()
+                    # Clean up session file
+                    try:
+                        if os.path.exists(f"{session_path}.session"):
+                            os.remove(f"{session_path}.session")
+                    except Exception as cleanup_error:
+                        logger.warning(f"Failed to clean up session file: {cleanup_error}")
                 
                 # Add to campaign data
                 session['campaign_data']['ad_messages'] = [ad_data]
