@@ -1611,20 +1611,24 @@ class BumpService:
                                                         logger.info(f"🔘 Buttons: {len(telethon_reply_markup.rows) if telethon_reply_markup and hasattr(telethon_reply_markup, 'rows') else 0} rows (Telethon format)")
                                                         
                                                         # Send message with ALL components using send_file
-                                                        logger.info(f"🚀 FORWARDING message to preserve ReplyKeyboardMarkup buttons")
+                                                        logger.info(f"🚀 SENDING message with media + premium emojis + ReplyKeyboardMarkup buttons")
                                                         logger.info(f"🔍 DEBUG: reply_markup type: {type(reply_markup)}")
                                                         logger.info(f"🔍 DEBUG: reply_markup value: {reply_markup}")
                                                         
-                                                        # FORWARD the storage message to preserve ReplyKeyboardMarkup buttons!
-                                                        # This is how user accounts can send ReplyKeyboardMarkup - by forwarding!
+                                                        # SEND with all components: media + premium emojis + buttons
+                                                        # Forwarding doesn't preserve custom emoji entities, so we send directly
                                                         try:
-                                                            # Forward the original storage message (preserves buttons and formatting)
-                                                            sent_msg = await client.forward_messages(
+                                                            # Send with media + premium emojis + buttons (not forwarding)
+                                                            sent_msg = await client.send_file(
                                                                 chat_entity,           # Target group
-                                                                storage_message,       # Original message from storage
-                                                                from_peer=storage_channel  # Source chat
+                                                                storage_message.media, # Media from storage
+                                                                caption=caption_text,  # Caption with premium emojis
+                                                                formatting_entities=telethon_entities,  # Premium emojis
+                                                                reply_markup=telethon_reply_markup,  # Buttons
+                                                                parse_mode=None,       # Let entities handle formatting
+                                                                link_preview=False
                                                             )
-                                                            logger.info(f"✅ FORWARDED message with ReplyKeyboardMarkup buttons to {chat_entity.title}")
+                                                            logger.info(f"✅ SENT message with media + premium emojis + buttons to {chat_entity.title}")
                                                         except Exception as forward_error:
                                                             logger.warning(f"⚠️ Forward failed for {chat_entity.title}: {forward_error}")
                                                             # Fallback: Send new message without buttons
@@ -1646,7 +1650,14 @@ class BumpService:
                                                         else:
                                                             logger.error(f"❌ PROBLEM: Sent message has NO ReplyKeyboardMarkup buttons!")
                                                         
-                                                        logger.info(f"✅ SUCCESS: Worker forwarded message with ReplyKeyboardMarkup buttons to {chat_entity.title}!")
+                                                        # Check for premium emojis in the sent message
+                                                        if hasattr(sent_msg, 'entities') and sent_msg.entities:
+                                                            custom_emojis = [e for e in sent_msg.entities if hasattr(e, 'custom_emoji_id')]
+                                                            logger.info(f"✅ CONFIRMED: Sent message has {len(custom_emojis)} premium emojis!")
+                                                        else:
+                                                            logger.warning(f"⚠️ WARNING: Sent message may not have premium emojis")
+                                                        
+                                                        logger.info(f"✅ SUCCESS: Worker sent message with media + premium emojis + ReplyKeyboardMarkup buttons to {chat_entity.title}!")
                                                         buttons_sent_count += 1
                                                         continue
                                                         
