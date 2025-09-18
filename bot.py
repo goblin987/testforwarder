@@ -1368,8 +1368,13 @@ Buttons will appear as an inline keyboard below your ad message."""
             return
         
         # Get the text content and entities
-        text_content = message.text or ""
-        text_entities = message.entities or []
+        # For forwarded messages, check caption first, then text
+        if message.forward_from or message.forward_from_chat:
+            text_content = message.caption or message.text or ""
+            text_entities = message.caption_entities or message.entities or []
+        else:
+            text_content = message.text or ""
+            text_entities = message.entities or []
         
         # DEBUG: Log what entities we received
         logger.info(f"🔍 TEXT ENTITIES DEBUG: Received {len(text_entities)} entities")
