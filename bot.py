@@ -2235,6 +2235,7 @@ Buttons will appear as an inline keyboard below your ad message.
         logger.info(f"Message received from user {user_id}, step: {session.get('step', 'unknown')}, message type: {type(update.message).__name__}")
         logger.info(f"Message has text: {bool(message_text)}, has photo: {bool(update.message.photo)}, has video: {bool(update.message.video)}")
         logger.info(f"Message is forwarded: {update.message.forward_from is not None or update.message.forward_from_chat is not None}")
+        logger.info(f"🔍 SESSION DEBUG: User {user_id} step: {session.get('step', 'unknown')}, has pending_media_data: {'pending_media_data' in session}")
         
         # Handle account creation
         if 'account_data' in session:
@@ -2583,6 +2584,7 @@ Buttons will appear as an inline keyboard below your ad message.
             
             elif session['step'] == 'ad_text_input':
                 # Handle text input for media
+                logger.info(f"🔍 TEXT INPUT DEBUG: Processing text input for media, step: {session['step']}")
                 await self.handle_ad_text_input(update, session, context)
             
             elif session['step'] == 'add_buttons_choice':
