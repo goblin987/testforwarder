@@ -955,26 +955,10 @@ Please send me the source chat ID or username.
                 
                 storage_channel_id = Config.STORAGE_CHANNEL_ID
                 if storage_channel_id:
-                    logger.info(f"📤 STORAGE CHANNEL: Creating message with InlineKeyboardMarkup buttons in storage channel")
+                    logger.info(f"📤 STORAGE CHANNEL: Creating message in storage channel (buttons will be added later)")
                     
-                    # Create a new message with InlineKeyboardMarkup buttons in storage channel
-                    # This preserves the original content but adds the buttons
-                    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-                    
-                    # Create InlineKeyboardMarkup from campaign buttons (these appear below the message)
-                    keyboard_buttons = []
-                    if 'buttons' in ad_data and ad_data['buttons']:
-                        for button in ad_data['buttons']:
-                            if button.get('text') and button.get('url'):
-                                # Create clickable URL button
-                                keyboard_buttons.append([InlineKeyboardButton(button['text'], url=button['url'])])
-                    
+                    # Create storage message without buttons first (buttons added later in button_input step)
                     reply_markup = None
-                    if keyboard_buttons:
-                        reply_markup = InlineKeyboardMarkup(keyboard_buttons)
-                        logger.info(f"✅ Created InlineKeyboardMarkup with {len(keyboard_buttons)} buttons")
-                    else:
-                        logger.info(f"ℹ️ No buttons to add to storage message")
                     
                     # Send message with ReplyKeyboardMarkup to storage channel
                     if message.video:
@@ -1114,6 +1098,46 @@ Buttons will appear as an inline keyboard below your ad message."""
             session['step'] = 'target_chats_choice'
             await self.show_target_chat_options(update, session)
     
+    async def _update_storage_message_with_buttons(self, campaign_data: dict):
+        """Update storage message with InlineKeyboardMarkup buttons"""
+        try:
+            from config import Config
+            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+            
+            storage_channel_id = Config.STORAGE_CHANNEL_ID
+            if not storage_channel_id:
+                return
+            
+            ad_content = campaign_data.get('ad_content', {})
+            storage_message_id = ad_content.get('storage_message_id')
+            if not storage_message_id:
+                logger.warning("No storage message ID found, cannot update with buttons")
+                return
+            
+            # Create InlineKeyboardMarkup from campaign buttons
+            keyboard_buttons = []
+            for button in campaign_data.get('buttons', []):
+                if button.get('text') and button.get('url'):
+                    keyboard_buttons.append([InlineKeyboardButton(button['text'], url=button['url'])])
+            
+            if not keyboard_buttons:
+                logger.info("No buttons to add to storage message")
+                return
+            
+            reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+            
+            # Update the storage message with buttons
+            await self.application.bot.edit_message_reply_markup(
+                chat_id=storage_channel_id,
+                message_id=storage_message_id,
+                reply_markup=reply_markup
+            )
+            
+            logger.info(f"✅ Updated storage message {storage_message_id} with {len(keyboard_buttons)} button rows")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to update storage message with buttons: {e}")
+
     async def handle_button_input(self, update: Update, session: dict):
         """Handle button input from user"""
         message_text = update.message.text.strip()
@@ -3508,6 +3532,10 @@ This name will help you identify the campaign in your dashboard.
                     'target_mode': campaign_data.get('target_mode', 'specific'),
                     'immediate_start': True  # Flag for immediate execution
                 }
+            
+            # Update storage message with buttons if they exist
+            if 'buttons' in enhanced_campaign_data and enhanced_campaign_data['buttons']:
+                await self._update_storage_message_with_buttons(enhanced_campaign_data)
             
             logger.info(f"🔧 DEBUG: About to call add_campaign")
             logger.info(f"Creating campaign with data: {enhanced_campaign_data}")
