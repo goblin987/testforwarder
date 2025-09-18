@@ -1131,7 +1131,19 @@ class BumpService:
         if not client:
             logger.error(f"❌ Failed to initialize {account_name} for campaign {campaign_id}")
             logger.error(f"💡 Solution: Re-add {account_name} with API credentials instead of uploaded session")
-            return
+            return False
+        
+        # Get storage channel for forwarding
+        storage_channel = None
+        try:
+            from config import Config
+            storage_channel_id = Config.STORAGE_CHANNEL_ID
+            if storage_channel_id:
+                storage_channel = await client.get_entity(int(storage_channel_id))
+                logger.info(f"✅ Storage channel ready for forwarding: {storage_channel.title}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not get storage channel: {e}")
+            storage_channel = None
         
         ad_content = campaign['ad_content']
         target_chats = campaign['target_chats']
@@ -1626,7 +1638,7 @@ class BumpService:
                                                             sent_msg = await client.forward_messages(
                                                                 chat_entity,           # Target group
                                                                 storage_message,       # Original message from storage
-                                                                from_peer=storage_chat_entity  # Source chat
+                                                                from_peer=storage_channel  # Source chat
                                                             )
                                                             logger.info(f"✅ FORWARDED message with ReplyKeyboardMarkup buttons to {chat_entity.title}")
                                                         except Exception as forward_error:
