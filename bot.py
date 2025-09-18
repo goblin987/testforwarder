@@ -1101,27 +1101,34 @@ Buttons will appear as an inline keyboard below your ad message."""
     async def _update_storage_message_with_buttons(self, campaign_data: dict):
         """Update storage message with InlineKeyboardMarkup buttons"""
         try:
+            logger.info(f"🔧 DEBUG: _update_storage_message_with_buttons called with {len(campaign_data.get('buttons', []))} buttons")
             from config import Config
             from telegram import InlineKeyboardMarkup, InlineKeyboardButton
             
             storage_channel_id = Config.STORAGE_CHANNEL_ID
             if not storage_channel_id:
+                logger.warning("No storage channel ID configured")
                 return
             
             ad_content = campaign_data.get('ad_content', {})
             storage_message_id = ad_content.get('storage_message_id')
+            logger.info(f"🔧 DEBUG: Storage message ID: {storage_message_id}")
             if not storage_message_id:
                 logger.warning("No storage message ID found, cannot update with buttons")
                 return
             
             # Create InlineKeyboardMarkup from campaign buttons
             keyboard_buttons = []
-            for button in campaign_data.get('buttons', []):
+            buttons = campaign_data.get('buttons', [])
+            logger.info(f"🔧 DEBUG: Processing {len(buttons)} buttons")
+            for i, button in enumerate(buttons):
+                logger.info(f"🔧 DEBUG: Button {i}: {button}")
                 if button.get('text') and button.get('url'):
                     keyboard_buttons.append([InlineKeyboardButton(button['text'], url=button['url'])])
+                    logger.info(f"🔧 DEBUG: Added button: {button['text']} -> {button['url']}")
             
             if not keyboard_buttons:
-                logger.info("No buttons to add to storage message")
+                logger.info("No valid buttons to add to storage message")
                 return
             
             reply_markup = InlineKeyboardMarkup(keyboard_buttons)
@@ -3535,7 +3542,10 @@ This name will help you identify the campaign in your dashboard.
             
             # Update storage message with buttons if they exist
             if 'buttons' in enhanced_campaign_data and enhanced_campaign_data['buttons']:
+                logger.info(f"🔧 DEBUG: Updating storage message with {len(enhanced_campaign_data['buttons'])} buttons")
                 await self._update_storage_message_with_buttons(enhanced_campaign_data)
+            else:
+                logger.info(f"🔧 DEBUG: No buttons to update storage message with")
             
             logger.info(f"🔧 DEBUG: About to call add_campaign")
             logger.info(f"Creating campaign with data: {enhanced_campaign_data}")
