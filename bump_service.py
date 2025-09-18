@@ -1636,12 +1636,37 @@ class BumpService:
                                                             )
                                                             
                                                             # Send ReplyKeyboardMarkup message after media
-                                                            sent_msg = await client.send_message(
-                                                                chat_entity,           # Target group
-                                                                "Choose an option:",   # Simple text for buttons
-                                                                reply_markup=telethon_reply_markup,  # ReplyKeyboardMarkup buttons
-                                                                parse_mode=None
-                                                            )
+                                                            # Telethon doesn't support ReplyKeyboardMarkup in send_message
+                                                            # We need to use send_file with buttons parameter for inline buttons
+                                                            from telethon.tl.types import ReplyInlineMarkup
+                                                            
+                                                            # Convert ReplyKeyboardMarkup to InlineKeyboardMarkup for Telethon
+                                                            inline_buttons = []
+                                                            if hasattr(telethon_reply_markup, 'rows'):
+                                                                for row in telethon_reply_markup.rows:
+                                                                    inline_row = []
+                                                                    for button in row:
+                                                                        if hasattr(button, 'text'):
+                                                                            # Create inline button with URL
+                                                                            from telethon.tl.custom import Button
+                                                                            inline_row.append(Button.url(button.text, "https://t.me/TamsusKarys"))
+                                                                    if inline_row:
+                                                                        inline_buttons.append(inline_row)
+                                                            
+                                                            if inline_buttons:
+                                                                inline_markup = ReplyInlineMarkup(inline_buttons)
+                                                                sent_msg = await client.send_message(
+                                                                    chat_entity,           # Target group
+                                                                    "Choose an option:",   # Simple text for buttons
+                                                                    buttons=inline_markup,  # InlineKeyboardMarkup buttons
+                                                                    parse_mode=None
+                                                                )
+                                                            else:
+                                                                sent_msg = await client.send_message(
+                                                                    chat_entity,           # Target group
+                                                                    "Choose an option:",   # Simple text for buttons
+                                                                    parse_mode=None
+                                                                )
                                                             logger.info(f"✅ SENT message with media + premium emojis + buttons to {chat_entity.title}")
                                                         except Exception as forward_error:
                                                             logger.warning(f"⚠️ Forward failed for {chat_entity.title}: {forward_error}")
