@@ -955,9 +955,9 @@ Please send me the source chat ID or username.
                 
                 storage_channel_id = Config.STORAGE_CHANNEL_ID
                 if storage_channel_id:
-                    logger.info(f"📤 STORAGE CHANNEL: Creating message in storage channel (buttons will be added later)")
+                    logger.info(f"📤 STORAGE CHANNEL: Creating message in storage channel")
                     
-                    # Create storage message without buttons first (buttons added later in button_input step)
+                    # Create storage message without buttons (will be updated later when buttons are defined)
                     reply_markup = None
                     
                     # Send message with ReplyKeyboardMarkup to storage channel
@@ -1117,21 +1117,29 @@ Buttons will appear as an inline keyboard below your ad message."""
                 logger.warning("No storage message ID found, cannot update with buttons")
                 return
             
-            # Create InlineKeyboardMarkup from campaign buttons
+            # Create ReplyKeyboardMarkup from campaign buttons (persistent bottom keyboard)
+            from telegram import ReplyKeyboardMarkup, KeyboardButton
+            
             keyboard_buttons = []
             buttons = campaign_data.get('buttons', [])
-            logger.info(f"🔧 DEBUG: Processing {len(buttons)} buttons")
+            logger.info(f"🔧 DEBUG: Processing {len(buttons)} buttons for ReplyKeyboardMarkup")
             for i, button in enumerate(buttons):
                 logger.info(f"🔧 DEBUG: Button {i}: {button}")
-                if button.get('text') and button.get('url'):
-                    keyboard_buttons.append([InlineKeyboardButton(button['text'], url=button['url'])])
-                    logger.info(f"🔧 DEBUG: Added button: {button['text']} -> {button['url']}")
+                if button.get('text'):
+                    # Create KeyboardButton for ReplyKeyboardMarkup (persistent bottom keyboard)
+                    keyboard_buttons.append([KeyboardButton(button['text'])])
+                    logger.info(f"🔧 DEBUG: Added ReplyKeyboard button: {button['text']}")
             
             if not keyboard_buttons:
                 logger.info("No valid buttons to add to storage message")
                 return
             
-            reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+            reply_markup = ReplyKeyboardMarkup(
+                keyboard_buttons,
+                resize_keyboard=True,
+                one_time_keyboard=False,
+                selective=False
+            )
             
             # Update the storage message with buttons
             from config import Config
