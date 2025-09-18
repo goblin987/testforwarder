@@ -3562,7 +3562,12 @@ This name will help you identify the campaign in your dashboard.
                     'immediate_start': True  # Flag for immediate execution
                 }
             
-            # Storage message buttons are updated in button_input step
+            # Update storage message with buttons for immediate campaigns
+            if 'buttons' in enhanced_campaign_data and enhanced_campaign_data['buttons']:
+                logger.info(f"🔧 DEBUG: Updating storage message with {len(enhanced_campaign_data['buttons'])} buttons for immediate campaign")
+                await self._update_storage_message_with_buttons(enhanced_campaign_data)
+            else:
+                logger.info(f"🔧 DEBUG: No buttons to update storage message with for immediate campaign")
             
             logger.info(f"🔧 DEBUG: About to call add_campaign")
             logger.info(f"Creating campaign with data: {enhanced_campaign_data}")
