@@ -1538,8 +1538,7 @@ Buttons will appear as an inline keyboard below your ad message."""
                 client = TelegramClient(
                     f"{session_dir}/storage_{account['id']}",
                     account['api_id'],
-                    account['api_hash'],
-                    phone=account['phone_number']
+                    account['api_hash']
                 )
                 
                 await client.start(phone=account['phone_number'])
