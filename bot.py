@@ -1444,10 +1444,20 @@ Buttons will appear as an inline keyboard below your ad message."""
                 from telegram import MessageEntity
                 bot_entities = []
                 if ad_data.get('caption_entities'):
-                    for entity_data in ad_data['caption_entities']:
+                    logger.info(f"🔍 STORAGE ENTITY CONVERSION: Converting {len(ad_data['caption_entities'])} entities for storage message")
+                    for i, entity_data in enumerate(ad_data['caption_entities']):
                         try:
+                            # Convert MessageEntityType enum to string
+                            entity_type = entity_data['type']
+                            if hasattr(entity_type, 'value'):
+                                entity_type = entity_type.value
+                            elif hasattr(entity_type, 'name'):
+                                entity_type = entity_type.name.lower()
+                            
+                            logger.info(f"🔍 Entity {i}: {entity_type} -> {entity_type}")
+                            
                             entity = MessageEntity(
-                                type=entity_data['type'],
+                                type=entity_type,
                                 offset=entity_data['offset'],
                                 length=entity_data['length'],
                                 url=entity_data.get('url'),
@@ -1457,6 +1467,8 @@ Buttons will appear as an inline keyboard below your ad message."""
                         except Exception as e:
                             logger.warning(f"Failed to create entity: {e}")
                             continue
+                    
+                    logger.info(f"🔍 STORAGE ENTITIES: Created {len(bot_entities)} Bot API entities")
                 
                 # Create storage message with caption and entities
                 if ad_data['media_type'] == 'video':
