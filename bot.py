@@ -1099,10 +1099,10 @@ Buttons will appear as an inline keyboard below your ad message."""
             await self.show_target_chat_options(update, session)
     
     async def _update_storage_message_with_buttons(self, campaign_data: dict):
-        """Update storage message with InlineKeyboardMarkup buttons"""
+        """Update storage message with ReplyKeyboardMarkup buttons"""
         try:
             from config import Config
-            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+            from telegram import ReplyKeyboardMarkup, KeyboardButton
             
             storage_channel_id = Config.STORAGE_CHANNEL_ID
             if not storage_channel_id:
@@ -1115,18 +1115,24 @@ Buttons will appear as an inline keyboard below your ad message."""
                 logger.warning("No storage message ID found, cannot update with buttons")
                 return
             
-            # Create InlineKeyboardMarkup from campaign buttons
+            # Create ReplyKeyboardMarkup from campaign buttons (persistent bottom keyboard)
             keyboard_buttons = []
             buttons = campaign_data.get('buttons', [])
             for button in buttons:
-                if button.get('text') and button.get('url'):
-                    keyboard_buttons.append([InlineKeyboardButton(button['text'], url=button['url'])])
+                if button.get('text'):
+                    # Create KeyboardButton for ReplyKeyboardMarkup (persistent bottom keyboard)
+                    keyboard_buttons.append([KeyboardButton(button['text'])])
             
             if not keyboard_buttons:
                 logger.info("No valid buttons to add to storage message")
                 return
             
-            reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+            reply_markup = ReplyKeyboardMarkup(
+                keyboard_buttons,
+                resize_keyboard=True,
+                one_time_keyboard=False,
+                selective=False
+            )
             
             # Update the storage message with buttons
             from config import Config
@@ -1140,7 +1146,7 @@ Buttons will appear as an inline keyboard below your ad message."""
                 reply_markup=reply_markup
             )
             
-            logger.info(f"✅ Updated storage message {storage_message_id} with {len(keyboard_buttons)} button rows")
+            logger.info(f"✅ Updated storage message {storage_message_id} with {len(keyboard_buttons)} ReplyKeyboardMarkup button rows")
             
         except Exception as e:
             logger.error(f"❌ Failed to update storage message with buttons: {e}")

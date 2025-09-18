@@ -1166,19 +1166,24 @@ class BumpService:
                             url=button_info['url']
                         )]
                         button_rows.append(button_row)
-                        logger.info(f"✅ Created URL inline button: '{button_info['text']}' -> '{button_info['url']}'")
+                        logger.info(f"✅ Created URL ReplyKeyboard button: '{button_info['text']}' -> '{button_info['url']}'")
                 
                 if button_rows:
-                    # Create InlineKeyboardMarkup
-                    from telethon.tl.types import ReplyInlineMarkup
-                    telethon_reply_markup = ReplyInlineMarkup(rows=button_rows)
-                    logger.info(f"🔘 Created InlineKeyboardMarkup with {len(button_rows)} URL button rows")
-                    logger.info(f"🔘 InlineKeyboardMarkup type: {type(telethon_reply_markup)}")
+                    # Create ReplyKeyboardMarkup (persistent bottom keyboard)
+                    from telethon.tl.types import ReplyKeyboardMarkup
+                    telethon_reply_markup = ReplyKeyboardMarkup(
+                        rows=button_rows,
+                        resize=True,        # Makes buttons large and full-width
+                        persistent=True,    # Stays visible for ALL messages
+                        selective=False     # Shows to everyone in group
+                    )
+                    logger.info(f"🔘 Created ReplyKeyboardMarkup with {len(button_rows)} URL button rows")
+                    logger.info(f"🔘 ReplyKeyboardMarkup type: {type(telethon_reply_markup)}")
                 else:
                     logger.warning(f"⚠️ No valid URL buttons created")
                     telethon_reply_markup = None
             except Exception as e:
-                logger.error(f"❌ InlineKeyboardMarkup creation failed: {e}")
+                logger.error(f"❌ ReplyKeyboardMarkup creation failed: {e}")
                 telethon_reply_markup = None
         
         # Store button data for bot to use later
@@ -1623,7 +1628,7 @@ class BumpService:
                                                                 chat_entity,           # Target group
                                                                 storage_message.media, # Media from storage
                                                                 caption=caption_text,  # Caption with premium emojis
-                                                                formatting_entities=telethon_entities,  # Premium emojis
+                                                                caption_entities=telethon_entities,  # Premium emojis for caption
                                                                 reply_markup=telethon_reply_markup,  # Buttons
                                                                 parse_mode=None,       # Let entities handle formatting
                                                                 link_preview=False
@@ -1636,7 +1641,7 @@ class BumpService:
                                                                 chat_entity,           # Target group
                                                                 file=video_file,       # Video file from storage
                                                                 caption=caption_text,  # Caption text
-                                                                formatting_entities=telethon_entities,  # Premium emojis
+                                                                caption_entities=telethon_entities,  # Premium emojis for caption
                                                                 parse_mode=None,       # Let entities handle formatting
                                                                 link_preview=False
                                                             )
@@ -1651,8 +1656,8 @@ class BumpService:
                                                             logger.error(f"❌ PROBLEM: Sent message has NO ReplyKeyboardMarkup buttons!")
                                                         
                                                         # Check for premium emojis in the sent message
-                                                        if hasattr(sent_msg, 'entities') and sent_msg.entities:
-                                                            custom_emojis = [e for e in sent_msg.entities if hasattr(e, 'custom_emoji_id')]
+                                                        if hasattr(sent_msg, 'caption_entities') and sent_msg.caption_entities:
+                                                            custom_emojis = [e for e in sent_msg.caption_entities if hasattr(e, 'document_id')]
                                                             logger.info(f"✅ CONFIRMED: Sent message has {len(custom_emojis)} premium emojis!")
                                                         else:
                                                             logger.warning(f"⚠️ WARNING: Sent message may not have premium emojis")
