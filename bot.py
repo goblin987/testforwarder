@@ -1004,7 +1004,7 @@ Please send me the source chat ID or username.
                                 logger.warning(f"Failed to create entity: {e}")
                                 continue
                     
-                    # Send message with ReplyKeyboardMarkup to storage channel
+                    # Send message with caption and entities to storage channel
                     if message.video:
                         forwarded_message = await context.bot.send_video(
                             chat_id=storage_channel_id,
@@ -1286,133 +1286,6 @@ Buttons will appear as an inline keyboard below your ad message."""
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
-    
-    async def _process_ad_data(self, ad_data: dict, update: Update, session: dict, context: ContextTypes.DEFAULT_TYPE = None):
-        """Process ad data and create storage message"""
-        try:
-            # Process media type and file info
-            message = update.message
-            
-            if message.video:
-                ad_data['media_type'] = 'video'
-                ad_data['file_id'] = message.video.file_id
-                ad_data['file_unique_id'] = message.video.file_unique_id
-                ad_data['file_size'] = getattr(message.video, 'file_size', None)
-                ad_data['duration'] = getattr(message.video, 'duration', None)
-                ad_data['width'] = getattr(message.video, 'width', None)
-                ad_data['height'] = getattr(message.video, 'height', None)
-            elif message.photo:
-                ad_data['media_type'] = 'photo'
-                ad_data['file_id'] = message.photo[-1].file_id
-                ad_data['file_unique_id'] = message.photo[-1].file_unique_id
-                ad_data['file_size'] = getattr(message.photo[-1], 'file_size', None)
-                ad_data['width'] = getattr(message.photo[-1], 'width', None)
-                ad_data['height'] = getattr(message.photo[-1], 'height', None)
-            elif message.document:
-                ad_data['media_type'] = 'document'
-                ad_data['file_id'] = message.document.file_id
-                ad_data['file_unique_id'] = message.document.file_unique_id
-                ad_data['file_size'] = getattr(message.document, 'file_size', None)
-            elif message.audio:
-                ad_data['media_type'] = 'audio'
-                ad_data['file_id'] = message.audio.file_id
-                ad_data['file_unique_id'] = message.audio.file_unique_id
-                ad_data['file_size'] = getattr(message.audio, 'file_size', None)
-                ad_data['duration'] = getattr(message.audio, 'duration', None)
-                ad_data['performer'] = getattr(message.audio, 'performer', None)
-                ad_data['title'] = getattr(message.audio, 'title', None)
-            
-            # Create storage message with caption and entities
-            await self._create_storage_message(ad_data, update, session, context)
-            
-        except Exception as e:
-            logger.error(f"Error processing ad data: {e}")
-            await update.message.reply_text(
-                "❌ **Error processing your message.**\n\nPlease try again or contact support if the problem persists.",
-                parse_mode=ParseMode.MARKDOWN
-            )
-    
-    async def _create_storage_message(self, ad_data: dict, update: Update, session: dict, context: ContextTypes.DEFAULT_TYPE = None):
-        """Create storage message with caption and entities"""
-        try:
-            from config import Config
-            
-            storage_channel_id = Config.STORAGE_CHANNEL_ID
-            if storage_channel_id and ad_data.get('file_id'):
-                logger.info(f"📤 STORAGE CHANNEL: Creating message in storage channel")
-                
-                # Convert stored entities to Bot API format for storage message
-                from telegram import MessageEntity
-                bot_entities = []
-                if ad_data.get('caption_entities'):
-                    for entity_data in ad_data['caption_entities']:
-                        try:
-                            entity = MessageEntity(
-                                type=entity_data['type'],
-                                offset=entity_data['offset'],
-                                length=entity_data['length'],
-                                url=entity_data.get('url'),
-                                custom_emoji_id=entity_data.get('custom_emoji_id')
-                            )
-                            bot_entities.append(entity)
-                        except Exception as e:
-                            logger.warning(f"Failed to create entity: {e}")
-                            continue
-                
-                # Create storage message with caption and entities
-                if ad_data['media_type'] == 'video':
-                    forwarded_message = await context.bot.send_video(
-                        chat_id=storage_channel_id,
-                        video=ad_data['file_id'],
-                        caption=ad_data.get('caption'),
-                        caption_entities=bot_entities,
-                        reply_markup=None
-                    )
-                elif ad_data['media_type'] == 'photo':
-                    forwarded_message = await context.bot.send_photo(
-                        chat_id=storage_channel_id,
-                        photo=ad_data['file_id'],
-                        caption=ad_data.get('caption'),
-                        caption_entities=bot_entities,
-                        reply_markup=None
-                    )
-                elif ad_data['media_type'] == 'document':
-                    forwarded_message = await context.bot.send_document(
-                        chat_id=storage_channel_id,
-                        document=ad_data['file_id'],
-                        caption=ad_data.get('caption'),
-                        caption_entities=bot_entities,
-                        reply_markup=None
-                    )
-                else:
-                    # Fallback: send text message
-                    forwarded_message = await context.bot.send_message(
-                        chat_id=storage_channel_id,
-                        text=ad_data.get('caption', ''),
-                        entities=bot_entities,
-                        reply_markup=None
-                    )
-                
-                # Store the storage message info
-                ad_data['storage_file_id'] = forwarded_message.video.file_id if forwarded_message.video else forwarded_message.photo[-1].file_id if forwarded_message.photo else forwarded_message.document.file_id if forwarded_message.document else None
-                ad_data['storage_message_id'] = forwarded_message.message_id
-                ad_data['storage_chat_id'] = str(storage_channel_id)
-                
-                logger.info(f"✅ Media stored in channel: {ad_data['storage_file_id']}")
-                
-                # Add to campaign data
-                session['campaign_data']['ad_messages'] = [ad_data]
-                
-                # Move to next step
-                session['step'] = 'add_buttons_choice'
-                await self.show_add_buttons_choice(update, session)
-                
-        except Exception as e:
-            logger.error(f"Error creating storage message: {e}")
-            await update.message.reply_text(
-                "❌ **Error creating storage message.**\n\nPlease try again or contact support if the problem persists.",
-                parse_mode=ParseMode.MARKDOWN
-            )
     
     async def handle_add_buttons_yes(self, query):
         """Handle user choosing to add buttons"""
