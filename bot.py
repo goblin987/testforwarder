@@ -1371,6 +1371,13 @@ Buttons will appear as an inline keyboard below your ad message."""
         text_content = message.text or ""
         text_entities = message.entities or []
         
+        # DEBUG: Log what entities we received
+        logger.info(f"🔍 TEXT ENTITIES DEBUG: Received {len(text_entities)} entities")
+        for i, entity in enumerate(text_entities):
+            logger.info(f"🔍 Entity {i}: type={entity.type}, offset={entity.offset}, length={entity.length}")
+            if hasattr(entity, 'custom_emoji_id'):
+                logger.info(f"🔍 Entity {i}: custom_emoji_id={entity.custom_emoji_id}")
+        
         if not text_content:
             await update.message.reply_text(
                 "❌ **No text received.**\n\nPlease send me the text with premium emojis that should be the caption for your media.",
@@ -1384,6 +1391,7 @@ Buttons will appear as an inline keyboard below your ad message."""
         ad_data['caption_entities'] = []
         
         # Process text entities (premium emojis, formatting, etc.)
+        logger.info(f"🔍 PROCESSING ENTITIES: Processing {len(text_entities)} entities for caption")
         for entity in text_entities:
             entity_data = {
                 'type': entity.type,
@@ -1393,9 +1401,13 @@ Buttons will appear as an inline keyboard below your ad message."""
                 'custom_emoji_id': entity.custom_emoji_id if hasattr(entity, 'custom_emoji_id') else None
             }
             ad_data['caption_entities'].append(entity_data)
+            logger.info(f"🔍 STORED ENTITY: {entity_data}")
             
             if entity.type == 'custom_emoji':
                 ad_data['has_custom_emojis'] = True
+                logger.info(f"🔍 CUSTOM EMOJI DETECTED: {entity_data}")
+        
+        logger.info(f"🔍 FINAL CAPTION ENTITIES: {len(ad_data['caption_entities'])} entities stored")
         
         # Clear pending data
         del session['pending_media_data']
