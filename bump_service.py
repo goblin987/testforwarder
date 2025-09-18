@@ -1291,25 +1291,32 @@ class BumpService:
                             if len(final_text) > 4000:
                                 final_text = final_text[:4000] + "..."
                             
-                            # REAL FIX: Forward from storage channel to preserve premium emojis and buttons
+                            # UNIFIED TELETHON: Use stored client for perfect forwarding
                             try:
-                                # Get storage message ID from campaign data
+                                # Get storage message ID and stored client from campaign data
                                 storage_message_id = media_message.get('storage_message_id')
                                 storage_chat_id = media_message.get('storage_chat_id')
+                                stored_client = media_message.get('telethon_client')
                                 
-                                if storage_message_id and storage_chat_id and storage_channel:
-                                    logger.info(f"🔄 Forwarding storage message {storage_message_id} from storage channel")
+                                if storage_message_id and storage_chat_id:
+                                    logger.info(f"🔄 UNIFIED TELETHON: Forwarding storage message {storage_message_id}")
+                                    
+                                    # Use stored client if available, otherwise use current client
+                                    forward_client = stored_client if stored_client else client
+                                    
+                                    # Get storage channel entity
+                                    storage_channel_entity = await forward_client.get_entity(storage_chat_id)
                                     
                                     # Forward the message from storage channel (preserves premium emojis and buttons)
-                                    forwarded_messages = await client.forward_messages(
+                                    forwarded_messages = await forward_client.forward_messages(
                                         entity=chat_entity,
                                         messages=storage_message_id,
-                                        from_peer=storage_channel
+                                        from_peer=storage_channel_entity
                                     )
                                     
                                     if forwarded_messages:
                                         message = forwarded_messages[0] if isinstance(forwarded_messages, list) else forwarded_messages
-                                        logger.info(f"✅ Forwarded message with premium emojis and buttons to {chat_entity.title}")
+                                        logger.info(f"✅ UNIFIED TELETHON: Forwarded message with premium emojis and buttons to {chat_entity.title}")
                                         continue
                                     else:
                                         logger.warning(f"No messages forwarded from storage channel")
@@ -1317,7 +1324,7 @@ class BumpService:
                                     logger.warning(f"Missing storage message data: message_id={storage_message_id}, chat_id={storage_chat_id}")
                                     
                             except Exception as forward_error:
-                                logger.error(f"Failed to forward from storage: {forward_error}")
+                                logger.error(f"Failed to forward with unified Telethon: {forward_error}")
                                 
                                 # Fallback: Download and re-upload (loses custom emojis but preserves basic content)
                                 logger.info(f"Downloading media file: {media_message['file_id']}")

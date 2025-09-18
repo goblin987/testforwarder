@@ -1454,66 +1454,54 @@ Buttons will appear as an inline keyboard below your ad message."""
             )
     
     async def _create_storage_message_with_caption(self, ad_data: dict, update: Update, session: dict, context: ContextTypes.DEFAULT_TYPE = None):
-        """Create storage message with caption and entities using Bot API (simple and reliable)"""
+        """Create storage message with caption and entities using unified Telethon approach"""
         try:
             from config import Config
+            from telethon_manager import telethon_manager
+            from database import Database
             
             storage_channel_id = Config.STORAGE_CHANNEL_ID
             if storage_channel_id and ad_data.get('file_id'):
-                logger.info(f"📤 STORAGE CHANNEL: Creating message with Bot API")
+                logger.info(f"📤 STORAGE CHANNEL: Creating message with unified Telethon approach")
                 
-                # Get caption text and entities
-                caption_text = ad_data.get('caption', '')
-                caption_entities = ad_data.get('caption_entities', [])
+                # Get the first available account for storage
+                db = Database()
+                user_id = update.effective_user.id
+                accounts = db.get_user_accounts(user_id)
                 
-                logger.info(f"🔍 BOT API CAPTION DEBUG: caption='{caption_text}', caption_length={len(caption_text)}")
-                logger.info(f"🔍 BOT API ENTITIES: {len(caption_entities)} entities")
+                if not accounts:
+                    raise Exception("No worker accounts available for storage message creation")
                 
-                # Send media with caption using Bot API
-                if ad_data['media_type'] == 'video':
-                    sent_message = await context.bot.send_video(
-                        chat_id=storage_channel_id,
-                        video=ad_data['file_id'],
-                        caption=caption_text,
-                        caption_entities=caption_entities,
-                        parse_mode=None
-                    )
-                elif ad_data['media_type'] == 'photo':
-                    sent_message = await context.bot.send_photo(
-                        chat_id=storage_channel_id,
-                        photo=ad_data['file_id'],
-                        caption=caption_text,
-                        caption_entities=caption_entities,
-                        parse_mode=None
-                    )
-                elif ad_data['media_type'] == 'document':
-                    sent_message = await context.bot.send_document(
-                        chat_id=storage_channel_id,
-                        document=ad_data['file_id'],
-                        caption=caption_text,
-                        caption_entities=caption_entities,
-                        parse_mode=None
-                    )
+                account = accounts[0]
+                logger.info(f"🔍 UNIFIED TELETHON: Using account {account['account_name']} for storage")
+                
+                # Add original message info for perfect forwarding
+                ad_data['original_message_id'] = update.message.message_id
+                ad_data['original_chat_id'] = update.message.chat_id
+                
+                # Create storage message using unified Telethon manager
+                storage_result = await telethon_manager.create_storage_message(
+                    account_data=account,
+                    storage_channel_id=storage_channel_id,
+                    media_data=ad_data,
+                    bot_instance=context.bot
+                )
+                
+                if storage_result:
+                    # Store the message ID and chat ID for forwarding
+                    ad_data['storage_message_id'] = storage_result['storage_message_id']
+                    ad_data['storage_chat_id'] = storage_result['storage_chat_id']
+                    ad_data['telethon_client'] = storage_result['client']  # Store client for reuse
+                    
+                    logger.info(f"✅ Storage message created with unified Telethon: ID {storage_result['storage_message_id']}")
                 else:
-                    # Send text message
-                    sent_message = await context.bot.send_message(
-                        chat_id=storage_channel_id,
-                        text=caption_text,
-                        entities=caption_entities,
-                        parse_mode=None
-                    )
-                
-                # Store the message ID and chat ID for forwarding
-                ad_data['storage_message_id'] = sent_message.message_id
-                ad_data['storage_chat_id'] = storage_channel_id
-                
-                logger.info(f"✅ Storage message created with Bot API: ID {sent_message.message_id}")
+                    raise Exception("Failed to create storage message with Telethon")
                 
             else:
                 logger.warning("No storage channel ID or file ID available for storage message creation")
                 
         except Exception as e:
-            logger.error(f"Error creating storage message with Bot API: {e}")
+            logger.error(f"Error creating storage message with unified Telethon: {e}")
             await update.message.reply_text(
                 "❌ **Error creating storage message.**\n\nPlease try again or contact support if the problem persists.",
                 parse_mode=ParseMode.MARKDOWN
