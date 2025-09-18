@@ -10,9 +10,6 @@ import time
 from typing import Optional, Dict, Any, List
 from telethon import TelegramClient
 from telethon.tl.types import MessageEntityCustomEmoji, MessageEntityBold, MessageEntityItalic, MessageEntityMention
-from telethon.tl.functions.messages import SendMediaRequest
-from telethon.tl.types import InputMediaUploadedDocument, InputMediaUploadedPhoto, InputMediaUploadedVideo
-from telethon.tl.types import InputDocument, InputPhoto
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, FloodWaitError
 
 logger = logging.getLogger(__name__)

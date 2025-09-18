@@ -1052,106 +1052,82 @@ Please send me the source chat ID or username.
             ad_data['performer'] = getattr(message.audio, 'performer', None)
             ad_data['title'] = getattr(message.audio, 'title', None)
         
-        # 🎯 STORAGE CHANNEL SOLUTION: Forward media to private storage channel
-        # This provides persistent, reliable media storage that survives deployments
+        # 🎯 UNIFIED TELETHON STORAGE: Forward original message to preserve premium emojis perfectly
         if ad_data['media_type'] and ad_data.get('file_id'):
             try:
                 from config import Config
+                from telethon_manager import telethon_manager
+                from database import Database
                 
                 storage_channel_id = Config.STORAGE_CHANNEL_ID
                 if storage_channel_id:
-                    logger.info(f"📤 STORAGE CHANNEL: Creating message in storage channel")
+                    logger.info(f"📤 UNIFIED TELETHON STORAGE: Creating message in storage channel")
                     
-                    # Create storage message without buttons (will be updated later when buttons are defined)
-                    reply_markup = None
+                    # Get the first available account for storage
+                    db = Database()
+                    user_id = update.effective_user.id
+                    accounts = db.get_user_accounts(user_id)
                     
-                    # Convert stored entities to Bot API format for storage message
-                    from telegram import MessageEntity
-                    bot_entities = []
-                    if ad_data.get('caption_entities'):
-                        for entity_data in ad_data['caption_entities']:
-                            try:
-                                entity = MessageEntity(
-                                    type=entity_data['type'],
-                                    offset=entity_data['offset'],
-                                    length=entity_data['length'],
-                                    url=entity_data.get('url'),
-                                    custom_emoji_id=entity_data.get('custom_emoji_id')
-                                )
-                                bot_entities.append(entity)
-                            except Exception as e:
-                                logger.warning(f"Failed to create entity: {e}")
-                                continue
-                    
-                    # Send message with caption and entities to storage channel
-                    if message.video:
-                        forwarded_message = await context.bot.send_video(
-                            chat_id=storage_channel_id,
-                            video=message.video.file_id,
-                            caption=ad_data.get('caption'),
-                            caption_entities=bot_entities,
-                            reply_markup=reply_markup
-                        )
-                    elif message.photo:
-                        forwarded_message = await context.bot.send_photo(
-                            chat_id=storage_channel_id,
-                            photo=message.photo[-1].file_id,
-                            caption=ad_data.get('caption'),
-                            caption_entities=bot_entities,
-                            reply_markup=reply_markup
-                        )
-                    elif message.document:
-                        forwarded_message = await context.bot.send_document(
-                            chat_id=storage_channel_id,
-                            document=message.document.file_id,
-                            caption=ad_data.get('caption'),
-                            caption_entities=bot_entities,
-                            reply_markup=reply_markup
-                        )
-                    else:
-                        # Fallback: forward original message
+                    if not accounts:
+                        logger.warning("No worker accounts available - using Bot API fallback")
+                        # Fallback to Bot API forward
                         forwarded_message = await context.bot.forward_message(
                             chat_id=storage_channel_id,
                             from_chat_id=message.chat_id,
                             message_id=message.message_id
                         )
-                    
-                    # Extract the new file_id from the forwarded message
-                    storage_file_id = None
-                    if forwarded_message.photo:
-                        storage_file_id = forwarded_message.photo[-1].file_id
-                    elif forwarded_message.video:
-                        storage_file_id = forwarded_message.video.file_id
-                    elif forwarded_message.document:
-                        storage_file_id = forwarded_message.document.file_id
-                    elif forwarded_message.animation:
-                        storage_file_id = forwarded_message.animation.file_id
-                    elif forwarded_message.voice:
-                        storage_file_id = forwarded_message.voice.file_id
-                    elif forwarded_message.video_note:
-                        storage_file_id = forwarded_message.video_note.file_id
-                    elif forwarded_message.sticker:
-                        storage_file_id = forwarded_message.sticker.file_id
-                    elif forwarded_message.audio:
-                        storage_file_id = forwarded_message.audio.file_id
-                    
-                    if storage_file_id:
-                        # Store the storage channel file_id and message_id for reliable access
-                        ad_data['storage_file_id'] = storage_file_id
                         ad_data['storage_message_id'] = forwarded_message.message_id
                         ad_data['storage_chat_id'] = storage_channel_id
-                        logger.info(f"✅ Media stored in channel: {storage_file_id}")
+                        logger.info(f"✅ Fallback storage created: ID {forwarded_message.message_id}")
                     else:
-                        logger.warning(f"❌ Could not extract file_id from forwarded message")
-                        ad_data['storage_file_id'] = None
+                        account = accounts[0]
+                        logger.info(f"🔍 UNIFIED TELETHON: Using account {account['account_name']} for storage")
+                        
+                        # Add original message info for perfect forwarding
+                        ad_data['original_message_id'] = message.message_id
+                        ad_data['original_chat_id'] = message.chat_id
+                        
+                        # Create storage message using unified Telethon manager
+                        storage_result = await telethon_manager.create_storage_message(
+                            account_data=account,
+                            storage_channel_id=storage_channel_id,
+                            media_data=ad_data,
+                            bot_instance=context.bot
+                        )
+                        
+                        if storage_result:
+                            ad_data['storage_message_id'] = storage_result['storage_message_id']
+                            ad_data['storage_chat_id'] = storage_result['storage_chat_id']
+                            ad_data['telethon_client'] = storage_result['client']
+                            logger.info(f"✅ Unified Telethon storage created: ID {storage_result['storage_message_id']}")
+                        else:
+                            logger.warning("Unified Telethon storage failed - using Bot API fallback")
+                            # Fallback to Bot API forward
+                            forwarded_message = await context.bot.forward_message(
+                                chat_id=storage_channel_id,
+                                from_chat_id=message.chat_id,
+                                message_id=message.message_id
+                            )
+                            ad_data['storage_message_id'] = forwarded_message.message_id
+                            ad_data['storage_chat_id'] = storage_channel_id
+                            logger.info(f"✅ Fallback storage created: ID {forwarded_message.message_id}")
                 else:
-                    logger.warning(f"❌ STORAGE_CHANNEL_ID not configured - using original file_id")
-                    ad_data['storage_file_id'] = None
+                    logger.warning(f"❌ STORAGE_CHANNEL_ID not configured")
                 
             except Exception as storage_error:
-                logger.error(f"❌ Storage channel forwarding failed: {storage_error}")
-                # Continue without storage channel - fallback to original file_id
-                ad_data['storage_file_id'] = None
+                logger.error(f"❌ Unified Telethon storage failed: {storage_error}")
+                # Fallback to Bot API forward
+                try:
+                    forwarded_message = await context.bot.forward_message(
+                        chat_id=storage_channel_id,
+                        from_chat_id=message.chat_id,
+                        message_id=message.message_id
+                    )
+                    ad_data['storage_message_id'] = forwarded_message.message_id
+                    ad_data['storage_chat_id'] = storage_channel_id
+                    logger.info(f"✅ Emergency fallback storage created: ID {forwarded_message.message_id}")
+                except Exception as fallback_error:
+                    logger.error(f"❌ Even fallback storage failed: {fallback_error}")
         
         # Store the ad data
         if 'ad_messages' not in session['campaign_data']:
