@@ -30,18 +30,44 @@ class TelethonManager:
             return self.clients[account_id]
         
         try:
-            # Create unique session file
-            session_name = f"unified_{account_id}_{int(time.time())}"
-            session_path = os.path.join(self.session_dir, session_name)
+            # Check if we have a stored session string
+            if account_data.get('session_string'):
+                # Use StringSession for headless environments
+                from telethon.sessions import StringSession
+                client = TelegramClient(
+                    StringSession(account_data['session_string']),
+                    account_data['api_id'],
+                    account_data['api_hash']
+                )
+            elif account_data.get('session_data'):
+                # Use existing session file
+                import base64
+                session_name = f"unified_{account_id}"
+                session_path = os.path.join(self.session_dir, f"{session_name}.session")
+                
+                # Write session data to file
+                session_data = base64.b64decode(account_data['session_data'])
+                with open(session_path, 'wb') as f:
+                    f.write(session_data)
+                
+                client = TelegramClient(
+                    session_path.replace('.session', ''),
+                    account_data['api_id'],
+                    account_data['api_hash']
+                )
+            else:
+                # This won't work in headless environment!
+                logger.error(f"❌ No session data available for account {account_id} - cannot authenticate in headless environment")
+                return None
             
-            client = TelegramClient(
-                session_path,
-                account_data['api_id'],
-                account_data['api_hash']
-            )
+            # Connect without prompting for input
+            await client.connect()
             
-            # Start client with proper error handling
-            await client.start(phone=account_data['phone_number'])
+            # Check if already authorized
+            if not await client.is_user_authorized():
+                logger.error(f"❌ Account {account_id} is not authorized - cannot authenticate in headless environment")
+                await client.disconnect()
+                return None
             
             # Store client for reuse
             self.clients[account_id] = client
