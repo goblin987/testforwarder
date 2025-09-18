@@ -1129,19 +1129,72 @@ Buttons will appear as an inline keyboard below your ad message."""
                 logger.info("No valid buttons to add to storage message")
                 return
             
-            reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+            reply_markup = ReplyKeyboardMarkup(
+                keyboard_buttons,
+                resize_keyboard=True,
+                one_time_keyboard=False,
+                selective=False
+            )
             
-            # Update the storage message with buttons
+            # Create a new message with buttons instead of editing
             from config import Config
             from telegram import Bot
             
-            # Create a temporary bot instance for the edit operation
+            # Create a temporary bot instance
             temp_bot = Bot(token=Config.BOT_TOKEN)
-            await temp_bot.edit_message_reply_markup(
-                chat_id=storage_channel_id,
-                message_id=storage_message_id,
-                reply_markup=reply_markup
-            )
+            
+            try:
+                # Get the original message to copy its content
+                original_message = await temp_bot.get_chat(storage_channel_id)
+                
+                # Create a new message with the same content but with buttons
+                if 'media_type' in campaign_data['ad_content']:
+                    if campaign_data['ad_content']['media_type'] == 'video':
+                        new_message = await temp_bot.send_video(
+                            chat_id=storage_channel_id,
+                            video=campaign_data['ad_content']['file_id'],
+                            caption=campaign_data['ad_content']['caption'],
+                            reply_markup=reply_markup
+                        )
+                    elif campaign_data['ad_content']['media_type'] == 'photo':
+                        new_message = await temp_bot.send_photo(
+                            chat_id=storage_channel_id,
+                            photo=campaign_data['ad_content']['file_id'],
+                            caption=campaign_data['ad_content']['caption'],
+                            reply_markup=reply_markup
+                        )
+                    else:
+                        new_message = await temp_bot.send_document(
+                            chat_id=storage_channel_id,
+                            document=campaign_data['ad_content']['file_id'],
+                            caption=campaign_data['ad_content']['caption'],
+                            reply_markup=reply_markup
+                        )
+                else:
+                    # Fallback: send text message with buttons
+                    new_message = await temp_bot.send_message(
+                        chat_id=storage_channel_id,
+                        text=campaign_data['ad_content'].get('caption', 'Message with buttons'),
+                        reply_markup=reply_markup
+                    )
+                
+                # Update the campaign data with the new message ID
+                campaign_data['ad_content']['storage_message_id'] = new_message.message_id
+                logger.info(f"✅ Updated campaign data with new storage message ID: {new_message.message_id}")
+                
+                # Delete the old message
+                try:
+                    await temp_bot.delete_message(
+                        chat_id=storage_channel_id,
+                        message_id=storage_message_id
+                    )
+                except:
+                    pass  # Ignore if deletion fails
+                
+                logger.info(f"✅ Created new storage message {new_message.message_id} with ReplyKeyboardMarkup buttons")
+                
+            except Exception as create_error:
+                logger.error(f"❌ Failed to create new storage message: {create_error}")
             
             logger.info(f"✅ Updated storage message {storage_message_id} with {len(keyboard_buttons)} ReplyKeyboardMarkup button rows")
             
