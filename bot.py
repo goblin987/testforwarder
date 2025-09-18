@@ -1529,9 +1529,14 @@ Buttons will appear as an inline keyboard below your ad message."""
                 account = accounts[0]
                 logger.info(f"🔍 TELETHON STORAGE: Using account {account['account_name']} for storage message creation")
                 
-                # Create Telethon client
+                # Create Telethon client with proper session path
+                import os
+                session_dir = "sessions"
+                if not os.path.exists(session_dir):
+                    os.makedirs(session_dir, exist_ok=True)
+                
                 client = TelegramClient(
-                    f"sessions/storage_{account['id']}",
+                    f"{session_dir}/storage_{account['id']}",
                     account['api_id'],
                     account['api_hash']
                 )
