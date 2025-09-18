@@ -1222,12 +1222,8 @@ Buttons will appear as an inline keyboard below your ad message."""
         message_text = update.message.text.strip()
         
         if message_text.lower() in ['done', 'finish', 'complete']:
-            # Update storage message with buttons before moving to target chats
-            if 'buttons' in session['campaign_data'] and session['campaign_data']['buttons']:
-                logger.info(f"🔧 DEBUG: Updating storage message with {len(session['campaign_data']['buttons'])} buttons")
-                await self._update_storage_message_with_buttons(session['campaign_data'])
-            else:
-                logger.info(f"🔧 DEBUG: No buttons to update storage message with")
+            # Storage message will be updated with buttons after campaign is created
+            logger.info(f"🔧 DEBUG: Buttons completed, will update storage message after campaign creation")
             
             # Move to target chats selection
             session['step'] = 'target_chats_choice'
@@ -3621,10 +3617,6 @@ This name will help you identify the campaign in your dashboard.
                     'immediate_start': True  # Flag for immediate execution
                 }
             
-            # Update storage message with buttons for immediate campaigns
-            if 'buttons' in enhanced_campaign_data and enhanced_campaign_data['buttons']:
-                await self._update_storage_message_with_buttons(enhanced_campaign_data)
-            
             logger.info(f"Creating campaign with {len(enhanced_campaign_data.get('buttons', []))} buttons")
             
             campaign_id = self.bump_service.add_campaign(
@@ -3639,6 +3631,12 @@ This name will help you identify the campaign in your dashboard.
                 enhanced_campaign_data['target_mode'],
                 enhanced_campaign_data.get('immediate_start', False)
             )
+            
+            # Update storage message with buttons for immediate campaigns (after campaign is created)
+            if 'buttons' in enhanced_campaign_data and enhanced_campaign_data['buttons']:
+                # Add the campaign ID to the data so the update function can work
+                enhanced_campaign_data['id'] = campaign_id
+                await self._update_storage_message_with_buttons(enhanced_campaign_data)
             
             logger.info(f"🔧 DEBUG: add_campaign returned with ID: {campaign_id}")
             logger.info(f"Campaign created successfully with ID: {campaign_id}")
