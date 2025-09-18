@@ -1496,8 +1496,10 @@ Buttons will appear as an inline keyboard below your ad message."""
                 
                 # Create Telethon client using the same account as bump_service
                 # We'll use the first available account from the database
-                from database import get_all_accounts
-                accounts = get_all_accounts()
+                from database import Database
+                db = Database()
+                user_id = update.effective_user.id
+                accounts = db.get_user_accounts(user_id)  # Get accounts for the current user
                 if not accounts:
                     raise Exception("No worker accounts available for storage message creation")
                 
