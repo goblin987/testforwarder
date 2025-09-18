@@ -867,6 +867,18 @@ Please send me the source chat ID or username.
             # Media-only message - process media data first, then store and ask for text
             logger.info("Media-only message detected, processing media data and asking for text")
             
+            # Check if this is a forwarded message and warn about entity loss
+            if message.forward_from or message.forward_from_chat:
+                logger.warning("⚠️ FORWARDED MESSAGE: Entities may be lost during forwarding")
+                await update.message.reply_text(
+                    "⚠️ **Warning: Forwarded messages may lose premium emojis!**\n\n"
+                    "**For best results with premium emojis:**\n"
+                    "1. Copy the text with emojis\n"
+                    "2. Paste it as a new message (don't forward)\n\n"
+                    "**Or continue with forwarded message (may lose emojis):**",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            
             # Process media type and file info immediately
             if message.video:
                 ad_data['media_type'] = 'video'
@@ -1385,7 +1397,12 @@ Buttons will appear as an inline keyboard below your ad message."""
         
         if not text_content:
             await update.message.reply_text(
-                "❌ **No text received.**\n\nPlease send me the text with premium emojis that should be the caption for your media.",
+                "❌ **No text received.**\n\n"
+                "**To preserve premium emojis:**\n"
+                "1. Copy the text with emojis from the original message\n"
+                "2. Paste it as a new message (don't forward)\n"
+                "3. This ensures premium emojis are preserved\n\n"
+                "**Please send me the text with premium emojis that should be the caption for your media.**",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
