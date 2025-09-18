@@ -1245,15 +1245,25 @@ Buttons will appear as an inline keyboard below your ad message."""
             
             ad_content = campaign_data.get('ad_content', {})
             
+            # Handle both dict and list formats for ad_content
+            if isinstance(ad_content, list) and ad_content:
+                # Take the first item if it's a list
+                ad_item = ad_content[0]
+            elif isinstance(ad_content, dict):
+                ad_item = ad_content
+            else:
+                logger.warning("Invalid ad_content format")
+                return
+            
             # Get chat_id from linked message or use default storage channel
-            storage_chat_id = ad_content.get('storage_chat_id')
+            storage_chat_id = ad_item.get('storage_chat_id')
             if not storage_chat_id:
                 storage_chat_id = Config.STORAGE_CHANNEL_ID
                 if not storage_chat_id:
                     logger.warning("No storage channel ID configured")
                     return
             
-            storage_message_id = ad_content.get('storage_message_id')
+            storage_message_id = ad_item.get('storage_message_id')
             if not storage_message_id:
                 logger.warning("No storage message ID found, cannot update with buttons")
                 return
@@ -3838,9 +3848,16 @@ This name will help you identify the campaign in your dashboard.
                 logger.info(f"🔧 DEBUG: Enhanced campaign data created successfully")
             else:
                 # Multiple messages or no media - use as list
+                ad_content = campaign_data.get('ad_content', '')
+                # If ad_content is already a linked message dict, don't wrap it in a list
+                if isinstance(ad_content, dict) and ad_content.get('type') == 'linked_message':
+                    final_ad_content = ad_content
+                else:
+                    final_ad_content = ad_messages if ad_messages else [ad_content]
+                
                 enhanced_campaign_data = {
                     'campaign_name': campaign_data['campaign_name'],
-                    'ad_content': ad_messages if ad_messages else [campaign_data.get('ad_content', '')],
+                    'ad_content': final_ad_content,
                     'target_chats': campaign_data['target_chats'],
                     'schedule_type': campaign_data['schedule_type'],
                     'schedule_time': campaign_data['schedule_time'],
