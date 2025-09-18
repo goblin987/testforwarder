@@ -32,6 +32,7 @@ from telethon.tl.custom import Button
 from telethon.tl.types import ReplyKeyboardMarkup, KeyboardButton, KeyboardButtonUrl, KeyboardButtonRow
 from database import Database
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telethon_manager import telethon_manager
 import json
 import threading
 import traceback
@@ -839,7 +840,7 @@ class BumpService:
             loop.close()
     
     async def _async_initialize_client(self, account_id: int, cache_client: bool = False) -> Optional[TelegramClient]:
-        """Async helper for client initialization with improved session validation"""
+        """Async helper for client initialization using telethon_manager (no interactive auth)"""
         # For scheduled executions, always create fresh client to avoid asyncio loop issues
         if cache_client and account_id in self.telegram_clients:
             return self.telegram_clients[account_id]
@@ -849,144 +850,24 @@ class BumpService:
             logger.error(f"Account {account_id} not found")
             return None
         
-        # Use EXACT same session handling as bot.py execute_immediate_campaign
-        from telethon import TelegramClient
-        import base64
-        import os
-        import time
-        import random
-        import time
+        # 🎯 USE TELETHON_MANAGER: No more interactive authentication issues!
+        logger.info(f"🔄 BUMP SERVICE: Using telethon_manager for account {account_id}")
         
-        # Small delay to ensure clean separation between initializations
-        await asyncio.sleep(0.2)
-        
-        # Handle session creation (same as bot.py)
-        # Use temp directory to avoid permission issues
-        import tempfile
-        import os
-        temp_dir = tempfile.gettempdir()
-        temp_session_path = f"bump_session_{account_id}_{int(time.time())}"
-        session_file_path = os.path.join(temp_dir, f"{temp_session_path}.session")
-        
-        # Register for cleanup
-        self._register_temp_file(session_file_path)
-        
-        # Check if we have a valid session (same as bot.py)
-        if not account.get('session_string'):
-            logger.error(f"Account {account_id} has no session string. Please re-authenticate the account.")
-            self._cleanup_temp_file(session_file_path)
-            return None
-        
-        # Clean up any existing session file first
-        self._cleanup_temp_file(session_file_path)
-        
-        # Handle uploaded sessions vs API credential sessions (EXACT SAME as bot.py)
-        if account['api_id'] == 'uploaded' or account['api_hash'] == 'uploaded':
-            # For uploaded sessions, decode and save the session file
-            try:
-                session_data = base64.b64decode(account['session_string'])
-                with open(f"{temp_session_path}.session", "wb") as f:
-                    f.write(session_data)
-                # Use dummy credentials for uploaded sessions
-                api_id = 123456  
-                api_hash = 'dummy_hash_for_uploaded_sessions'
-            except Exception as e:
-                logger.error(f"Failed to decode uploaded session for account {account_id}: {e}")
-                return None
-        else:
-            # For API credential accounts with authenticated sessions (EXACT SAME as bot.py)
-            try:
-                api_id = int(account['api_id'])
-                api_hash = account['api_hash']
-                
-                # Session string is base64 encoded session file data
-                # Decode and write it as the session file
-                session_data = base64.b64decode(account['session_string'])
-                with open(f"{temp_session_path}.session", "wb") as f:
-                    f.write(session_data)
-            except (ValueError, TypeError) as e:
-                logger.error(f"Invalid API credentials for account {account_id}: {e}")
-                return None
-            except Exception as e:
-                logger.error(f"Failed to decode session for account {account_id}: {e}")
-                return None
-        
-        # Validate session file was created and has content
-        if not os.path.exists(f"{temp_session_path}.session"):
-            logger.error(f"Session file not created for account {account_id}")
-            return None
-        
-        if os.path.getsize(f"{temp_session_path}.session") == 0:
-            logger.error(f"Session file is empty for account {account_id}")
-            try:
-                os.remove(f"{temp_session_path}.session")
-            except:
-                pass
-            return None
-        
-        # Initialize and start client with retry logic for database locks
-        max_retries = 3
-        client = None
-        for attempt in range(max_retries):
-            try:
-                client = TelegramClient(temp_session_path, api_id, api_hash)
-                await client.start()
-                
-                # Verify the session is valid (EXACT SAME as bot.py)
-                me = await client.get_me()
-                if not me:
-                    logger.error(f"Session invalid for account {account_id}")
-                    await client.disconnect()
-                    return None
-                    
-                logger.info(f"Successfully authenticated as {me.username or me.phone}")
-                break  # Success, exit retry loop
-                
-            except Exception as e:
-                error_msg = str(e).lower()
-                if "database is locked" in error_msg and attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 2 + random.uniform(0.5, 1.5)
-                    logger.warning(f"Database locked during client start, retrying in {wait_time:.1f}s (attempt {attempt + 1}/{max_retries})")
-                    await asyncio.sleep(wait_time)
-                    
-                    # Clean up any partial session files
-                    try:
-                        if os.path.exists(f"{temp_session_path}.session"):
-                            os.remove(f"{temp_session_path}.session")
-                    except:
-                        pass
-                    continue
-                elif "eof when reading a line" in error_msg:
-                    logger.error(f"Session file corrupted for account {account_id}: {e}")
-                    logger.error(f"💡 Solution: Re-add {account.get('username', 'this account')} with API credentials instead of uploaded session")
-                    # Clean up corrupted session file
-                    try:
-                        if os.path.exists(f"{temp_session_path}.session"):
-                            os.remove(f"{temp_session_path}.session")
-                    except:
-                        pass
-                    return None
-                else:
-                    logger.error(f"Failed to start client for account {account_id}: {e}")
-                    # Clean up session file on failure (EXACT SAME as bot.py)
-                    try:
-                        if os.path.exists(f"{temp_session_path}.session"):
-                            os.remove(f"{temp_session_path}.session")
-                    except:
-                        pass
-                    return None
-        
-        if client is None:
-            logger.error(f"Failed to initialize client for account {account_id} after {max_retries} attempts")
-            return None
-        
-        # Only cache client if requested (not for scheduled executions)
-        if cache_client:
-            self.telegram_clients[account_id] = client
-        logger.info(f"Telegram client initialized for bump service (Account: {account_id})")
-        
-        # 🎯 AUTO-JOIN STORAGE CHANNEL: Ensure worker account can access storage channel
         try:
+            # Use the unified telethon manager (handles sessions properly)
+            client = await telethon_manager.get_client(account)
+            
+            if not client:
+                logger.error(f"❌ Failed to get client from telethon_manager for account {account_id}")
+                return None
+                
+            # Only cache client if requested (not for scheduled executions)
+            if cache_client:
+                self.telegram_clients[account_id] = client
+                
+            logger.info(f"✅ Telegram client initialized via telethon_manager (Account: {account_id})")
+            
+            # 🎯 AUTO-JOIN STORAGE CHANNEL: Ensure worker account can access storage channel
             from config import Config
             storage_channel_id = Config.STORAGE_CHANNEL_ID
             
@@ -1060,11 +941,15 @@ class BumpService:
             else:
                 logger.info(f"⚠️ STORAGE_CHANNEL_ID not configured - skipping auto-join")
                 
-        except Exception as storage_setup_error:
-            logger.error(f"❌ Storage channel setup failed: {storage_setup_error}")
-            # Continue anyway - this is not critical for basic functionality
-        
-        return client
+            except Exception as storage_setup_error:
+                logger.error(f"❌ Storage channel setup failed: {storage_setup_error}")
+                # Continue anyway - this is not critical for basic functionality
+            
+            return client
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize client via telethon_manager for account {account_id}: {e}")
+            return None
     
     def send_ad(self, campaign_id: int):
         """Send ad for a specific campaign with button support - Thread-safe version"""
