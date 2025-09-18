@@ -1492,7 +1492,36 @@ Buttons will appear as an inline keyboard below your ad message."""
                 
                 # Move to next step
                 session['step'] = 'add_buttons_choice'
-                await self.show_add_buttons_choice(update, session)
+                
+                # Show button choice message
+                text = """➕ **Step 3/6: Add Buttons (Optional)**
+
+**Would you like to add buttons under your ad?**
+
+**What buttons do:**
+• Add clickable buttons under your message
+• Users can click to visit your website, channel, or bot
+• Buttons appear as inline buttons under the message
+
+**Examples:**
+• "Shop Now" → https://yourshop.com
+• "Join Channel" → @yourchannel
+• "Contact Us" → @yoursupport
+
+**Choose an option below:**"""
+
+                keyboard = [
+                    [InlineKeyboardButton("✅ Yes, Add Buttons", callback_data="add_buttons_yes")],
+                    [InlineKeyboardButton("❌ No, Skip Buttons", callback_data="add_buttons_no")],
+                    [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="main_menu")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    text,
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=reply_markup
+                )
                 
         except Exception as e:
             logger.error(f"Error creating storage message with caption: {e}")
