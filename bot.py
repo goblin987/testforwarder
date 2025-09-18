@@ -864,8 +864,39 @@ Please send me the source chat ID or username.
         logger.info(f"🔍 MESSAGE DEBUG: message.caption='{message.caption}'")
         
         if has_media and not has_text and not has_caption:
-            # Media-only message - store it and ask for text
-            logger.info("Media-only message detected, storing and asking for text")
+            # Media-only message - process media data first, then store and ask for text
+            logger.info("Media-only message detected, processing media data and asking for text")
+            
+            # Process media type and file info immediately
+            if message.video:
+                ad_data['media_type'] = 'video'
+                ad_data['file_id'] = message.video.file_id
+                ad_data['file_unique_id'] = message.video.file_unique_id
+                ad_data['file_size'] = getattr(message.video, 'file_size', None)
+                ad_data['duration'] = getattr(message.video, 'duration', None)
+                ad_data['width'] = getattr(message.video, 'width', None)
+                ad_data['height'] = getattr(message.video, 'height', None)
+            elif message.photo:
+                ad_data['media_type'] = 'photo'
+                ad_data['file_id'] = message.photo[-1].file_id
+                ad_data['file_unique_id'] = message.photo[-1].file_unique_id
+                ad_data['file_size'] = getattr(message.photo[-1], 'file_size', None)
+                ad_data['width'] = getattr(message.photo[-1], 'width', None)
+                ad_data['height'] = getattr(message.photo[-1], 'height', None)
+            elif message.document:
+                ad_data['media_type'] = 'document'
+                ad_data['file_id'] = message.document.file_id
+                ad_data['file_unique_id'] = message.document.file_unique_id
+                ad_data['file_size'] = getattr(message.document, 'file_size', None)
+            elif message.audio:
+                ad_data['media_type'] = 'audio'
+                ad_data['file_id'] = message.audio.file_id
+                ad_data['file_unique_id'] = message.audio.file_unique_id
+                ad_data['file_size'] = getattr(message.audio, 'file_size', None)
+                ad_data['duration'] = getattr(message.audio, 'duration', None)
+                ad_data['performer'] = getattr(message.audio, 'performer', None)
+                ad_data['title'] = getattr(message.audio, 'title', None)
+            
             session['pending_media_data'] = ad_data
             session['step'] = 'ad_text_input'
             await update.message.reply_text(
@@ -874,8 +905,39 @@ Please send me the source chat ID or username.
             )
             return
         elif has_media and (has_text or has_caption):
-            # Media with text/caption - ask user to send text separately for better premium emoji handling
-            logger.info("Media with text/caption detected, asking user to send text separately")
+            # Media with text/caption - process media data first, then ask user to send text separately
+            logger.info("Media with text/caption detected, processing media data and asking user to send text separately")
+            
+            # Process media type and file info immediately
+            if message.video:
+                ad_data['media_type'] = 'video'
+                ad_data['file_id'] = message.video.file_id
+                ad_data['file_unique_id'] = message.video.file_unique_id
+                ad_data['file_size'] = getattr(message.video, 'file_size', None)
+                ad_data['duration'] = getattr(message.video, 'duration', None)
+                ad_data['width'] = getattr(message.video, 'width', None)
+                ad_data['height'] = getattr(message.video, 'height', None)
+            elif message.photo:
+                ad_data['media_type'] = 'photo'
+                ad_data['file_id'] = message.photo[-1].file_id
+                ad_data['file_unique_id'] = message.photo[-1].file_unique_id
+                ad_data['file_size'] = getattr(message.photo[-1], 'file_size', None)
+                ad_data['width'] = getattr(message.photo[-1], 'width', None)
+                ad_data['height'] = getattr(message.photo[-1], 'height', None)
+            elif message.document:
+                ad_data['media_type'] = 'document'
+                ad_data['file_id'] = message.document.file_id
+                ad_data['file_unique_id'] = message.document.file_unique_id
+                ad_data['file_size'] = getattr(message.document, 'file_size', None)
+            elif message.audio:
+                ad_data['media_type'] = 'audio'
+                ad_data['file_id'] = message.audio.file_id
+                ad_data['file_unique_id'] = message.audio.file_unique_id
+                ad_data['file_size'] = getattr(message.audio, 'file_size', None)
+                ad_data['duration'] = getattr(message.audio, 'duration', None)
+                ad_data['performer'] = getattr(message.audio, 'performer', None)
+                ad_data['title'] = getattr(message.audio, 'title', None)
+            
             session['pending_media_data'] = ad_data
             session['step'] = 'ad_text_input'
             await update.message.reply_text(
