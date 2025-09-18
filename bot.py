@@ -1438,6 +1438,13 @@ Buttons will appear as an inline keyboard below your ad message."""
             success_count = 0
             ad_content = campaign_data['ad_content']
             
+            # Update storage message with buttons if they exist
+            if 'buttons' in campaign_data and campaign_data['buttons']:
+                logger.info(f"🔧 DEBUG: Updating storage message with {len(campaign_data['buttons'])} buttons")
+                await self._update_storage_message_with_buttons(campaign_data)
+            else:
+                logger.info(f"🔧 DEBUG: No buttons to update storage message with")
+            
             # Create buttons from campaign data
             from telethon import Button
             buttons_data = campaign_data.get('buttons', [])
