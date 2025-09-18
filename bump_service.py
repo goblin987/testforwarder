@@ -1569,6 +1569,11 @@ class BumpService:
                                             logger.info(f"🔥 STORAGE MESSAGE DEBUG: Message type: {type(storage_message)}")
                                             logger.info(f"🔥 STORAGE MESSAGE DEBUG: Has media: {hasattr(storage_message, 'media') and storage_message.media is not None}")
                                             logger.info(f"🔥 STORAGE MESSAGE DEBUG: Has caption: {hasattr(storage_message, 'caption')}")
+                                            logger.info(f"🔥 STORAGE MESSAGE DEBUG: Has reply_markup: {hasattr(storage_message, 'reply_markup') and storage_message.reply_markup is not None}")
+                                            if hasattr(storage_message, 'reply_markup') and storage_message.reply_markup:
+                                                logger.info(f"🔥 STORAGE MESSAGE DEBUG: Reply markup type: {type(storage_message.reply_markup)}")
+                                                if hasattr(storage_message.reply_markup, 'rows'):
+                                                    logger.info(f"🔥 STORAGE MESSAGE DEBUG: Reply markup rows: {len(storage_message.reply_markup.rows)}")
                                             if hasattr(storage_message, 'media') and storage_message.media:
                                                 logger.info(f"✅ STORAGE SUCCESS: Found media in storage channel: {type(storage_message.media)}")
                                             else:
@@ -1616,12 +1621,12 @@ class BumpService:
                                                         logger.info(f"🔘 Buttons: {len(telethon_reply_markup.rows) if telethon_reply_markup and hasattr(telethon_reply_markup, 'rows') else 0} rows (Telethon format)")
                                                         
                                                         # Send message with ALL components using send_file
-                                                        logger.info(f"🚀 SENDING message with media + premium emojis + ReplyKeyboardMarkup buttons")
+                                                        logger.info(f"🚀 SENDING message with media + premium emojis + InlineKeyboardMarkup buttons")
                                                         logger.info(f"🔍 DEBUG: reply_markup type: {type(reply_markup)}")
                                                         logger.info(f"🔍 DEBUG: reply_markup value: {reply_markup}")
                                                         
-                                                        # FORWARD the storage message to preserve ReplyKeyboardMarkup buttons!
-                                                        # This is how user accounts can send ReplyKeyboardMarkup - by forwarding!
+                                                        # FORWARD the storage message to preserve InlineKeyboardMarkup buttons!
+                                                        # This is how user accounts can send InlineKeyboardMarkup - by forwarding!
                                                         try:
                                                             # Forward the original storage message (preserves buttons and formatting)
                                                             sent_msg = await client.forward_messages(
@@ -1629,13 +1634,28 @@ class BumpService:
                                                                 storage_message,       # Original message from storage
                                                                 from_peer=storage_channel  # Source chat
                                                             )
-                                                            logger.info(f"✅ FORWARDED message with ReplyKeyboardMarkup buttons to {chat_entity.title}")
+                                                            logger.info(f"✅ FORWARDED message with InlineKeyboardMarkup buttons to {chat_entity.title}")
+                                                            
+                                                            # DEBUG: Verify forwarded message has InlineKeyboardMarkup buttons
+                                                            if hasattr(sent_msg, 'reply_markup') and sent_msg.reply_markup:
+                                                                logger.info(f"✅ CONFIRMED: Forwarded message HAS InlineKeyboardMarkup buttons!")
+                                                                if hasattr(sent_msg.reply_markup, 'rows'):
+                                                                    logger.info(f"✅ CONFIRMED: InlineKeyboardMarkup has {len(sent_msg.reply_markup.rows)} button rows")
+                                                            else:
+                                                                logger.error(f"❌ PROBLEM: Forwarded message has NO InlineKeyboardMarkup buttons!")
+                                                            
+                                                            logger.info(f"✅ SUCCESS: Worker sent message with media + premium emojis + InlineKeyboardMarkup buttons to {chat_entity.title}!")
+                                                            buttons_sent_count += 1
+                                                            continue
                                                         except Exception as forward_error:
-                                                            logger.warning(f"⚠️ Forward failed for {chat_entity.title}: {forward_error}")
+                                                            logger.error(f"❌ Forward failed for {chat_entity.title}: {forward_error}")
+                                                            logger.error(f"❌ Forward error type: {type(forward_error)}")
+                                                            logger.error(f"❌ Storage message ID: {storage_message.id if storage_message else 'None'}")
+                                                            logger.error(f"❌ Storage channel: {storage_channel.title if storage_channel else 'None'}")
                                                             # Fallback: Send new message without buttons
                                                             sent_msg = await client.send_file(
                                                                 chat_entity,           # Target group
-                                                                file=video_file,       # Video file from storage
+                                                                file=storage_message.media,  # Media file from storage
                                                                 caption=caption_text,  # Caption text
                                                                 formatting_entities=telethon_entities,  # Premium emojis for caption
                                                                 parse_mode=None,       # Let entities handle formatting
@@ -1643,22 +1663,22 @@ class BumpService:
                                                             )
                                                             logger.info(f"✅ Sent new message without buttons to {chat_entity.title}")
                                                         
-                                                        # DEBUG: Verify sent message has ReplyKeyboardMarkup buttons
+                                                        # DEBUG: Verify sent message has InlineKeyboardMarkup buttons
                                                         if hasattr(sent_msg, 'reply_markup') and sent_msg.reply_markup:
-                                                            logger.info(f"✅ CONFIRMED: Sent message HAS ReplyKeyboardMarkup buttons!")
+                                                            logger.info(f"✅ CONFIRMED: Sent message HAS InlineKeyboardMarkup buttons!")
                                                             if hasattr(sent_msg.reply_markup, 'rows'):
-                                                                logger.info(f"✅ CONFIRMED: ReplyKeyboardMarkup has {len(sent_msg.reply_markup.rows)} button rows")
+                                                                logger.info(f"✅ CONFIRMED: InlineKeyboardMarkup has {len(sent_msg.reply_markup.rows)} button rows")
                                                         else:
-                                                            logger.error(f"❌ PROBLEM: Sent message has NO ReplyKeyboardMarkup buttons!")
+                                                            logger.error(f"❌ PROBLEM: Sent message has NO InlineKeyboardMarkup buttons!")
                                                         
-                                                        # Check for premium emojis in the media message
-                                                        if hasattr(media_msg, 'entities') and media_msg.entities:
-                                                            custom_emojis = [e for e in media_msg.entities if hasattr(e, 'document_id')]
-                                                            logger.info(f"✅ CONFIRMED: Media message has {len(custom_emojis)} premium emojis!")
+                                                        # Check for premium emojis in the sent message
+                                                        if hasattr(sent_msg, 'entities') and sent_msg.entities:
+                                                            custom_emojis = [e for e in sent_msg.entities if hasattr(e, 'document_id')]
+                                                            logger.info(f"✅ CONFIRMED: Sent message has {len(custom_emojis)} premium emojis!")
                                                         else:
-                                                            logger.warning(f"⚠️ WARNING: Media message may not have premium emojis")
+                                                            logger.warning(f"⚠️ WARNING: Sent message may not have premium emojis")
                                                         
-                                                        logger.info(f"✅ SUCCESS: Worker sent message with media + premium emojis + ReplyKeyboardMarkup buttons to {chat_entity.title}!")
+                                                        logger.info(f"✅ SUCCESS: Worker sent message with media + premium emojis + InlineKeyboardMarkup buttons to {chat_entity.title}!")
                                                         buttons_sent_count += 1
                                                         continue
                                                         
