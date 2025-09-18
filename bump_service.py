@@ -905,38 +905,38 @@ class BumpService:
                             logger.warning(f"💡 SOLUTION: Force session refresh by getting dialogs")
                             
                             try:
-                            # Force Telethon to refresh its entity cache by getting dialogs
-                            logger.info(f"🔄 Refreshing Telethon session cache...")
-                            dialogs = await client.get_dialogs(limit=50)
-                            logger.info(f"✅ Session refreshed: Found {len(dialogs)} dialogs")
-                            
-                            # Try accessing storage channel again after refresh
-                            storage_channel = await client.get_entity(channel_id_int)
-                            logger.info(f"✅ Storage channel access confirmed after session refresh: {storage_channel.title}")
-                            
-                        except Exception as refresh_error:
-                            logger.warning(f"❌ Session refresh failed: {refresh_error}")
-                            
-                            # Try alternative ID formats as fallback
-                            alternative_ids = []
-                            if isinstance(storage_channel_id, str) and storage_channel_id.startswith('-100'):
-                                # Try without -100 prefix
-                                alt_id = int(storage_channel_id[4:])  # Remove -100 prefix
-                                alternative_ids.append(alt_id)
-                                alternative_ids.append(-alt_id)  # Try negative version
-                            
-                            for alt_id in alternative_ids:
-                                try:
-                                    logger.info(f"🔄 Trying alternative channel ID after refresh: {alt_id}")
-                                    storage_channel = await client.get_entity(alt_id)
-                                    logger.info(f"✅ Storage channel access confirmed with alternative ID {alt_id}: {storage_channel.title}")
-                                    break
-                                except Exception as alt_error:
-                                    logger.warning(f"❌ Alternative ID {alt_id} failed: {alt_error}")
-                            else:
-                                logger.warning(f"❌ All channel access methods failed")
-                                logger.warning(f"💡 If worker account is a member, this is a Telethon session cache issue")
-                                logger.warning(f"💡 Consider restarting the service to refresh session files")
+                                # Force Telethon to refresh its entity cache by getting dialogs
+                                logger.info(f"🔄 Refreshing Telethon session cache...")
+                                dialogs = await client.get_dialogs(limit=50)
+                                logger.info(f"✅ Session refreshed: Found {len(dialogs)} dialogs")
+                                
+                                # Try accessing storage channel again after refresh
+                                storage_channel = await client.get_entity(channel_id_int)
+                                logger.info(f"✅ Storage channel access confirmed after session refresh: {storage_channel.title}")
+                                
+                            except Exception as refresh_error:
+                                logger.warning(f"❌ Session refresh failed: {refresh_error}")
+                                
+                                # Try alternative ID formats as fallback
+                                alternative_ids = []
+                                if isinstance(storage_channel_id, str) and storage_channel_id.startswith('-100'):
+                                    # Try without -100 prefix
+                                    alt_id = int(storage_channel_id[4:])  # Remove -100 prefix
+                                    alternative_ids.append(alt_id)
+                                    alternative_ids.append(-alt_id)  # Try negative version
+                                
+                                for alt_id in alternative_ids:
+                                    try:
+                                        logger.info(f"🔄 Trying alternative channel ID after refresh: {alt_id}")
+                                        storage_channel = await client.get_entity(alt_id)
+                                        logger.info(f"✅ Storage channel access confirmed with alternative ID {alt_id}: {storage_channel.title}")
+                                        break
+                                    except Exception as alt_error:
+                                        logger.warning(f"❌ Alternative ID {alt_id} failed: {alt_error}")
+                                else:
+                                    logger.warning(f"❌ All channel access methods failed")
+                                    logger.warning(f"💡 If worker account is a member, this is a Telethon session cache issue")
+                                    logger.warning(f"💡 Consider restarting the service to refresh session files")
                         else:
                             logger.warning(f"❌ Channel access failed with non-entity error: {access_error}")
                 else:
