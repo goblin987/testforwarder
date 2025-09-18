@@ -1291,46 +1291,33 @@ class BumpService:
                             if len(final_text) > 4000:
                                 final_text = final_text[:4000] + "..."
                             
-                            # REAL FIX: Get media from original message using Telethon
+                            # REAL FIX: Forward from storage channel to preserve premium emojis and buttons
                             try:
-                                # Get the original message using Telethon to access media properly
-                                original_chat_id = media_message.get('original_chat_id') or media_message.get('chat_id')
-                                original_message_id = media_message.get('original_message_id') or media_message.get('message_id')
+                                # Get storage message ID from campaign data
+                                storage_message_id = media_message.get('storage_message_id')
+                                storage_chat_id = media_message.get('storage_chat_id')
                                 
-                                logger.info(f"Getting original message: chat_id={original_chat_id}, message_id={original_message_id}")
-                                
-                                # Get the original message with media
-                                original_message = await client.get_messages(original_chat_id, ids=original_message_id)
-                                if original_message and original_message.media:
-                                    logger.info(f"Found original message with media: {type(original_message.media)}")
-                                    media_file = await client.download_media(original_message.media)
-                                    logger.info(f"Media download result: {media_file}")
+                                if storage_message_id and storage_chat_id and storage_channel:
+                                    logger.info(f"🔄 Forwarding storage message {storage_message_id} from storage channel")
                                     
-                                    if media_file and os.path.exists(media_file):
-                                        self._register_temp_file(media_file)
-                                        
-                                        # REAL FIX: Send media with original caption AND ReplyKeyboardMarkup buttons
-                                        # Send media with original caption to preserve emojis + ReplyKeyboardMarkup buttons
-                                        # CRITICAL: Send with ReplyKeyboardMarkup buttons (persistent bottom keyboard)
-                                        logger.info(f"🎯 Sending media with {len(telethon_reply_markup.rows) if telethon_reply_markup and hasattr(telethon_reply_markup, 'rows') else 0} ReplyKeyboardMarkup button rows")
-                                        message = await client.send_file(
-                                            chat_entity,
-                                            media_file,
-                                            caption=original_text,  # Use original text to preserve emojis
-                                            reply_markup=telethon_reply_markup  # Add ReplyKeyboardMarkup buttons directly to media
-                                        )
-                                        logger.info(f"✅ Media sent with ReplyKeyboardMarkup buttons to {chat_entity.title}")
-                                        self._cleanup_temp_file(media_file)
+                                    # Forward the message from storage channel (preserves premium emojis and buttons)
+                                    forwarded_messages = await client.forward_messages(
+                                        entity=chat_entity,
+                                        messages=storage_message_id,
+                                        from_peer=storage_channel
+                                    )
+                                    
+                                    if forwarded_messages:
+                                        message = forwarded_messages[0] if isinstance(forwarded_messages, list) else forwarded_messages
+                                        logger.info(f"✅ Forwarded message with premium emojis and buttons to {chat_entity.title}")
                                         continue
                                     else:
-                                        logger.warning(f"Media file not found: {media_file}")
+                                        logger.warning(f"No messages forwarded from storage channel")
                                 else:
-                                    logger.warning(f"No media found in original message")
+                                    logger.warning(f"Missing storage message data: message_id={storage_message_id}, chat_id={storage_chat_id}")
                                     
-                            except Exception as send_error:
-                                logger.error(f"Failed to send media: {send_error}")
-                                if 'media_file' in locals() and media_file:
-                                    self._cleanup_temp_file(media_file)
+                            except Exception as forward_error:
+                                logger.error(f"Failed to forward from storage: {forward_error}")
                                 
                                 # Fallback: Download and re-upload (loses custom emojis but preserves basic content)
                                 logger.info(f"Downloading media file: {media_message['file_id']}")
@@ -1345,42 +1332,22 @@ class BumpService:
                                     # Register for cleanup
                                     self._register_temp_file(media_file)
                                     
-                                    # Send the downloaded media file with ReplyKeyboardMarkup buttons (try first, fallback to text)
-                                    try:
-                                        # Try with ReplyKeyboardMarkup buttons first (works in channels and some groups)
-                                        message = await client.send_file(
-                                            chat_entity,
-                                            media_file,
-                                            caption=final_caption,
-                                            reply_markup=telethon_reply_markup,
-                                            parse_mode='html'
-                                        )
-                                        logger.info(f"✅ Media sent with ReplyKeyboardMarkup buttons to {chat_entity.title}")
-                                    except Exception as button_error:
-                                        # Fallback: Send without buttons, then send buttons as text
-                                        logger.warning(f"ReplyKeyboardMarkup buttons failed, using text fallback: {button_error}")
-                                        message = await client.send_file(
-                                            chat_entity,
-                                            media_file,
-                                            caption=final_caption,
-                                            reply_markup=telethon_reply_markup,
-                                            parse_mode='html'
-                                        )
-                                        
-                                        # Buttons already sent as inline buttons with the media
-                                    logger.info(f"✅ Combined media+text sent via download ({media_message['media_type']}) to {chat_entity.title}")
+                                    # Send the downloaded media file
+                                    message = await client.send_file(
+                                        chat_entity,
+                                        media_file,
+                                        caption=final_caption,
+                                        parse_mode='html'
+                                    )
+                                    logger.info(f"✅ Media sent via download ({media_message['media_type']}) to {chat_entity.title}")
                                     
                                     # Note: No cleanup needed - using permanent local media file
                                 else:
                                     # Fallback to text if media download fails
                                     if final_caption:
-                                        # Send with inline buttons only
-                                        final_caption_with_buttons = final_caption
-                                        
                                         message = await client.send_message(
                                             chat_entity,
-                                            final_caption_with_buttons,
-                                            reply_markup=telethon_reply_markup,
+                                            final_caption,
                                             parse_mode='html'
                                         )
                                         logger.warning(f"⚠️ Media download failed, sent as text to {chat_entity.title}")
