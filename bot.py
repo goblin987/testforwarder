@@ -1505,7 +1505,7 @@ Buttons will appear as an inline keyboard below your ad message."""
                 
                 # Use the first account
                 account = accounts[0]
-                logger.info(f"🔍 TELETHON STORAGE: Using account {account['name']} for storage message creation")
+                logger.info(f"🔍 TELETHON STORAGE: Using account {account['account_name']} for storage message creation")
                 
                 # Create Telethon client
                 client = TelegramClient(
