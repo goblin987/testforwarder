@@ -34,31 +34,61 @@ class TelethonManager:
             if account_data.get('session_string'):
                 # Use StringSession for headless environments
                 from telethon.sessions import StringSession
-                client = TelegramClient(
-                    StringSession(account_data['session_string']),
-                    account_data['api_id'],
-                    account_data['api_hash']
-                )
-            elif account_data.get('session_data'):
-                # Use existing session file
-                import base64
-                session_name = f"unified_{account_id}"
-                session_path = os.path.join(self.session_dir, f"{session_name}.session")
+                session_str = account_data['session_string']
                 
-                # Write session data to file
-                session_data = base64.b64decode(account_data['session_data'])
-                with open(session_path, 'wb') as f:
-                    f.write(session_data)
+                # Validate session string
+                if not session_str or not isinstance(session_str, str):
+                    logger.error(f"❌ Invalid session_string for account {account_id}: {type(session_str)} - {repr(session_str)}")
+                    return None
                 
-                client = TelegramClient(
-                    session_path.replace('.session', ''),
-                    account_data['api_id'],
-                    account_data['api_hash']
-                )
-            else:
-                # This won't work in headless environment!
-                logger.error(f"❌ No session data available for account {account_id} - cannot authenticate in headless environment")
-                return None
+                # Clean session string (remove whitespace)
+                session_str = session_str.strip()
+                
+                if not session_str:
+                    logger.error(f"❌ Empty session_string for account {account_id}")
+                    return None
+                
+                try:
+                    client = TelegramClient(
+                        StringSession(session_str),
+                        account_data['api_id'],
+                        account_data['api_hash']
+                    )
+                except Exception as session_error:
+                    logger.error(f"❌ Failed to create StringSession for account {account_id}: {session_error}")
+                    # Try fallback to session_data if available
+                    if account_data.get('session_data'):
+                        logger.info(f"🔄 Trying fallback to session_data for account {account_id}")
+                        # Fall through to session_data handling below
+                        pass  
+                    else:
+                        return None
+            
+            # Handle session_data (either primary or fallback)
+            if not account_data.get('session_string') or 'session_error' in locals():
+                if account_data.get('session_data'):
+                    # Use existing session file
+                    import base64
+                    session_name = f"unified_{account_id}"
+                    session_path = os.path.join(self.session_dir, f"{session_name}.session")
+                    
+                    # Write session data to file
+                    try:
+                        session_data = base64.b64decode(account_data['session_data'])
+                        with open(session_path, 'wb') as f:
+                            f.write(session_data)
+                        
+                        client = TelegramClient(
+                            session_path.replace('.session', ''),
+                            account_data['api_id'],
+                            account_data['api_hash']
+                        )
+                    except Exception as data_error:
+                        logger.error(f"❌ Failed to create client from session_data for account {account_id}: {data_error}")
+                        return None
+                else:
+                    logger.error(f"❌ No valid session data available for account {account_id}")
+                    return None
             
             # Connect without prompting for input
             await client.connect()
