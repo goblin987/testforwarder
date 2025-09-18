@@ -1163,6 +1163,13 @@ Buttons will appear as an inline keyboard below your ad message."""
         message_text = update.message.text.strip()
         
         if message_text.lower() in ['done', 'finish', 'complete']:
+            # Update storage message with buttons before moving to target chats
+            if 'buttons' in session['campaign_data'] and session['campaign_data']['buttons']:
+                logger.info(f"🔧 DEBUG: Updating storage message with {len(session['campaign_data']['buttons'])} buttons")
+                await self._update_storage_message_with_buttons(session['campaign_data'])
+            else:
+                logger.info(f"🔧 DEBUG: No buttons to update storage message with")
+            
             # Move to target chats selection
             session['step'] = 'target_chats_choice'
             await self.show_target_chat_options(update, session)
@@ -1451,12 +1458,7 @@ Buttons will appear as an inline keyboard below your ad message."""
             success_count = 0
             ad_content = campaign_data['ad_content']
             
-            # Update storage message with buttons if they exist
-            if 'buttons' in campaign_data and campaign_data['buttons']:
-                logger.info(f"🔧 DEBUG: Updating storage message with {len(campaign_data['buttons'])} buttons")
-                await self._update_storage_message_with_buttons(campaign_data)
-            else:
-                logger.info(f"🔧 DEBUG: No buttons to update storage message with")
+            # Storage message buttons are updated in button_input step
             
             # Create buttons from campaign data
             from telethon import Button
@@ -3560,12 +3562,7 @@ This name will help you identify the campaign in your dashboard.
                     'immediate_start': True  # Flag for immediate execution
                 }
             
-            # Update storage message with buttons if they exist
-            if 'buttons' in enhanced_campaign_data and enhanced_campaign_data['buttons']:
-                logger.info(f"🔧 DEBUG: Updating storage message with {len(enhanced_campaign_data['buttons'])} buttons")
-                await self._update_storage_message_with_buttons(enhanced_campaign_data)
-            else:
-                logger.info(f"🔧 DEBUG: No buttons to update storage message with")
+            # Storage message buttons are updated in button_input step
             
             logger.info(f"🔧 DEBUG: About to call add_campaign")
             logger.info(f"Creating campaign with data: {enhanced_campaign_data}")
