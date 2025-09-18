@@ -1475,52 +1475,56 @@ Buttons will appear as an inline keyboard below your ad message."""
                 logger.info(f"🔍 STORAGE CAPTION DEBUG: caption='{caption_text}', caption_length={len(caption_text)}")
                 logger.info(f"🔍 STORAGE ENTITIES DEBUG: {len(bot_entities)} entities ready")
                 
-                # Only send caption if we have text
-                if not caption_text:
-                    logger.warning("⚠️ STORAGE WARNING: No caption text found, sending without caption")
-                    caption_to_send = None
-                    entities_to_send = None
-                else:
-                    caption_to_send = caption_text
-                    entities_to_send = bot_entities
-                
+                # Send media first without caption (like the user flow)
                 if ad_data['media_type'] == 'video':
-                    forwarded_message = await context.bot.send_video(
+                    media_message = await context.bot.send_video(
                         chat_id=storage_channel_id,
                         video=ad_data['file_id'],
-                        caption=caption_to_send,
-                        caption_entities=entities_to_send,
                         reply_markup=None
                     )
                 elif ad_data['media_type'] == 'photo':
-                    forwarded_message = await context.bot.send_photo(
+                    media_message = await context.bot.send_photo(
                         chat_id=storage_channel_id,
                         photo=ad_data['file_id'],
-                        caption=caption_to_send,
-                        caption_entities=entities_to_send,
                         reply_markup=None
                     )
                 elif ad_data['media_type'] == 'document':
-                    forwarded_message = await context.bot.send_document(
+                    media_message = await context.bot.send_document(
                         chat_id=storage_channel_id,
                         document=ad_data['file_id'],
-                        caption=caption_to_send,
-                        caption_entities=entities_to_send,
                         reply_markup=None
                     )
                 else:
                     # Fallback: send text message
-                    forwarded_message = await context.bot.send_message(
+                    media_message = await context.bot.send_message(
                         chat_id=storage_channel_id,
-                        text=caption_to_send or '',
-                        entities=entities_to_send,
+                        text=caption_text or '',
+                        entities=bot_entities,
                         reply_markup=None
                     )
+                
+                # Then send text with entities as a separate message (like the user flow)
+                if caption_text and ad_data['media_type'] != 'text':
+                    text_message = await context.bot.send_message(
+                        chat_id=storage_channel_id,
+                        text=caption_text,
+                        entities=bot_entities,
+                        reply_markup=None
+                    )
+                    logger.info(f"✅ STORAGE TEXT: Sent text message {text_message.message_id} with {len(bot_entities)} entities")
+                
+                # Use the media message as the main message for forwarding
+                forwarded_message = media_message
                 
                 # Store the storage message info
                 ad_data['storage_file_id'] = forwarded_message.video.file_id if forwarded_message.video else forwarded_message.photo[-1].file_id if forwarded_message.photo else forwarded_message.document.file_id if forwarded_message.document else None
                 ad_data['storage_message_id'] = forwarded_message.message_id
                 ad_data['storage_chat_id'] = str(storage_channel_id)
+                
+                # Store the text message info if we sent a separate text message
+                if caption_text and ad_data['media_type'] != 'text':
+                    ad_data['storage_text_message_id'] = text_message.message_id
+                    logger.info(f"✅ STORAGE TEXT: Stored text message ID {text_message.message_id}")
                 
                 logger.info(f"✅ Media with caption stored in channel: {ad_data['storage_file_id']}")
                 
