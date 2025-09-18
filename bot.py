@@ -858,6 +858,11 @@ Please send me the source chat ID or username.
         has_caption = bool(message.caption)
         has_text = bool(message.text)
         
+        # DEBUG: Log what we actually received
+        logger.info(f"🔍 MESSAGE DEBUG: has_media={has_media}, has_caption={has_caption}, has_text={has_text}")
+        logger.info(f"🔍 MESSAGE DEBUG: message.text='{message.text}'")
+        logger.info(f"🔍 MESSAGE DEBUG: message.caption='{message.caption}'")
+        
         if has_media and has_text and not has_caption:
             # Media with text (not caption) - treat text as caption
             logger.info("Media with text detected, treating text as caption")
