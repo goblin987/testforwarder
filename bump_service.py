@@ -1152,52 +1152,48 @@ class BumpService:
         
         # Create buttons from campaign data or use default
         
-        # Create ReplyKeyboardMarkup for worker account (persistent bottom keyboard with URL buttons)
+        # Create InlineKeyboardMarkup for worker account (buttons that appear below the message)
         telethon_reply_markup = None
         if buttons and len(buttons) > 0:
             try:
-                # Create button rows for ReplyKeyboardMarkup with URL buttons
+                # Create button rows for InlineKeyboardMarkup with URL buttons
                 button_rows = []
                 for button_info in buttons:
                     if button_info.get('text') and button_info.get('url'):
-                        # Create clickable URL button for bottom keyboard
-                        button_row = [KeyboardButtonUrl(
+                        # Create clickable URL inline button
+                        button_row = [Button.url(
                             text=button_info['text'],
                             url=button_info['url']
                         )]
                         button_rows.append(button_row)
-                        logger.info(f"✅ Created URL ReplyKeyboard button: '{button_info['text']}' -> '{button_info['url']}'")
+                        logger.info(f"✅ Created URL inline button: '{button_info['text']}' -> '{button_info['url']}'")
                 
                 if button_rows:
-                    # Create ReplyKeyboardMarkup with persistent=True
-                    telethon_reply_markup = ReplyKeyboardMarkup(
-                        rows=button_rows,
-                        resize=True,        # Makes buttons large and full-width
-                        persistent=True,    # Stays visible for ALL messages
-                        selective=False     # Shows to everyone in group
-                    )
-                    logger.info(f"🔘 Created ReplyKeyboardMarkup with {len(button_rows)} URL button rows")
-                    logger.info(f"🔘 ReplyKeyboardMarkup type: {type(telethon_reply_markup)}")
+                    # Create InlineKeyboardMarkup
+                    from telethon.tl.types import ReplyInlineMarkup
+                    telethon_reply_markup = ReplyInlineMarkup(rows=button_rows)
+                    logger.info(f"🔘 Created InlineKeyboardMarkup with {len(button_rows)} URL button rows")
+                    logger.info(f"🔘 InlineKeyboardMarkup type: {type(telethon_reply_markup)}")
                 else:
                     logger.warning(f"⚠️ No valid URL buttons created")
                     telethon_reply_markup = None
             except Exception as e:
-                logger.error(f"❌ ReplyKeyboardMarkup creation failed: {e}")
+                logger.error(f"❌ InlineKeyboardMarkup creation failed: {e}")
                 telethon_reply_markup = None
         
         # Store button data for bot to use later
         campaign_buttons = buttons if buttons and len(buttons) > 0 else []
-        logger.info(f"📱 Bot will handle ReplyKeyboardMarkup: {len(campaign_buttons)} buttons configured")
+        logger.info(f"📱 Bot will handle InlineKeyboardMarkup: {len(campaign_buttons)} buttons configured")
         
         # Debug button creation
         if telethon_reply_markup:
-            logger.info(f"🔘 SUCCESS: Created ReplyKeyboardMarkup with {len(telethon_reply_markup.rows)} button rows for worker account")
+            logger.info(f"🔘 SUCCESS: Created InlineKeyboardMarkup with {len(telethon_reply_markup.rows)} button rows for worker account")
             for i, row in enumerate(telethon_reply_markup.rows):
                 logger.info(f"🔘 Row {i}: {len(row)} buttons")
                 for j, btn in enumerate(row):
                     logger.info(f"🔘 Button {i},{j}: {btn.text}")
         else:
-            logger.warning(f"⚠️ No ReplyKeyboardMarkup created for worker account")
+            logger.warning(f"⚠️ No InlineKeyboardMarkup created for worker account")
         
         # Get all groups if target_mode is all_groups
         if campaign.get('target_mode') == 'all_groups' or target_chats == ['ALL_WORKER_GROUPS']:

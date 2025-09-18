@@ -955,28 +955,24 @@ Please send me the source chat ID or username.
                 
                 storage_channel_id = Config.STORAGE_CHANNEL_ID
                 if storage_channel_id:
-                    logger.info(f"📤 STORAGE CHANNEL: Creating message with ReplyKeyboardMarkup buttons in storage channel")
+                    logger.info(f"📤 STORAGE CHANNEL: Creating message with InlineKeyboardMarkup buttons in storage channel")
                     
-                    # Create a new message with ReplyKeyboardMarkup buttons in storage channel
+                    # Create a new message with InlineKeyboardMarkup buttons in storage channel
                     # This preserves the original content but adds the buttons
-                    from telegram import ReplyKeyboardMarkup, KeyboardButton
+                    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
                     
-                    # Create ReplyKeyboardMarkup from campaign buttons
+                    # Create InlineKeyboardMarkup from campaign buttons (these appear below the message)
                     keyboard_buttons = []
                     if 'buttons' in ad_data and ad_data['buttons']:
                         for button in ad_data['buttons']:
                             if button.get('text') and button.get('url'):
                                 # Create clickable URL button
-                                keyboard_buttons.append([KeyboardButton(button['text'], url=button['url'])])
+                                keyboard_buttons.append([InlineKeyboardButton(button['text'], url=button['url'])])
                     
                     reply_markup = None
                     if keyboard_buttons:
-                        reply_markup = ReplyKeyboardMarkup(
-                            keyboard_buttons,
-                            resize_keyboard=True,
-                            one_time_keyboard=False
-                        )
-                        logger.info(f"✅ Created ReplyKeyboardMarkup with {len(keyboard_buttons)} buttons")
+                        reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+                        logger.info(f"✅ Created InlineKeyboardMarkup with {len(keyboard_buttons)} buttons")
                     else:
                         logger.info(f"ℹ️ No buttons to add to storage message")
                     
