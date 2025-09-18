@@ -1471,36 +1471,49 @@ Buttons will appear as an inline keyboard below your ad message."""
                     logger.info(f"🔍 STORAGE ENTITIES: Created {len(bot_entities)} Bot API entities")
                 
                 # Create storage message with caption and entities
+                caption_text = ad_data.get('caption', '')
+                logger.info(f"🔍 STORAGE CAPTION DEBUG: caption='{caption_text}', caption_length={len(caption_text)}")
+                logger.info(f"🔍 STORAGE ENTITIES DEBUG: {len(bot_entities)} entities ready")
+                
+                # Only send caption if we have text
+                if not caption_text:
+                    logger.warning("⚠️ STORAGE WARNING: No caption text found, sending without caption")
+                    caption_to_send = None
+                    entities_to_send = None
+                else:
+                    caption_to_send = caption_text
+                    entities_to_send = bot_entities
+                
                 if ad_data['media_type'] == 'video':
                     forwarded_message = await context.bot.send_video(
                         chat_id=storage_channel_id,
                         video=ad_data['file_id'],
-                        caption=ad_data.get('caption'),
-                        caption_entities=bot_entities,
+                        caption=caption_to_send,
+                        caption_entities=entities_to_send,
                         reply_markup=None
                     )
                 elif ad_data['media_type'] == 'photo':
                     forwarded_message = await context.bot.send_photo(
                         chat_id=storage_channel_id,
                         photo=ad_data['file_id'],
-                        caption=ad_data.get('caption'),
-                        caption_entities=bot_entities,
+                        caption=caption_to_send,
+                        caption_entities=entities_to_send,
                         reply_markup=None
                     )
                 elif ad_data['media_type'] == 'document':
                     forwarded_message = await context.bot.send_document(
                         chat_id=storage_channel_id,
                         document=ad_data['file_id'],
-                        caption=ad_data.get('caption'),
-                        caption_entities=bot_entities,
+                        caption=caption_to_send,
+                        caption_entities=entities_to_send,
                         reply_markup=None
                     )
                 else:
                     # Fallback: send text message
                     forwarded_message = await context.bot.send_message(
                         chat_id=storage_channel_id,
-                        text=ad_data.get('caption', ''),
-                        entities=bot_entities,
+                        text=caption_to_send or '',
+                        entities=entities_to_send,
                         reply_markup=None
                     )
                 
