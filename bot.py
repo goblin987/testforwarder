@@ -1454,239 +1454,66 @@ Buttons will appear as an inline keyboard below your ad message."""
             )
     
     async def _create_storage_message_with_caption(self, ad_data: dict, update: Update, session: dict, context: ContextTypes.DEFAULT_TYPE = None):
-        """Create storage message with caption and entities using Telethon (supports premium emojis)"""
+        """Create storage message with caption and entities using Bot API (simple and reliable)"""
         try:
             from config import Config
-            import asyncio
-            import time
-            from telethon import TelegramClient
-            from telethon.tl.types import MessageEntityCustomEmoji, MessageEntityBold, MessageEntityItalic, MessageEntityMention
             
             storage_channel_id = Config.STORAGE_CHANNEL_ID
             if storage_channel_id and ad_data.get('file_id'):
-                logger.info(f"📤 STORAGE CHANNEL: Creating message with premium emojis using Telethon")
+                logger.info(f"📤 STORAGE CHANNEL: Creating message with Bot API")
                 
-                # Convert stored entities to Telethon format
-                telethon_entities = []
-                if ad_data.get('caption_entities'):
-                    logger.info(f"🔍 TELETHON ENTITY CONVERSION: Converting {len(ad_data['caption_entities'])} entities for storage message")
-                    for i, entity_data in enumerate(ad_data['caption_entities']):
-                        try:
-                            entity_type = entity_data['type']
-                            if hasattr(entity_type, 'value'):
-                                entity_type = entity_type.value
-                            elif hasattr(entity_type, 'name'):
-                                entity_type = entity_type.name.lower()
-                            
-                            # Convert to Telethon entity types
-                            if entity_type == 'custom_emoji':
-                                entity = MessageEntityCustomEmoji(
-                                    offset=entity_data['offset'],
-                                    length=entity_data['length'],
-                                    document_id=int(entity_data['custom_emoji_id'])
-                                )
-                            elif entity_type == 'bold':
-                                entity = MessageEntityBold(
-                                    offset=entity_data['offset'],
-                                    length=entity_data['length']
-                                )
-                            elif entity_type == 'italic':
-                                entity = MessageEntityItalic(
-                                    offset=entity_data['offset'],
-                                    length=entity_data['length']
-                                )
-                            elif entity_type == 'mention':
-                                entity = MessageEntityMention(
-                                    offset=entity_data['offset'],
-                                    length=entity_data['length']
-                                )
-                            else:
-                                # Skip unsupported entity types
-                                continue
-                            
-                            telethon_entities.append(entity)
-                            logger.info(f"🔍 Telethon Entity {i}: {entity_type} -> {type(entity).__name__}")
-                            
-                        except Exception as e:
-                            logger.warning(f"Failed to create Telethon entity: {e}")
-                            continue
-                    
-                    logger.info(f"🔍 TELETHON ENTITIES: Created {len(telethon_entities)} Telethon entities")
-                
-                # Get caption text
+                # Get caption text and entities
                 caption_text = ad_data.get('caption', '')
-                logger.info(f"🔍 TELETHON CAPTION DEBUG: caption='{caption_text}', caption_length={len(caption_text)}")
+                caption_entities = ad_data.get('caption_entities', [])
                 
-                # Create Telethon client using the same account as bump_service
-                # We'll use the first available account from the database
-                from database import Database
-                db = Database()
-                user_id = update.effective_user.id
-                accounts = db.get_user_accounts(user_id)  # Get accounts for the current user
-                if not accounts:
-                    raise Exception("No worker accounts available for storage message creation")
+                logger.info(f"🔍 BOT API CAPTION DEBUG: caption='{caption_text}', caption_length={len(caption_text)}")
+                logger.info(f"🔍 BOT API ENTITIES: {len(caption_entities)} entities")
                 
-                # Use the first account
-                account = accounts[0]
-                logger.info(f"🔍 TELETHON STORAGE: Using account {account['account_name']} for storage message creation")
+                # Send media with caption using Bot API
+                if ad_data['media_type'] == 'video':
+                    sent_message = await context.bot.send_video(
+                        chat_id=storage_channel_id,
+                        video=ad_data['file_id'],
+                        caption=caption_text,
+                        caption_entities=caption_entities,
+                        parse_mode=None
+                    )
+                elif ad_data['media_type'] == 'photo':
+                    sent_message = await context.bot.send_photo(
+                        chat_id=storage_channel_id,
+                        photo=ad_data['file_id'],
+                        caption=caption_text,
+                        caption_entities=caption_entities,
+                        parse_mode=None
+                    )
+                elif ad_data['media_type'] == 'document':
+                    sent_message = await context.bot.send_document(
+                        chat_id=storage_channel_id,
+                        document=ad_data['file_id'],
+                        caption=caption_text,
+                        caption_entities=caption_entities,
+                        parse_mode=None
+                    )
+                else:
+                    # Send text message
+                    sent_message = await context.bot.send_message(
+                        chat_id=storage_channel_id,
+                        text=caption_text,
+                        entities=caption_entities,
+                        parse_mode=None
+                    )
                 
-                # Create Telethon client with proper session path
-                import os
-                import tempfile
-                session_dir = "sessions"
-                if not os.path.exists(session_dir):
-                    os.makedirs(session_dir, exist_ok=True)
+                # Store the message ID and chat ID for forwarding
+                ad_data['storage_message_id'] = sent_message.message_id
+                ad_data['storage_chat_id'] = storage_channel_id
                 
-                # Use a unique session file to avoid conflicts
-                session_name = f"storage_{account['id']}_{int(time.time())}"
-                session_path = f"{session_dir}/{session_name}"
+                logger.info(f"✅ Storage message created with Bot API: ID {sent_message.message_id}")
                 
-                client = TelegramClient(
-                    session_path,
-                    account['api_id'],
-                    account['api_hash']
-                )
-                
-                # Start client with better error handling
-                try:
-                    await client.start(phone=account['phone_number'])
-                except Exception as start_error:
-                    logger.error(f"Failed to start Telethon client: {start_error}")
-                    # Try to clean up corrupted session
-                    try:
-                        if os.path.exists(f"{session_path}.session"):
-                            os.remove(f"{session_path}.session")
-                    except:
-                        pass
-                    raise start_error
-                
-                try:
-                    # Send media with caption and entities using Telethon
-                    if ad_data['media_type'] == 'video':
-                        # Download video file first
-                        video_file = await context.bot.get_file(ad_data['file_id'])
-                        video_path = f"temp_video_{ad_data['file_id']}.mp4"
-                        await video_file.download_to_drive(video_path)
-                        
-                        # Send with Telethon
-                        sent_message = await client.send_file(
-                            entity=storage_channel_id,
-                            file=video_path,
-                            caption=caption_text,
-                            formatting_entities=telethon_entities,
-                            parse_mode=None
-                        )
-                        
-                        # Clean up temp file
-                        import os
-                        if os.path.exists(video_path):
-                            os.remove(video_path)
-                            
-                    elif ad_data['media_type'] == 'photo':
-                        # Download photo file first
-                        photo_file = await context.bot.get_file(ad_data['file_id'])
-                        photo_path = f"temp_photo_{ad_data['file_id']}.jpg"
-                        await photo_file.download_to_drive(photo_path)
-                        
-                        # Send with Telethon
-                        sent_message = await client.send_file(
-                            entity=storage_channel_id,
-                            file=photo_path,
-                            caption=caption_text,
-                            formatting_entities=telethon_entities,
-                            parse_mode=None
-                        )
-                        
-                        # Clean up temp file
-                        import os
-                        if os.path.exists(photo_path):
-                            os.remove(photo_path)
-                            
-                    elif ad_data['media_type'] == 'document':
-                        # Download document file first
-                        doc_file = await context.bot.get_file(ad_data['file_id'])
-                        doc_path = f"temp_doc_{ad_data['file_id']}"
-                        await doc_file.download_to_drive(doc_path)
-                        
-                        # Send with Telethon
-                        sent_message = await client.send_file(
-                            entity=storage_channel_id,
-                            file=doc_path,
-                            caption=caption_text,
-                            formatting_entities=telethon_entities,
-                            parse_mode=None
-                        )
-                        
-                        # Clean up temp file
-                        import os
-                        if os.path.exists(doc_path):
-                            os.remove(doc_path)
-                    else:
-                        # Send text message
-                        sent_message = await client.send_message(
-                            entity=storage_channel_id,
-                            message=caption_text,
-                            formatting_entities=telethon_entities,
-                            parse_mode=None
-                        )
-                    
-                    logger.info(f"✅ TELETHON STORAGE: Created message {sent_message.id} with premium emojis")
-                    
-                    # Store the storage message info
-                    ad_data['storage_file_id'] = ad_data['file_id']  # Keep original file_id
-                    ad_data['storage_message_id'] = sent_message.id
-                    ad_data['storage_chat_id'] = str(storage_channel_id)
-                    
-                    logger.info(f"✅ Media with premium emojis stored in channel: {ad_data['storage_file_id']}")
-                    
-                finally:
-                    await client.disconnect()
-                    # Clean up session file
-                    try:
-                        if os.path.exists(f"{session_path}.session"):
-                            os.remove(f"{session_path}.session")
-                    except Exception as cleanup_error:
-                        logger.warning(f"Failed to clean up session file: {cleanup_error}")
-                
-                # Add to campaign data
-                session['campaign_data']['ad_messages'] = [ad_data]
-                
-                # Move to next step
-                session['step'] = 'add_buttons_choice'
-                
-                # Show button choice message
-                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-                text = """➕ **Step 3/6: Add Buttons (Optional)**
-            
-            **Would you like to add buttons under your ad?**
-            
-            **What buttons do:**
-            • Add clickable buttons under your message
-            • Users can click to visit your website, channel, or bot
-            • Buttons appear as inline buttons under the message
-            
-            **Examples:**
-            • "Shop Now" → https://yourshop.com
-            • "Join Channel" → @yourchannel
-            • "Contact Us" → @yoursupport
-            
-            **Choose an option below:**"""
-            
-                keyboard = [
-                    [InlineKeyboardButton("✅ Yes, Add Buttons", callback_data="add_buttons_yes")],
-                    [InlineKeyboardButton("❌ No, Skip Buttons", callback_data="add_buttons_no")],
-                    [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="main_menu")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                await update.message.reply_text(
-                    text,
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=reply_markup
-                )
+            else:
+                logger.warning("No storage channel ID or file ID available for storage message creation")
                 
         except Exception as e:
-            logger.error(f"Error creating storage message with Telethon: {e}")
+            logger.error(f"Error creating storage message with Bot API: {e}")
             await update.message.reply_text(
                 "❌ **Error creating storage message.**\n\nPlease try again or contact support if the problem persists.",
                 parse_mode=ParseMode.MARKDOWN
