@@ -960,29 +960,47 @@ Please send me the source chat ID or username.
                     # Create storage message without buttons (will be updated later when buttons are defined)
                     reply_markup = None
                     
+                    # Convert stored entities to Bot API format for storage message
+                    from telegram import MessageEntity
+                    bot_entities = []
+                    if ad_data.get('caption_entities'):
+                        for entity_data in ad_data['caption_entities']:
+                            try:
+                                entity = MessageEntity(
+                                    type=entity_data['type'],
+                                    offset=entity_data['offset'],
+                                    length=entity_data['length'],
+                                    url=entity_data.get('url'),
+                                    custom_emoji_id=entity_data.get('custom_emoji_id')
+                                )
+                                bot_entities.append(entity)
+                            except Exception as e:
+                                logger.warning(f"Failed to create entity: {e}")
+                                continue
+                    
                     # Send message with ReplyKeyboardMarkup to storage channel
                     if message.video:
                         forwarded_message = await context.bot.send_video(
                             chat_id=storage_channel_id,
                             video=message.video.file_id,
-                            caption=message.caption,
-                            caption_entities=message.caption_entities,
+                            caption=ad_data.get('caption'),
+                            caption_entities=bot_entities,
                             reply_markup=reply_markup
                         )
                     elif message.photo:
                         forwarded_message = await context.bot.send_photo(
                             chat_id=storage_channel_id,
                             photo=message.photo[-1].file_id,
-                            caption=message.caption,
-                            caption_entities=message.caption_entities,
+                            caption=ad_data.get('caption'),
+                            caption_entities=bot_entities,
                             reply_markup=reply_markup
                         )
                     elif message.document:
                         forwarded_message = await context.bot.send_document(
                             chat_id=storage_channel_id,
                             document=message.document.file_id,
-                            caption=message.caption,
-                            caption_entities=message.caption_entities,
+                            caption=ad_data.get('caption'),
+                            caption_entities=bot_entities,
                             reply_markup=reply_markup
                         )
                     else:
