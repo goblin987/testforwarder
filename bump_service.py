@@ -1212,33 +1212,7 @@ class BumpService:
                             except Exception as forward_error:
                                 logger.error(f"Failed to forward with unified Telethon: {forward_error}")
                                 
-                                # 🎯 BOT API FALLBACK: Use Bot API to forward from storage (preserves buttons, basic emojis)
-                                if storage_message_id and storage_chat_id:
-                                    logger.info(f"🔄 BOT API FALLBACK: Forwarding message {storage_message_id} from {storage_chat_id}")
-                                    try:
-                                        from config import Config
-                                        from telegram import Bot
-                                        
-                                        # Create bot instance for forwarding
-                                        bot = Bot(token=Config.BOT_TOKEN)
-                                        
-                                        # Forward using Bot API (preserves buttons and basic formatting)
-                                        forwarded_message = await bot.forward_message(
-                                            chat_id=chat_entity.id,
-                                            from_chat_id=storage_chat_id,
-                                            message_id=storage_message_id
-                                        )
-                                        
-                                        if forwarded_message:
-                                            logger.info(f"✅ BOT API FALLBACK: Successfully forwarded message with buttons to {chat_entity.title}")
-                                            continue
-                                        else:
-                                            logger.warning(f"❌ Bot API fallback failed - no message returned")
-                                            
-                                    except Exception as bot_fallback_error:
-                                        logger.error(f"❌ Bot API fallback failed: {bot_fallback_error}")
-                                
-                                # Last resort fallback: Download and re-upload (loses custom emojis but preserves basic content)
+                                # Fallback: Download and re-upload (loses custom emojis but preserves basic content)
                                 logger.info(f"Downloading media file: {media_message['file_id']}")
                                 try:
                                     media_file = await client.download_media(media_message['file_id'])
