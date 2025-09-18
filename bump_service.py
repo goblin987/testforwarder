@@ -868,42 +868,43 @@ class BumpService:
             logger.info(f"✅ Telegram client initialized via telethon_manager (Account: {account_id})")
             
             # 🎯 AUTO-JOIN STORAGE CHANNEL: Ensure worker account can access storage channel
-            from config import Config
-            storage_channel_id = Config.STORAGE_CHANNEL_ID
-            
-            if storage_channel_id:
-                logger.info(f"🔄 AUTO-JOIN: Ensuring worker account has access to storage channel {storage_channel_id}")
+            try:
+                from config import Config
+                storage_channel_id = Config.STORAGE_CHANNEL_ID
                 
-                # Convert string ID to integer for Telethon
-                try:
-                    if isinstance(storage_channel_id, str):
-                        if storage_channel_id.startswith('-100'):
-                            # Full channel ID format: -1001234567890
-                            channel_id_int = int(storage_channel_id)
-                        elif storage_channel_id.startswith('-'):
-                            # Short format: -1234567890, convert to full format
-                            channel_id_int = int('-100' + storage_channel_id[1:])
+                if storage_channel_id:
+                    logger.info(f"🔄 AUTO-JOIN: Ensuring worker account has access to storage channel {storage_channel_id}")
+                    
+                    # Convert string ID to integer for Telethon
+                    try:
+                        if isinstance(storage_channel_id, str):
+                            if storage_channel_id.startswith('-100'):
+                                # Full channel ID format: -1001234567890
+                                channel_id_int = int(storage_channel_id)
+                            elif storage_channel_id.startswith('-'):
+                                # Short format: -1234567890, convert to full format
+                                channel_id_int = int('-100' + storage_channel_id[1:])
+                            else:
+                                # Positive number, convert to negative channel ID
+                                channel_id_int = int('-100' + storage_channel_id)
                         else:
-                            # Positive number, convert to negative channel ID
-                            channel_id_int = int('-100' + storage_channel_id)
-                    else:
-                        channel_id_int = int(storage_channel_id)
-                    
-                    logger.info(f"🔄 Using channel ID: {channel_id_int}")
-                    
-                    # Try to get channel info
-                    storage_channel = await client.get_entity(channel_id_int)
-                    logger.info(f"✅ Storage channel access confirmed: {storage_channel.title}")
-                    
-                except Exception as access_error:
-                    logger.warning(f"⚠️ Cannot access storage channel with ID {channel_id_int}: {access_error}")
-                    
-                    # 🔄 TELETHON SESSION REFRESH: If worker is member but Telethon can't find channel, refresh session
-                    if "Cannot find any entity" in str(access_error):
-                        logger.warning(f"🔄 TELETHON SESSION ISSUE: Worker is member but session cache is stale")
-                        logger.warning(f"💡 SOLUTION: Force session refresh by getting dialogs")
+                            channel_id_int = int(storage_channel_id)
                         
-                        try:
+                        logger.info(f"🔄 Using channel ID: {channel_id_int}")
+                        
+                        # Try to get channel info
+                        storage_channel = await client.get_entity(channel_id_int)
+                        logger.info(f"✅ Storage channel access confirmed: {storage_channel.title}")
+                        
+                    except Exception as access_error:
+                        logger.warning(f"⚠️ Cannot access storage channel with ID {channel_id_int}: {access_error}")
+                        
+                        # 🔄 TELETHON SESSION REFRESH: If worker is member but Telethon can't find channel, refresh session
+                        if "Cannot find any entity" in str(access_error):
+                            logger.warning(f"🔄 TELETHON SESSION ISSUE: Worker is member but session cache is stale")
+                            logger.warning(f"💡 SOLUTION: Force session refresh by getting dialogs")
+                            
+                            try:
                             # Force Telethon to refresh its entity cache by getting dialogs
                             logger.info(f"🔄 Refreshing Telethon session cache...")
                             dialogs = await client.get_dialogs(limit=50)
@@ -936,11 +937,11 @@ class BumpService:
                                 logger.warning(f"❌ All channel access methods failed")
                                 logger.warning(f"💡 If worker account is a member, this is a Telethon session cache issue")
                                 logger.warning(f"💡 Consider restarting the service to refresh session files")
-                    else:
-                        logger.warning(f"❌ Channel access failed with non-entity error: {access_error}")
-            else:
-                logger.info(f"⚠️ STORAGE_CHANNEL_ID not configured - skipping auto-join")
-                
+                        else:
+                            logger.warning(f"❌ Channel access failed with non-entity error: {access_error}")
+                else:
+                    logger.info(f"⚠️ STORAGE_CHANNEL_ID not configured - skipping auto-join")
+                    
             except Exception as storage_setup_error:
                 logger.error(f"❌ Storage channel setup failed: {storage_setup_error}")
                 # Continue anyway - this is not critical for basic functionality
