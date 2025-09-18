@@ -1538,10 +1538,11 @@ Buttons will appear as an inline keyboard below your ad message."""
                 client = TelegramClient(
                     f"{session_dir}/storage_{account['id']}",
                     account['api_id'],
-                    account['api_hash']
+                    account['api_hash'],
+                    phone=account['phone_number']
                 )
                 
-                await client.start(phone=account['phone'])
+                await client.start(phone=account['phone_number'])
                 
                 try:
                     # Send media with caption and entities using Telethon
