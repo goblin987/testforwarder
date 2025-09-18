@@ -874,46 +874,15 @@ Please send me the source chat ID or username.
             )
             return
         elif has_media and (has_text or has_caption):
-            # Media with text/caption - process normally
-            logger.info("Media with text/caption detected, processing normally")
-            if has_text and not has_caption:
-                # Text is not caption, treat as caption
-                ad_data['caption'] = message.text
-                ad_data['caption_entities'] = []
-                
-                # Process text entities as caption entities
-                if message.entities:
-                    for entity in message.entities:
-                        entity_data = {
-                            'type': entity.type,
-                            'offset': entity.offset,
-                            'length': entity.length,
-                            'url': entity.url if hasattr(entity, 'url') else None,
-                            'custom_emoji_id': entity.custom_emoji_id if hasattr(entity, 'custom_emoji_id') else None
-                        }
-                        ad_data['caption_entities'].append(entity_data)
-                        
-                        if entity.type == 'custom_emoji':
-                            ad_data['has_custom_emojis'] = True
-            elif has_caption:
-                # Use existing caption
-                ad_data['caption'] = message.caption
-                ad_data['caption_entities'] = []
-                
-                # Process caption entities
-                if message.caption_entities:
-                    for entity in message.caption_entities:
-                        entity_data = {
-                            'type': entity.type,
-                            'offset': entity.offset,
-                            'length': entity.length,
-                            'url': entity.url if hasattr(entity, 'url') else None,
-                            'custom_emoji_id': entity.custom_emoji_id if hasattr(entity, 'custom_emoji_id') else None
-                        }
-                        ad_data['caption_entities'].append(entity_data)
-                        
-                        if entity.type == 'custom_emoji':
-                            ad_data['has_custom_emojis'] = True
+            # Media with text/caption - ask user to send text separately for better premium emoji handling
+            logger.info("Media with text/caption detected, asking user to send text separately")
+            session['pending_media_data'] = ad_data
+            session['step'] = 'ad_text_input'
+            await update.message.reply_text(
+                "📤 **Media with text received!**\n\nFor better premium emoji handling, please send me the **text separately** (without the media).\n\n**Just type or forward the text message now!**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
         
         # Preserve text entities (formatting, emojis, links) - only if not already processed as caption
         if message.entities and not (has_media and has_text and not has_caption):
@@ -1375,37 +1344,8 @@ Buttons will appear as an inline keyboard below your ad message."""
     async def _process_complete_ad_data(self, ad_data: dict, update: Update, session: dict, context: ContextTypes.DEFAULT_TYPE = None):
         """Process complete ad data and create storage message"""
         try:
-            # Process media type and file info
-            message = update.message
-            
-            if message.video:
-                ad_data['media_type'] = 'video'
-                ad_data['file_id'] = message.video.file_id
-                ad_data['file_unique_id'] = message.video.file_unique_id
-                ad_data['file_size'] = getattr(message.video, 'file_size', None)
-                ad_data['duration'] = getattr(message.video, 'duration', None)
-                ad_data['width'] = getattr(message.video, 'width', None)
-                ad_data['height'] = getattr(message.video, 'height', None)
-            elif message.photo:
-                ad_data['media_type'] = 'photo'
-                ad_data['file_id'] = message.photo[-1].file_id
-                ad_data['file_unique_id'] = message.photo[-1].file_unique_id
-                ad_data['file_size'] = getattr(message.photo[-1], 'file_size', None)
-                ad_data['width'] = getattr(message.photo[-1], 'width', None)
-                ad_data['height'] = getattr(message.photo[-1], 'height', None)
-            elif message.document:
-                ad_data['media_type'] = 'document'
-                ad_data['file_id'] = message.document.file_id
-                ad_data['file_unique_id'] = message.document.file_unique_id
-                ad_data['file_size'] = getattr(message.document, 'file_size', None)
-            elif message.audio:
-                ad_data['media_type'] = 'audio'
-                ad_data['file_id'] = message.audio.file_id
-                ad_data['file_unique_id'] = message.audio.file_unique_id
-                ad_data['file_size'] = getattr(message.audio, 'file_size', None)
-                ad_data['duration'] = getattr(message.audio, 'duration', None)
-                ad_data['performer'] = getattr(message.audio, 'performer', None)
-                ad_data['title'] = getattr(message.audio, 'title', None)
+            # The media data is already processed in the pending_media_data
+            # We just need to create the storage message with the caption and entities
             
             # Create storage message with caption and entities
             await self._create_storage_message_with_caption(ad_data, update, session, context)
