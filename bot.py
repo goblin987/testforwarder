@@ -966,6 +966,7 @@ Please send me the source chat ID or username.
                             chat_id=storage_channel_id,
                             video=message.video.file_id,
                             caption=message.caption,
+                            caption_entities=message.caption_entities,
                             reply_markup=reply_markup
                         )
                     elif message.photo:
@@ -973,6 +974,7 @@ Please send me the source chat ID or username.
                             chat_id=storage_channel_id,
                             photo=message.photo[-1].file_id,
                             caption=message.caption,
+                            caption_entities=message.caption_entities,
                             reply_markup=reply_markup
                         )
                     elif message.document:
@@ -980,6 +982,7 @@ Please send me the source chat ID or username.
                             chat_id=storage_channel_id,
                             document=message.document.file_id,
                             caption=message.caption,
+                            caption_entities=message.caption_entities,
                             reply_markup=reply_markup
                         )
                     else:
