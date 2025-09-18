@@ -388,3 +388,42 @@ class Database:
                 WHERE id = ?
             ''', (campaign_id,))
             conn.commit()
+    
+    def update_campaign_storage_message_id(self, campaign_id: int, new_storage_message_id: int):
+        """Update the storage message ID in a campaign's ad_content"""
+        import json
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get the current ad_content
+            cursor.execute('SELECT ad_content FROM ad_campaigns WHERE id = ?', (campaign_id,))
+            row = cursor.fetchone()
+            if not row:
+                return False
+            
+            ad_content_str = row[0]
+            if not ad_content_str:
+                return False
+            
+            try:
+                # Parse the JSON
+                ad_content = json.loads(ad_content_str)
+                
+                # Update the storage_message_id
+                ad_content['storage_message_id'] = new_storage_message_id
+                
+                # Convert back to JSON
+                updated_ad_content_str = json.dumps(ad_content)
+                
+                # Update the database
+                cursor.execute('''
+                    UPDATE ad_campaigns 
+                    SET ad_content = ?
+                    WHERE id = ?
+                ''', (updated_ad_content_str, campaign_id))
+                conn.commit()
+                
+                return True
+            except (json.JSONDecodeError, KeyError) as e:
+                print(f"Error updating campaign storage message ID: {e}")
+                return False

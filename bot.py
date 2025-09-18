@@ -1180,6 +1180,22 @@ Buttons will appear as an inline keyboard below your ad message."""
                 
                 # Update the campaign data with the new message ID
                 campaign_data['ad_content']['storage_message_id'] = new_message.message_id
+                
+                # Update the database with the new storage message ID
+                try:
+                    from database import Database
+                    db = Database()
+                    success = db.update_campaign_storage_message_id(
+                        campaign_data.get('id'), 
+                        new_message.message_id
+                    )
+                    if success:
+                        logger.info(f"✅ Updated database with new storage message ID: {new_message.message_id}")
+                    else:
+                        logger.warning(f"⚠️ Failed to update database with new storage message ID: {new_message.message_id}")
+                except Exception as db_error:
+                    logger.error(f"❌ Database update failed: {db_error}")
+                
                 logger.info(f"✅ Updated campaign data with new storage message ID: {new_message.message_id}")
                 
                 # Delete the old message
