@@ -343,7 +343,7 @@ class BumpService:
                         document_id=custom_emoji_id
                     )
                     telethon_entities.append(telethon_entity)
-                    logger.info(f"Converted custom emoji entity: offset={offset}, length={length}, id={custom_emoji_id}")
+                    # Custom emoji converted successfully
                 
                 elif entity_type == 'bold':
                     telethon_entities.append(MessageEntityBold(offset=offset, length=length))
@@ -1581,25 +1581,13 @@ class BumpService:
                                                 telethon_entities = self._convert_to_telethon_entities(stored_entities, original_text)
                                                 
                                                 # 🔥 ULTIMATE FIX: Debug storage message content first, then send properly
-                                                logger.info(f"🔥 ULTIMATE DEBUG: Checking storage message content")
-                                                logger.info(f"Storage message text: {storage_message.text}")
-                                                logger.info(f"Storage message caption: {getattr(storage_message, 'caption', 'NO CAPTION ATTRIBUTE')}")
-                                                logger.info(f"Storage message entities: {getattr(storage_message, 'entities', 'NO ENTITIES ATTRIBUTE')}")
-                                                logger.info(f"Storage message caption_entities: {getattr(storage_message, 'caption_entities', 'NO CAPTION_ENTITIES ATTRIBUTE')}")
+            logger.info(f"📱 Storage message ready for forwarding")
                                                 
                                                 # 🚀 FINAL SOLUTION: Use database caption + entities + buttons with parse_mode='none'
                                                 # Storage message doesn't have caption - use stored caption from database
                                                 logger.info(f"🚀 ULTIMATE FIX: Using database caption + entities + storage media + buttons")
                                                 
-                                                # 🔥 CRITICAL DEBUG: Log button details before sending
-                                                logger.info(f"🔥 REPLY KEYBOARD DEBUG: telethon_reply_markup type: {type(telethon_reply_markup)}")
-                                                logger.info(f"🔥 REPLY KEYBOARD DEBUG: Has rows: {hasattr(telethon_reply_markup, 'rows')}")
-                                                if hasattr(telethon_reply_markup, 'rows'):
-                                                    logger.info(f"🔥 REPLY KEYBOARD DEBUG: Number of rows: {len(telethon_reply_markup.rows)}")
-                                                    for i, row in enumerate(telethon_reply_markup.rows):
-                                                        logger.info(f"🔥 REPLY KEYBOARD DEBUG: Row {i}: {row}")
-                                                        for j, btn in enumerate(row):
-                                                            logger.info(f"🔥 REPLY KEYBOARD DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
+                                                # Buttons ready for sending
                                                 
                                                 # Send directly with all components (media + premium emojis + buttons)
                                                 logger.info(f"🚀 Sending message with ALL components to {chat_entity.title}")
