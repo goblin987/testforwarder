@@ -1140,33 +1140,37 @@ class BumpService:
         
         # Create buttons from campaign data or use default
         
-        # Create inline buttons for user accounts (this works with Telethon)
+        # Create ReplyKeyboardMarkup for worker account (persistent bottom keyboard with URL buttons)
         telethon_reply_markup = None
         if buttons and len(buttons) > 0:
             try:
-                # Create inline buttons using Telethon Button.url (this works with user accounts)
+                # Create button rows for ReplyKeyboardMarkup with URL buttons
                 button_rows = []
                 for button_info in buttons:
                     if button_info.get('text') and button_info.get('url'):
-                        # Create clickable URL inline button using Button.url
-                        button_row = [Button.url(
+                        # Create clickable URL button for bottom keyboard
+                        button_row = [KeyboardButtonUrl(
                             text=button_info['text'],
                             url=button_info['url']
                         )]
                         button_rows.append(button_row)
-                        logger.info(f"✅ Created URL inline button: '{button_info['text']}' -> '{button_info['url']}'")
+                        logger.info(f"✅ Created URL ReplyKeyboard button: '{button_info['text']}' -> '{button_info['url']}'")
                 
                 if button_rows:
-                    # Create ReplyInlineMarkup (works with user accounts via Telethon)
-                    from telethon.tl.types import ReplyInlineMarkup
-                    telethon_reply_markup = ReplyInlineMarkup(rows=button_rows)
-                    logger.info(f"🔘 Created InlineKeyboardMarkup with {len(button_rows)} URL button rows")
-                    logger.info(f"🔘 InlineKeyboardMarkup type: {type(telethon_reply_markup)}")
+                    # Create ReplyKeyboardMarkup with persistent=True
+                    telethon_reply_markup = ReplyKeyboardMarkup(
+                        rows=button_rows,
+                        resize=True,        # Makes buttons large and full-width
+                        persistent=True,    # Stays visible for ALL messages
+                        selective=False     # Shows to everyone in group
+                    )
+                    logger.info(f"🔘 Created ReplyKeyboardMarkup with {len(button_rows)} URL button rows")
+                    logger.info(f"🔘 ReplyKeyboardMarkup type: {type(telethon_reply_markup)}")
                 else:
                     logger.warning(f"⚠️ No valid URL buttons created")
                     telethon_reply_markup = None
             except Exception as e:
-                logger.error(f"❌ InlineKeyboardMarkup creation failed: {e}")
+                logger.error(f"❌ ReplyKeyboardMarkup creation failed: {e}")
                 telethon_reply_markup = None
         
         # Store button data for bot to use later
@@ -1175,13 +1179,13 @@ class BumpService:
         
         # Debug button creation
         if telethon_reply_markup:
-            logger.info(f"🔘 SUCCESS: Created InlineKeyboardMarkup with {len(telethon_reply_markup.rows)} button rows for worker account")
+            logger.info(f"🔘 SUCCESS: Created ReplyKeyboardMarkup with {len(telethon_reply_markup.rows)} button rows for worker account")
             for i, row in enumerate(telethon_reply_markup.rows):
                 logger.info(f"🔘 Row {i}: {len(row)} buttons")
                 for j, btn in enumerate(row):
                     logger.info(f"🔘 Button {i},{j}: {btn.text}")
         else:
-            logger.warning(f"⚠️ No InlineKeyboardMarkup created for worker account")
+            logger.warning(f"⚠️ No ReplyKeyboardMarkup created for worker account")
         
         # Get all groups if target_mode is all_groups
         if campaign.get('target_mode') == 'all_groups' or target_chats == ['ALL_WORKER_GROUPS']:
@@ -1245,7 +1249,7 @@ class BumpService:
                             else:
                                 final_caption = caption_text
                             
-                            # ALWAYS add button URLs as text for media messages (inline buttons don't work in regular groups)
+                            # ALWAYS add button URLs as text for media messages (ReplyKeyboardMarkup buttons don't work in regular groups)
                             button_text = ""
                             if telethon_reply_markup and hasattr(telethon_reply_markup, 'rows'):
                                 for button_row in telethon_reply_markup.rows:
@@ -1292,17 +1296,17 @@ class BumpService:
                                     if media_file and os.path.exists(media_file):
                                         self._register_temp_file(media_file)
                                         
-                                        # REAL FIX: Send media with original caption AND inline buttons
-                                        # Send media with original caption to preserve emojis + inline buttons
-                                        # CRITICAL: Send with inline buttons (not text buttons)
-                                        logger.info(f"🎯 Sending media with {len(telethon_reply_markup.rows) if telethon_reply_markup and hasattr(telethon_reply_markup, 'rows') else 0} inline button rows")
+                                        # REAL FIX: Send media with original caption AND ReplyKeyboardMarkup buttons
+                                        # Send media with original caption to preserve emojis + ReplyKeyboardMarkup buttons
+                                        # CRITICAL: Send with ReplyKeyboardMarkup buttons (persistent bottom keyboard)
+                                        logger.info(f"🎯 Sending media with {len(telethon_reply_markup.rows) if telethon_reply_markup and hasattr(telethon_reply_markup, 'rows') else 0} ReplyKeyboardMarkup button rows")
                                         message = await client.send_file(
                                             chat_entity,
                                             media_file,
                                             caption=original_text,  # Use original text to preserve emojis
-                                            reply_markup=telethon_reply_markup  # Add inline buttons directly to media
+                                            reply_markup=telethon_reply_markup  # Add ReplyKeyboardMarkup buttons directly to media
                                         )
-                                        logger.info(f"✅ Media sent with INLINE BUTTONS to {chat_entity.title}")
+                                        logger.info(f"✅ Media sent with ReplyKeyboardMarkup buttons to {chat_entity.title}")
                                         self._cleanup_temp_file(media_file)
                                         continue
                                     else:
@@ -1328,9 +1332,9 @@ class BumpService:
                                     # Register for cleanup
                                     self._register_temp_file(media_file)
                                     
-                                    # Send the downloaded media file with inline buttons (try first, fallback to text)
+                                    # Send the downloaded media file with ReplyKeyboardMarkup buttons (try first, fallback to text)
                                     try:
-                                        # Try with inline buttons first (works in channels and some groups)
+                                        # Try with ReplyKeyboardMarkup buttons first (works in channels and some groups)
                                         message = await client.send_file(
                                             chat_entity,
                                             media_file,
@@ -1338,10 +1342,10 @@ class BumpService:
                                             reply_markup=telethon_reply_markup,
                                             parse_mode='html'
                                         )
-                                        logger.info(f"✅ Media sent with inline buttons to {chat_entity.title}")
+                                        logger.info(f"✅ Media sent with ReplyKeyboardMarkup buttons to {chat_entity.title}")
                                     except Exception as button_error:
                                         # Fallback: Send without buttons, then send buttons as text
-                                        logger.warning(f"Inline buttons failed, using text fallback: {button_error}")
+                                        logger.warning(f"ReplyKeyboardMarkup buttons failed, using text fallback: {button_error}")
                                         message = await client.send_file(
                                             chat_entity,
                                             media_file,
@@ -1580,14 +1584,14 @@ class BumpService:
                                                 logger.info(f"🚀 ULTIMATE FIX: Using database caption + entities + storage media + buttons")
                                                 
                                                 # 🔥 CRITICAL DEBUG: Log button details before sending
-                                                logger.info(f"🔥 INLINE BUTTONS DEBUG: telethon_reply_markup type: {type(telethon_reply_markup)}")
-                                                logger.info(f"🔥 INLINE BUTTONS DEBUG: Has rows: {hasattr(telethon_reply_markup, 'rows')}")
+                                                logger.info(f"🔥 REPLY KEYBOARD DEBUG: telethon_reply_markup type: {type(telethon_reply_markup)}")
+                                                logger.info(f"🔥 REPLY KEYBOARD DEBUG: Has rows: {hasattr(telethon_reply_markup, 'rows')}")
                                                 if hasattr(telethon_reply_markup, 'rows'):
-                                                    logger.info(f"🔥 INLINE BUTTONS DEBUG: Number of rows: {len(telethon_reply_markup.rows)}")
+                                                    logger.info(f"🔥 REPLY KEYBOARD DEBUG: Number of rows: {len(telethon_reply_markup.rows)}")
                                                     for i, row in enumerate(telethon_reply_markup.rows):
-                                                        logger.info(f"🔥 INLINE BUTTONS DEBUG: Row {i}: {row}")
+                                                        logger.info(f"🔥 REPLY KEYBOARD DEBUG: Row {i}: {row}")
                                                         for j, btn in enumerate(row):
-                                                            logger.info(f"🔥 INLINE BUTTONS DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
+                                                            logger.info(f"🔥 REPLY KEYBOARD DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                                 
                                                 # Send directly with all components (media + premium emojis + buttons)
                                                 logger.info(f"🚀 Sending message with ALL components to {chat_entity.title}")
@@ -1685,13 +1689,13 @@ class BumpService:
                                             logger.info(f"🚀 ULTIMATE FIX: Using database caption + entities + storage media + buttons")
                                             
                                             # 🔥 FALLBACK BUTTON DEBUG: Log button details before sending
-                                            logger.info(f"🔥 FALLBACK INLINE BUTTON DEBUG: telethon_reply_markup type: {type(telethon_reply_markup)}")
-                                            logger.info(f"🔥 FALLBACK INLINE BUTTON DEBUG: telethon_reply_markup content: {telethon_reply_markup}")
+                                            logger.info(f"🔥 FALLBACK REPLY KEYBOARD DEBUG: telethon_reply_markup type: {type(telethon_reply_markup)}")
+                                            logger.info(f"🔥 FALLBACK REPLY KEYBOARD DEBUG: telethon_reply_markup content: {telethon_reply_markup}")
                                             if telethon_reply_markup and hasattr(telethon_reply_markup, 'rows'):
                                                 for i, row in enumerate(telethon_reply_markup.rows):
-                                                    logger.info(f"🔥 FALLBACK INLINE BUTTON DEBUG: Row {i}: {row}")
+                                                    logger.info(f"🔥 FALLBACK REPLY KEYBOARD DEBUG: Row {i}: {row}")
                                                     for j, btn in enumerate(row):
-                                                        logger.info(f"🔥 FALLBACK INLINE BUTTON DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
+                                                        logger.info(f"🔥 FALLBACK REPLY KEYBOARD DEBUG: Button {i},{j}: {btn} (type: {type(btn)})")
                                             
                                             # 🚀 FALLBACK: BUTTONS PRIORITY!
                                             logger.info(f"🚀 FALLBACK: Prioritizing buttons for functionality!")
