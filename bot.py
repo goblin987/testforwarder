@@ -1115,24 +1115,21 @@ Buttons will appear as an inline keyboard below your ad message."""
                 logger.warning("No storage message ID found, cannot update with buttons")
                 return
             
-            # Create ReplyKeyboardMarkup from campaign buttons (persistent bottom keyboard)
+            # Create InlineKeyboardMarkup from campaign buttons (works with edit_message_reply_markup)
+            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+            
             keyboard_buttons = []
             buttons = campaign_data.get('buttons', [])
             for button in buttons:
-                if button.get('text'):
-                    # Create KeyboardButton for ReplyKeyboardMarkup (persistent bottom keyboard)
-                    keyboard_buttons.append([KeyboardButton(button['text'])])
+                if button.get('text') and button.get('url'):
+                    # Create InlineKeyboardButton for InlineKeyboardMarkup
+                    keyboard_buttons.append([InlineKeyboardButton(button['text'], url=button['url'])])
             
             if not keyboard_buttons:
                 logger.info("No valid buttons to add to storage message")
                 return
             
-            reply_markup = ReplyKeyboardMarkup(
-                keyboard_buttons,
-                resize_keyboard=True,
-                one_time_keyboard=False,
-                selective=False
-            )
+            reply_markup = InlineKeyboardMarkup(keyboard_buttons)
             
             # Update the storage message with buttons
             from config import Config
