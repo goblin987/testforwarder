@@ -1580,8 +1580,8 @@ class BumpService:
                                                 # Convert stored entities to Telethon format
                                                 telethon_entities = self._convert_to_telethon_entities(stored_entities, original_text)
                                                 
-                                                # 🔥 ULTIMATE FIX: Debug storage message content first, then send properly
-            logger.info(f"📱 Storage message ready for forwarding")
+                                                # Storage message ready for forwarding
+                                                logger.info(f"📱 Storage message ready for forwarding")
                                                 
                                                 # 🚀 FINAL SOLUTION: Use database caption + entities + buttons with parse_mode='none'
                                                 # Storage message doesn't have caption - use stored caption from database
