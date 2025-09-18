@@ -1134,7 +1134,12 @@ Buttons will appear as an inline keyboard below your ad message."""
             reply_markup = InlineKeyboardMarkup(keyboard_buttons)
             
             # Update the storage message with buttons
-            await self.application.bot.edit_message_reply_markup(
+            from config import Config
+            from telegram import Bot
+            
+            # Create a temporary bot instance for the edit operation
+            temp_bot = Bot(token=Config.BOT_TOKEN)
+            await temp_bot.edit_message_reply_markup(
                 chat_id=storage_channel_id,
                 message_id=storage_message_id,
                 reply_markup=reply_markup
