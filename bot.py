@@ -1209,8 +1209,15 @@ Buttons will appear as an inline keyboard below your ad message."""
             
             # Handle both list (message link approach) and dict (old approach)
             if isinstance(ad_content, list) and ad_content:
-                # For message link approach, ad_content is a list with one message
-                storage_message_id = ad_content[0].get('storage_message_id')
+                # Handle double-nested arrays [[{...}]] -> [{...}]
+                if isinstance(ad_content[0], list) and ad_content[0]:
+                    # Double-nested: [[{...}]]
+                    storage_message_id = ad_content[0][0].get('storage_message_id')
+                elif isinstance(ad_content[0], dict):
+                    # Single-nested: [{...}]
+                    storage_message_id = ad_content[0].get('storage_message_id')
+                else:
+                    storage_message_id = None
             elif isinstance(ad_content, dict):
                 # For old approach, ad_content is a dict
                 storage_message_id = ad_content.get('storage_message_id')
