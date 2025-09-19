@@ -1245,15 +1245,26 @@ Buttons will appear as an inline keyboard below your ad message."""
             
             ad_content = campaign_data.get('ad_content', {})
             
+            # Handle both dict and list formats for ad_content
+            if isinstance(ad_content, list) and ad_content:
+                # Use first message for linked messages
+                message_data = ad_content[0]
+            elif isinstance(ad_content, dict):
+                message_data = ad_content
+            else:
+                logger.warning("Invalid ad_content format")
+                return
+            
             # Get chat_id from linked message or use default storage channel
-            storage_chat_id = ad_content.get('storage_chat_id')
+            storage_chat_id = message_data.get('storage_chat_id')
             if not storage_chat_id:
+                from config import Config
                 storage_chat_id = Config.STORAGE_CHANNEL_ID
                 if not storage_chat_id:
                     logger.warning("No storage channel ID configured")
                     return
             
-            storage_message_id = ad_content.get('storage_message_id')
+            storage_message_id = message_data.get('storage_message_id')
             if not storage_message_id:
                 logger.warning("No storage message ID found, cannot update with buttons")
                 return
