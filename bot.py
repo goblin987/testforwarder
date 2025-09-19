@@ -1222,69 +1222,6 @@ Buttons will appear as an inline keyboard below your ad message."""
         
         session['step'] = 'add_buttons_choice'
     
-    async def _update_storage_message_with_buttons(self, campaign_data: dict):
-        """Update storage message with InlineKeyboardMarkup buttons"""
-        try:
-            from config import Config
-            from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Bot
-            
-            logger.info(f"🔧 DEBUG: Button update called with campaign_data type: {type(campaign_data)}")
-            logger.info(f"🔧 DEBUG: Button update campaign_data keys: {list(campaign_data.keys()) if isinstance(campaign_data, dict) else 'Not a dict'}")
-            
-            storage_channel_id = Config.STORAGE_CHANNEL_ID
-            if not storage_channel_id:
-                logger.warning("No storage channel ID configured")
-                return
-            
-            # Handle the ad_content structure - it's a list with one dict
-            ad_content = campaign_data.get('ad_content', [])
-            logger.info(f"🔧 DEBUG: ad_content type: {type(ad_content)}, value: {ad_content}")
-            
-            if not ad_content or not isinstance(ad_content, list):
-                logger.warning("No ad_content found or invalid format")
-                return
-            
-            # Get the first (and only) ad content item
-            ad_item = ad_content[0]
-            storage_message_id = ad_item.get('storage_message_id')
-            
-            if not storage_message_id:
-                logger.warning("No storage message ID found, cannot update with buttons")
-                return
-            
-            # Create InlineKeyboardMarkup from campaign buttons
-            keyboard_buttons = []
-            buttons = campaign_data.get('buttons', [])
-            for button in buttons:
-                if button.get('text') and button.get('url'):
-                    keyboard_buttons.append([InlineKeyboardButton(button['text'], url=button['url'])])
-            
-            if not keyboard_buttons:
-                logger.info("No valid buttons to add to storage message")
-                return
-            
-            reply_markup = InlineKeyboardMarkup(keyboard_buttons)
-            
-            # Edit the existing storage message with InlineKeyboardMarkup buttons
-            try:
-                # Create a temporary bot instance
-                temp_bot = Bot(token=Config.BOT_TOKEN)
-                
-                # Edit the existing message to add InlineKeyboardMarkup buttons
-                await temp_bot.edit_message_reply_markup(
-                    chat_id=storage_channel_id,
-                    message_id=storage_message_id,
-                    reply_markup=reply_markup
-                )
-                
-                logger.info(f"✅ Updated storage message {storage_message_id} with {len(keyboard_buttons)} InlineKeyboardMarkup button rows")
-                
-            except Exception as edit_error:
-                logger.error(f"❌ Failed to update storage message with buttons: {edit_error}")
-                
-        except Exception as e:
-            logger.error(f"❌ Failed to update storage message with buttons: {e}")
-    
     async def handle_button_choice(self, update: Update, session: dict):
         """Handle user's choice about adding buttons"""
         message_text = update.message.text.strip()
@@ -1306,17 +1243,25 @@ Buttons will appear as an inline keyboard below your ad message."""
             from config import Config
             from telegram import ReplyKeyboardMarkup, KeyboardButton
             
+            # Handle both old format (dict) and new format (list) for ad_content
             ad_content = campaign_data.get('ad_content', {})
             
-            # Get chat_id from linked message or use default storage channel
-            storage_chat_id = ad_content.get('storage_chat_id')
+            # Handle message link approach (ad_content is a list)
+            if isinstance(ad_content, list) and ad_content:
+                ad_item = ad_content[0]  # Get first (and only) item
+                storage_chat_id = ad_item.get('storage_chat_id')
+                storage_message_id = ad_item.get('storage_message_id')
+            else:
+                # Handle old approach (ad_content is a dict)
+                storage_chat_id = ad_content.get('storage_chat_id')
+                storage_message_id = ad_content.get('storage_message_id')
+            
+            # Use default storage channel if not specified
             if not storage_chat_id:
                 storage_chat_id = Config.STORAGE_CHANNEL_ID
                 if not storage_chat_id:
                     logger.warning("No storage channel ID configured")
                     return
-            
-            storage_message_id = ad_content.get('storage_message_id')
             if not storage_message_id:
                 logger.warning("No storage message ID found, cannot update with buttons")
                 return
