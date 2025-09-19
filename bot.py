@@ -1175,7 +1175,17 @@ Buttons will appear as an inline keyboard below your ad message."""
                 return
             
             ad_content = campaign_data.get('ad_content', {})
-            storage_message_id = ad_content.get('storage_message_id')
+            
+            # Handle both list (message link approach) and dict (old approach)
+            if isinstance(ad_content, list) and ad_content:
+                # For message link approach, ad_content is a list with one message
+                storage_message_id = ad_content[0].get('storage_message_id')
+            elif isinstance(ad_content, dict):
+                # For old approach, ad_content is a dict
+                storage_message_id = ad_content.get('storage_message_id')
+            else:
+                storage_message_id = None
+            
             if not storage_message_id:
                 logger.warning("No storage message ID found, cannot update with buttons")
                 return
@@ -4132,7 +4142,8 @@ This name will help you identify the account when managing campaigns.
             # Parse the message link to extract channel and message ID
             channel_username, message_id, channel_id = self._parse_bridge_channel_link(message_text)
             
-            # Store the message link info
+            # Store the message link info in the format bump_service expects
+            # bump_service expects ad_content to be a list of messages
             ad_data = {
                 'type': 'message_link',
                 'message_link': message_text,
@@ -4141,11 +4152,14 @@ This name will help you identify the account when managing campaigns.
                 'channel_id': channel_id,
                 'storage_message_id': message_id,  # This is the message we'll add buttons to
                 'storage_chat_id': channel_id or f"@{channel_username}",
-                'has_premium_emojis': True  # Assume it has premium emojis since user chose this method
+                'has_premium_emojis': True,  # Assume it has premium emojis since user chose this method
+                'media_type': 'forwarded',  # Indicate this is a forwarded message
+                'caption': '',  # Will be filled from the actual message
+                'text': ''  # Will be filled from the actual message
             }
             
-            # Store in session
-            session['campaign_data']['ad_content'] = ad_data
+            # Store as a list to match bump_service expectations
+            session['campaign_data']['ad_content'] = [ad_data]
             
             # Move to button choice step
             session['step'] = 'add_buttons_choice'
