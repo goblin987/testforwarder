@@ -390,6 +390,7 @@ class BumpService:
                     buttons TEXT,
                     target_mode TEXT,
                     is_active BOOLEAN DEFAULT 1,
+                    immediate_start BOOLEAN DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_run TIMESTAMP,
                     total_sends INTEGER DEFAULT 0,
@@ -467,10 +468,10 @@ class BumpService:
                 cursor = conn.cursor()
                 cursor.execute('''
                     INSERT INTO ad_campaigns 
-                    (user_id, account_id, campaign_name, ad_content, target_chats, schedule_type, schedule_time, buttons, target_mode)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (user_id, account_id, campaign_name, ad_content, target_chats, schedule_type, schedule_time, buttons, target_mode, immediate_start)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (user_id, account_id, campaign_name, ad_content_str, 
-                     target_chats_str, schedule_type, schedule_time, buttons_str, target_mode))
+                     target_chats_str, schedule_type, schedule_time, buttons_str, target_mode, immediate_start))
                 conn.commit()
                 campaign_id = cursor.lastrowid
                 
@@ -638,7 +639,7 @@ class BumpService:
             cursor.execute('''
                 SELECT ac.id, ac.user_id, ac.account_id, ac.campaign_name, ac.ad_content, 
                        ac.target_chats, ac.schedule_type, ac.schedule_time, ac.buttons, 
-                       ac.target_mode, ac.is_active, ac.created_at, ac.last_run, 
+                       ac.target_mode, ac.is_active, ac.immediate_start, ac.created_at, ac.last_run, 
                        ac.total_sends, ta.account_name
                 FROM ad_campaigns ac
                 LEFT JOIN telegram_accounts ta ON ac.account_id = ta.id
@@ -696,10 +697,11 @@ class BumpService:
                     'buttons': buttons,              # ac.buttons (parsed)
                     'target_mode': target_mode,      # ac.target_mode (parsed)
                     'is_active': bool(row[10]),      # ac.is_active
-                    'created_at': row[11],           # ac.created_at
-                    'last_run': row[12],             # ac.last_run
-                    'total_sends': row[13] or 0,     # ac.total_sends
-                    'account_name': row[14]          # ta.account_name
+                    'immediate_start': bool(row[11]), # ac.immediate_start
+                    'created_at': row[12],           # ac.created_at
+                    'last_run': row[13],             # ac.last_run
+                    'total_sends': row[14] or 0,     # ac.total_sends
+                    'account_name': row[15]          # ta.account_name
                 }
             return None
     
@@ -1753,10 +1755,13 @@ class BumpService:
             getattr(schedule.every(), day.lower()).at(time_str).do(self.run_campaign_job, campaign_id)
         elif schedule_type == 'hourly':
             job = schedule.every().hour.do(self.run_campaign_job, campaign_id)
-            # Run immediately for the first time if campaign is active
-            if campaign.get('is_active', False):
+            # Only run immediately if this is a new campaign with immediate_start=True
+            # Existing campaigns loaded from database should not run immediately
+            if campaign.get('is_active', False) and campaign.get('immediate_start', False):
                 logger.info(f"🚀 Running campaign {campaign_id} immediately on hourly schedule activation")
                 self.run_campaign_job(campaign_id)
+            else:
+                logger.info(f"📅 Campaign {campaign_id} scheduled for hourly execution (no immediate start)")
         elif schedule_type == 'custom':
             # Parse custom interval (e.g., "every 3 minutes", "every 4 hours")
             try:
@@ -1764,9 +1769,10 @@ class BumpService:
                     hours = int(schedule_time.split()[1])
                     job = schedule.every(hours).hours.do(self.run_campaign_job, campaign_id)
                     
-                    # IMPORTANT: Run the job immediately for the first time if campaign is active
+                    # Only run immediately if this is a new campaign with immediate_start=True
+                    # Existing campaigns loaded from database should not run immediately
                     campaign = self.get_campaign(campaign_id)
-                    if campaign and campaign.get('is_active', False):
+                    if campaign and campaign.get('is_active', False) and campaign.get('immediate_start', False):
                         logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
                         # Add staggered delay to prevent database conflicts
                         import random
@@ -1774,6 +1780,8 @@ class BumpService:
                         # Run in a separate thread to avoid blocking
                         import threading
                         threading.Thread(target=lambda: (time.sleep(delay), self.run_campaign_job(campaign_id)), daemon=True).start()
+                    else:
+                        logger.info(f"📅 Campaign {campaign_id} scheduled for custom execution (no immediate start)")
                     
                     logger.info(f"📅 Campaign {campaign_id} scheduled every {hours} hours")
                 elif 'minute' in schedule_time.lower():
