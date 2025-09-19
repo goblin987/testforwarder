@@ -125,6 +125,16 @@ class TelethonManager:
             # Connect without prompting for input
             await client.connect()
             
+            # Ensure client is properly initialized for cross-context usage
+            try:
+                # Test the client by getting self info to ensure it's working
+                me = await client.get_me()
+                logger.info(f"✅ Client connected and authorized for {me.first_name} (ID: {me.id})")
+            except Exception as test_error:
+                logger.error(f"❌ Client connection test failed for account {account_id}: {test_error}")
+                await client.disconnect()
+                return None
+            
             # Check if already authorized
             if not await client.is_user_authorized():
                 logger.error(f"❌ Account {account_id} is not authorized - cannot authenticate in headless environment")

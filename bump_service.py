@@ -892,9 +892,23 @@ class BumpService:
                         
                         logger.info(f"🔄 Using channel ID: {channel_id_int}")
                         
-                        # Try to get channel info
-                        storage_channel = await client.get_entity(channel_id_int)
-                        logger.info(f"✅ Storage channel access confirmed: {storage_channel.title}")
+                        # Try to get channel info with proper error handling
+                        try:
+                            storage_channel = await client.get_entity(channel_id_int)
+                            logger.info(f"✅ Storage channel access confirmed: {storage_channel.title}")
+                        except Exception as entity_error:
+                            # Handle asyncio event loop issues
+                            if "asyncio event loop" in str(entity_error):
+                                logger.warning(f"⚠️ Event loop issue detected, retrying with fresh client...")
+                                # Recreate client to avoid event loop conflicts
+                                client = await telethon_manager.get_client(account)
+                                if client:
+                                    storage_channel = await client.get_entity(channel_id_int)
+                                    logger.info(f"✅ Storage channel access confirmed after retry: {storage_channel.title}")
+                                else:
+                                    raise entity_error
+                            else:
+                                raise entity_error
                         
                     except Exception as access_error:
                         logger.warning(f"⚠️ Cannot access storage channel with ID {channel_id_int}: {access_error}")
