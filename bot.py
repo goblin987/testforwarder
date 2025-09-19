@@ -119,37 +119,6 @@ class TgcfBot:
         
         return False
     
-    def _parse_bridge_channel_link(self, link: str) -> tuple:
-        """Parse bridge channel link and return (channel_username, message_id, channel_id)"""
-        link = link.strip()
-        
-        if not link.startswith('http'):
-            link = 'https://' + link
-        
-        # Extract channel info and message ID
-        parts = link.replace('https://t.me/', '').replace('http://t.me/', '').split('/')
-        
-        if len(parts) < 2:
-            raise ValueError(f"Invalid link format - need at least channel/message_id, got {len(parts)} parts: {parts}")
-        
-        # Handle private channels (t.me/c/123456789/123) vs public channels (t.me/username/123)
-        if parts[0] == 'c' and len(parts) >= 3:
-            # Private channel: t.me/c/channel_id/message_id
-            channel_id = int(parts[1])
-            message_id = int(parts[2])
-            channel_username = None
-            # Convert to full channel ID format for Telegram
-            full_channel_id = f"-100{channel_id}"
-            return channel_username, message_id, full_channel_id
-        elif len(parts) >= 2:
-            # Public channel: t.me/username/message_id
-            channel_username = parts[0]
-            message_id = int(parts[1])
-            channel_id = None
-            return channel_username, message_id, channel_id
-        else:
-            raise ValueError(f"Could not parse channel link: {link}")
-    
     async def _handle_bridge_channel_link(self, update: Update, session: dict, link: str):
         """Handle bridge channel/group message link"""
         user_id = update.effective_user.id
@@ -502,10 +471,6 @@ class TgcfBot:
                 await self.show_performance_settings(query)
             elif data == "security_settings":
                 await self.show_security_settings(query)
-            elif data == "upload_media":
-                await self.handle_upload_media_choice(query)
-            elif data == "use_message_link":
-                await self.handle_message_link_choice(query)
             elif data == "add_buttons_yes":
                 await self.handle_add_buttons_yes(query)
             elif data == "add_buttons_no":
@@ -865,6 +830,84 @@ Please send me the source chat ID or username.
             reply_markup=reply_markup
         )
     
+    async def handle_message_link(self, update: Update, session: dict, context: ContextTypes.DEFAULT_TYPE = None):
+        """Handle Telegram message link as ad content"""
+        user_id = update.effective_user.id
+        message_text = update.message.text.strip()
+        
+        logger.info(f"🔗 Processing message link: {message_text}")
+        
+        try:
+            # Parse the message link
+            # Format: https://t.me/c/1234567890/123 (private channel)
+            # Format: https://t.me/channelname/123 (public channel)
+            import re
+            
+            # Try private channel format first
+            match = re.match(r'https?://t\.me/c/(\d+)/(\d+)', message_text)
+            if match:
+                chat_id = f"-100{match.group(1)}"  # Convert to proper format
+                message_id = int(match.group(2))
+                logger.info(f"📎 Parsed private channel link: chat_id={chat_id}, message_id={message_id}")
+            else:
+                # Try public channel format
+                match = re.match(r'https?://t\.me/([^/]+)/(\d+)', message_text)
+                if match:
+                    channel_username = match.group(1)
+                    message_id = int(match.group(2))
+                    # We'll use the username as chat_id for now
+                    chat_id = f"@{channel_username}"
+                    logger.info(f"📎 Parsed public channel link: chat_id={chat_id}, message_id={message_id}")
+                else:
+                    await update.message.reply_text(
+                        "❌ **Invalid message link format!**\n\n"
+                        "Please send a valid Telegram message link.\n\n"
+                        "**Example formats:**\n"
+                        "• `https://t.me/c/1234567890/123` (private channel)\n"
+                        "• `https://t.me/channelname/123` (public channel)",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    return
+            
+            # Store the message reference
+            ad_data = {
+                'storage_chat_id': chat_id,
+                'storage_message_id': message_id,
+                'message_link': message_text,
+                'type': 'linked_message'
+            }
+            
+            # Store in session
+            session['campaign_data']['ad_content'] = ad_data
+            
+            # Move to next step
+            session['step'] = 'add_buttons_choice'
+            
+            await update.message.reply_text(
+                f"✅ **Message link saved!**\n\n"
+                f"📎 **Linked message:** `{message_id}` from chat `{chat_id}`\n\n"
+                f"**Step 3/6: Add Buttons**\n\n"
+                f"Would you like to add clickable buttons under your forwarded message?",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Yes, Add Buttons", callback_data="add_buttons_yes")],
+                    [InlineKeyboardButton("❌ No Buttons", callback_data="add_buttons_no")],
+                    [InlineKeyboardButton("🔙 Back", callback_data="back_to_ad_content")]
+                ])
+            )
+            
+        except Exception as e:
+            logger.error(f"Error processing message link: {e}")
+            await update.message.reply_text(
+                "❌ **Error processing message link!**\n\n"
+                "Please make sure:\n"
+                "1. The link is valid\n"
+                "2. The bot has access to the channel\n"
+                "3. The message exists\n\n"
+                "Try again or contact support.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+    
     async def handle_forwarded_ad_content(self, update: Update, session: dict, context: ContextTypes.DEFAULT_TYPE = None):
         """Handle forwarded message or bridge channel link as ad content with full fidelity preservation"""
         user_id = update.effective_user.id
@@ -1200,30 +1243,17 @@ Buttons will appear as an inline keyboard below your ad message."""
             from config import Config
             from telegram import ReplyKeyboardMarkup, KeyboardButton
             
-            storage_channel_id = Config.STORAGE_CHANNEL_ID
-            if not storage_channel_id:
-                logger.warning("No storage channel ID configured")
-                return
-            
             ad_content = campaign_data.get('ad_content', {})
             
-            # Handle both list (message link approach) and dict (old approach)
-            if isinstance(ad_content, list) and ad_content:
-                # Handle double-nested arrays [[{...}]] -> [{...}]
-                if isinstance(ad_content[0], list) and ad_content[0]:
-                    # Double-nested: [[{...}]]
-                    storage_message_id = ad_content[0][0].get('storage_message_id')
-                elif isinstance(ad_content[0], dict):
-                    # Single-nested: [{...}]
-                    storage_message_id = ad_content[0].get('storage_message_id')
-                else:
-                    storage_message_id = None
-            elif isinstance(ad_content, dict):
-                # For old approach, ad_content is a dict
-                storage_message_id = ad_content.get('storage_message_id')
-            else:
-                storage_message_id = None
+            # Get chat_id from linked message or use default storage channel
+            storage_chat_id = ad_content.get('storage_chat_id')
+            if not storage_chat_id:
+                storage_chat_id = Config.STORAGE_CHANNEL_ID
+                if not storage_chat_id:
+                    logger.warning("No storage channel ID configured")
+                    return
             
+            storage_message_id = ad_content.get('storage_message_id')
             if not storage_message_id:
                 logger.warning("No storage message ID found, cannot update with buttons")
                 return
@@ -1254,7 +1284,7 @@ Buttons will appear as an inline keyboard below your ad message."""
                 
                 # Edit the existing message to add InlineKeyboardMarkup buttons
                 await temp_bot.edit_message_reply_markup(
-                    chat_id=storage_channel_id,
+                    chat_id=storage_chat_id,
                     message_id=storage_message_id,
                     reply_markup=reply_markup
                 )
@@ -2624,41 +2654,23 @@ Buttons will appear as an inline keyboard below your ad message.
                     )
                     return
                 
-                logger.info(f"Campaign name '{message_text}' is valid, proceeding to ad_content_choice step")
+                logger.info(f"Campaign name '{message_text}' is valid, proceeding to ad_content step")
                 session['campaign_data']['campaign_name'] = message_text
-                session['step'] = 'ad_content_choice'
-                
-                # Give user choice between uploading media or using message link
-                keyboard = [
-                    [InlineKeyboardButton("📤 Upload Media & Text", callback_data="upload_media")],
-                    [InlineKeyboardButton("🔗 Use Message Link (Premium Emojis)", callback_data="use_message_link")],
-                    [InlineKeyboardButton("❌ Cancel Campaign", callback_data="cancel_campaign")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
+                session['step'] = 'ad_content'
                 
                 await update.message.reply_text(
-                    "✅ **Campaign name set!**\n\n**Step 2/6: Choose Content Method**\n\n"
-                    "**📤 Upload Media & Text:**\n"
-                    "• Upload media files directly\n"
-                    "• Add text with regular emojis\n"
-                    "• ⚠️ Premium emojis will become regular emojis\n\n"
-                    "**🔗 Use Message Link (Recommended for Premium Emojis):**\n"
-                    "• Post your message with premium emojis to your storage channel\n"
-                    "• Send me the message link\n"
-                    "• ✅ Premium emojis will be preserved perfectly!\n"
-                    "• I'll add buttons and workers will forward it\n\n"
-                    "**Choose your method:**",
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=reply_markup
+                    "✅ **Campaign name set!**\n\n**Step 2/6: Ad Content**\n\n🔗 **Send me the Telegram message link**\n\n**How to get the link:**\n1️⃣ Go to your storage channel\n2️⃣ Send your message with premium emojis there\n3️⃣ Right-click the message → Copy Message Link\n4️⃣ Send me that link\n\n**Example link format:**\n`https://t.me/c/1234567890/123`\n\n**Note:** The message should already have your media and premium emoji text!",
+                    parse_mode=ParseMode.MARKDOWN
                 )
             
             elif session['step'] == 'ad_content':
-                # Handle forwarded message with full fidelity
-                await self.handle_forwarded_ad_content(update, session, context)
-            
-            elif session['step'] == 'message_link_input':
-                # Handle message link input for premium emoji method
-                await self.handle_message_link_input(update, session)
+                # Check if it's a message link
+                message_text = update.message.text
+                if message_text and ('t.me/' in message_text or 'telegram.me/' in message_text):
+                    await self.handle_message_link(update, session, context)
+                else:
+                    # Handle forwarded message with full fidelity (fallback)
+                    await self.handle_forwarded_ad_content(update, session, context)
             
             elif session['step'] == 'ad_text_input':
                 # Handle text input for media
@@ -4110,127 +4122,52 @@ This name will help you identify the account when managing campaigns.
             reply_markup=reply_markup
         )
     
-    async def handle_upload_media_choice(self, query):
-        """Handle choice to upload media directly (old method)"""
-        user_id = query.from_user.id
-        session = self.user_sessions.get(user_id)
+    async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle errors that occur in the bot"""
+        logger.error(f"Exception while handling an update: {context.error}")
         
-        if not session:
-            await query.answer("❌ Session expired. Please start over.")
-            return
-        
-        # Set step to the old ad_content flow
-        session['step'] = 'ad_content'
-        
-        await query.edit_message_text(
-            "✅ **Upload Method Selected**\n\n**Step 2/6: Ad Content**\n\n📤 **Send me the MEDIA first** (video, photo, or document)\n\n**What I'll do:**\n• Store your media in a private channel\n• Then ask for text with regular emojis\n• Add your custom buttons\n• Create a complete ad with media + text + buttons\n\n**⚠️ Note: Premium emojis will become regular emojis**\n\n**Send your media now!**",
-            parse_mode=ParseMode.MARKDOWN
-        )
+        # Try to send error message to user if possible
+        if update and hasattr(update, 'effective_chat') and update.effective_chat:
+            try:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="❌ **Something went wrong!**\n\nPlease try again or contact support if the issue persists.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception as e:
+                logger.error(f"Failed to send error message: {e}")
     
-    async def handle_message_link_choice(self, query):
-        """Handle choice to use message link (premium emoji method)"""
-        user_id = query.from_user.id
-        session = self.user_sessions.get(user_id)
+    def run(self):
+        """Run the bot"""
+        # Validate configuration
+        Config.validate()
         
-        if not session:
-            await query.answer("❌ Session expired. Please start over.")
-            return
+        # Create application first
+        application = Application.builder().token(Config.BOT_TOKEN).build()
         
-        # Set step to message link input
-        session['step'] = 'message_link_input'
+        # Initialize bump service with bot instance
+        self.bump_service = BumpService(bot_instance=application.bot)
         
-        from config import Config
-        storage_channel_id = Config.STORAGE_CHANNEL_ID
+        # Start bump service scheduler
+        self.bump_service.start_scheduler()
+        logger.info("Bump service scheduler started")
         
-        await query.edit_message_text(
-            f"✅ **Message Link Method Selected**\n\n**Step 2/6: Send Message Link**\n\n"
-            f"**📋 Instructions:**\n"
-            f"1. **Post your message** with premium emojis and media to your storage channel\n"
-            f"2. **Copy the message link** (right-click → Copy Link)\n"
-            f"3. **Send me the link** in this chat\n\n"
-            f"**💡 Your Storage Channel:** `{storage_channel_id or 'Not configured'}`\n\n"
-            f"**✅ Benefits:**\n"
-            f"• Premium emojis preserved perfectly\n"
-            f"• All formatting maintained\n"
-            f"• Media handled correctly\n"
-            f"• I'll add buttons automatically\n\n"
-            f"**Send me the message link now:**",
-            parse_mode=ParseMode.MARKDOWN
-        )
-    
-    async def handle_message_link_input(self, update, session):
-        """Handle message link input and extract message info"""
-        message_text = update.message.text.strip()
+        # Add error handler
+        application.add_error_handler(self.error_handler)
         
-        # Check if it's a valid Telegram message link
-        if not self._is_bridge_channel_link(message_text):
-            await update.message.reply_text(
-                "❌ **Invalid Message Link**\n\n**Expected format:**\n"
-                "`https://t.me/yourchannel/123`\n"
-                "`t.me/yourchannel/123`\n\n"
-                "**Example:**\n"
-                "`https://t.me/c/1234567890/123` (private channel)\n"
-                "`https://t.me/mychannel/456` (public channel)\n\n"
-                "Please send a valid message link from your storage channel.",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
+        # Add handlers
+        application.add_handler(CommandHandler("start", self.start_command))
+        application.add_handler(CommandHandler("help", self.help_command))
+        application.add_handler(CallbackQueryHandler(self.button_callback))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        application.add_handler(MessageHandler(filters.Document.ALL, self.handle_document))
+        # Add handlers for forwarded messages with media
+        application.add_handler(MessageHandler(filters.PHOTO, self.handle_message))
+        application.add_handler(MessageHandler(filters.VIDEO, self.handle_message))
         
-        try:
-            # Parse the message link to extract channel and message ID
-            channel_username, message_id, channel_id = self._parse_bridge_channel_link(message_text)
-            
-            # Store the message link info in the format bump_service expects
-            # bump_service expects ad_content to be a list of messages
-            ad_data = {
-                'type': 'message_link',
-                'message_link': message_text,
-                'channel_username': channel_username,
-                'message_id': message_id,
-                'channel_id': channel_id,
-                'storage_message_id': message_id,  # This is the message we'll add buttons to
-                'storage_chat_id': channel_id or f"@{channel_username}",
-                'has_premium_emojis': True,  # Assume it has premium emojis since user chose this method
-                'media_type': 'forwarded',  # Indicate this is a forwarded message
-                'caption': '',  # Will be filled from the actual message
-                'text': ''  # Will be filled from the actual message
-            }
-            
-            # Store as a list to match bump_service expectations
-            session['campaign_data']['ad_content'] = [ad_data]
-            
-            # Move to button choice step
-            session['step'] = 'add_buttons_choice'
-            
-            await update.message.reply_text(
-                f"✅ **Message Link Configured!**\n\n"
-                f"**Channel:** {channel_username or 'Private Channel'}\n"
-                f"**Message ID:** {message_id}\n\n"
-                f"🎯 **How this works:**\n"
-                f"1️⃣ I'll add buttons to your message in the storage channel\n"
-                f"2️⃣ Worker accounts will forward that message to target groups\n"
-                f"3️⃣ Premium emojis and formatting preserved perfectly!\n\n"
-                f"**Step 3/6: Add Buttons**\n\n"
-                f"Would you like to add clickable buttons under your message?",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ Yes, Add Buttons", callback_data="add_buttons_yes")],
-                    [InlineKeyboardButton("❌ No Buttons", callback_data="add_buttons_no")],
-                    [InlineKeyboardButton("🔙 Back", callback_data="cancel_campaign")]
-                ])
-            )
-            
-        except Exception as e:
-            logger.error(f"Error parsing message link: {e}")
-            await update.message.reply_text(
-                "❌ **Error Processing Message Link**\n\n"
-                "Please check that:\n"
-                "• The link is from your storage channel\n"
-                "• The message exists and is accessible\n"
-                "• You have the correct permissions\n\n"
-                "Try again with a valid message link.",
-                parse_mode=ParseMode.MARKDOWN
-            )
+        # Start the bot
+        logger.info("Starting TgCF Bot...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     bot = TgcfBot()
