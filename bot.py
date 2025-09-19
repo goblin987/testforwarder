@@ -1906,7 +1906,7 @@ Buttons will appear as an inline keyboard below your ad message."""
                 'schedule_time': campaign['schedule_time'],
                 'buttons': campaign.get('buttons', []),  # Get buttons from database
                 'target_mode': campaign.get('target_mode', 'all_groups' if campaign['target_chats'] == ['ALL_WORKER_GROUPS'] else 'specific'),
-                'immediate_start': True
+                'immediate_start': False  # Disabled - user must click Start Campaign
             }
             
             logger.info(f"Executing campaign with {len(enhanced_campaign_data['buttons'])} buttons")
@@ -3841,7 +3841,7 @@ This name will help you identify the campaign in your dashboard.
                     'schedule_time': campaign_data['schedule_time'],
                     'buttons': campaign_data.get('buttons', []),
                     'target_mode': campaign_data.get('target_mode', 'specific'),
-                    'immediate_start': True  # Flag for immediate execution
+                    'immediate_start': False  # Disabled - user must click Start Campaign
                 }
                 logger.info(f"🔧 DEBUG: Enhanced campaign data created successfully")
             else:
@@ -3854,7 +3854,7 @@ This name will help you identify the campaign in your dashboard.
                     'schedule_time': campaign_data['schedule_time'],
                     'buttons': campaign_data.get('buttons', []),
                     'target_mode': campaign_data.get('target_mode', 'specific'),
-                    'immediate_start': True  # Flag for immediate execution
+                    'immediate_start': False  # Disabled - user must click Start Campaign  # Flag for immediate execution
                 }
             
             logger.info(f"Creating campaign with {len(enhanced_campaign_data.get('buttons', []))} buttons")
