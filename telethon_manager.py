@@ -53,13 +53,41 @@ class TelethonManager:
                     return None
                 
                 try:
-                    client = TelegramClient(
-                        StringSession(session_str),
-                        account_data['api_id'],
-                        account_data['api_hash']
-                    )
+                    # Check if session_str is base64 encoded session data
+                    if session_str.startswith('U1FMaXRlIGZvcm1hdCAz') or len(session_str) > 1000:
+                        logger.info(f"🔄 Detected base64 session data for account {account_id}, converting to session file")
+                        # This is base64 encoded session data, not a StringSession string
+                        import base64
+                        session_name = f"unified_{account_id}"
+                        session_path = os.path.join(self.session_dir, f"{session_name}.session")
+                        
+                        # Decode and write session data to file
+                        try:
+                            session_data = base64.b64decode(session_str)
+                            with open(session_path, 'wb') as f:
+                                f.write(session_data)
+                            
+                            # Use session file instead of StringSession
+                            client = TelegramClient(
+                                session_path,
+                                account_data['api_id'],
+                                account_data['api_hash']
+                            )
+                            logger.info(f"✅ Created client from base64 session data for account {account_id}")
+                        except Exception as decode_error:
+                            logger.error(f"❌ Failed to decode base64 session data for account {account_id}: {decode_error}")
+                            return None
+                    else:
+                        # This is a proper StringSession string
+                        client = TelegramClient(
+                            StringSession(session_str),
+                            account_data['api_id'],
+                            account_data['api_hash']
+                        )
+                        logger.info(f"✅ Created client from StringSession for account {account_id}")
+                        
                 except Exception as session_error:
-                    logger.error(f"❌ Failed to create StringSession for account {account_id}: {session_error}")
+                    logger.error(f"❌ Failed to create client for account {account_id}: {session_error}")
                     # Try fallback to session_data if available
                     if account_data.get('session_data'):
                         logger.info(f"🔄 Trying fallback to session_data for account {account_id}")
