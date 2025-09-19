@@ -37,6 +37,10 @@ class TelethonManager:
                 session_str = account_data['session_string']
                 
                 # Validate session string
+                logger.info(f"🔧 DEBUG: Account {account_id} session_string type: {type(session_str)}")
+                logger.info(f"🔧 DEBUG: Account {account_id} session_string length: {len(session_str) if session_str else 'None'}")
+                logger.info(f"🔧 DEBUG: Account {account_id} session_string preview: {repr(session_str[:50]) if session_str else 'None'}")
+                
                 if not session_str or not isinstance(session_str, str):
                     logger.error(f"❌ Invalid session_string for account {account_id}: {type(session_str)} - {repr(session_str)}")
                     return None

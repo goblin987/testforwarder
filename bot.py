@@ -1228,6 +1228,9 @@ Buttons will appear as an inline keyboard below your ad message."""
             from config import Config
             from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Bot
             
+            logger.info(f"🔧 DEBUG: Button update called with campaign_data type: {type(campaign_data)}")
+            logger.info(f"🔧 DEBUG: Button update campaign_data keys: {list(campaign_data.keys()) if isinstance(campaign_data, dict) else 'Not a dict'}")
+            
             storage_channel_id = Config.STORAGE_CHANNEL_ID
             if not storage_channel_id:
                 logger.warning("No storage channel ID configured")
@@ -1235,6 +1238,8 @@ Buttons will appear as an inline keyboard below your ad message."""
             
             # Handle the ad_content structure - it's a list with one dict
             ad_content = campaign_data.get('ad_content', [])
+            logger.info(f"🔧 DEBUG: ad_content type: {type(ad_content)}, value: {ad_content}")
+            
             if not ad_content or not isinstance(ad_content, list):
                 logger.warning("No ad_content found or invalid format")
                 return
