@@ -119,6 +119,37 @@ class TgcfBot:
         
         return False
     
+    def _parse_bridge_channel_link(self, link: str) -> tuple:
+        """Parse bridge channel link and return (channel_username, message_id, channel_id)"""
+        link = link.strip()
+        
+        if not link.startswith('http'):
+            link = 'https://' + link
+        
+        # Extract channel info and message ID
+        parts = link.replace('https://t.me/', '').replace('http://t.me/', '').split('/')
+        
+        if len(parts) < 2:
+            raise ValueError(f"Invalid link format - need at least channel/message_id, got {len(parts)} parts: {parts}")
+        
+        # Handle private channels (t.me/c/123456789/123) vs public channels (t.me/username/123)
+        if parts[0] == 'c' and len(parts) >= 3:
+            # Private channel: t.me/c/channel_id/message_id
+            channel_id = int(parts[1])
+            message_id = int(parts[2])
+            channel_username = None
+            # Convert to full channel ID format for Telegram
+            full_channel_id = f"-100{channel_id}"
+            return channel_username, message_id, full_channel_id
+        elif len(parts) >= 2:
+            # Public channel: t.me/username/message_id
+            channel_username = parts[0]
+            message_id = int(parts[1])
+            channel_id = None
+            return channel_username, message_id, channel_id
+        else:
+            raise ValueError(f"Could not parse channel link: {link}")
+    
     async def _handle_bridge_channel_link(self, update: Update, session: dict, link: str):
         """Handle bridge channel/group message link"""
         user_id = update.effective_user.id
