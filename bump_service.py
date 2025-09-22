@@ -1029,9 +1029,33 @@ class BumpService:
         
         # Use fresh client for scheduled execution to avoid asyncio loop issues
         # Note: We need to call the async version here since we're in async context
-        client = await self._async_initialize_client(campaign['account_id'], cache_client=False)
+        max_client_retries = 3
+        client = None
+        
+        for client_attempt in range(max_client_retries):
+            try:
+                client = await self._async_initialize_client(campaign['account_id'], cache_client=False)
+                if client:
+                    # Test client with a simple API call
+                    await client.get_me()
+                    logger.info(f"✅ Client initialized and tested successfully for {account_name}")
+                    break
+                else:
+                    logger.warning(f"⚠️ Client initialization returned None (attempt {client_attempt + 1})")
+            except Exception as client_error:
+                logger.warning(f"⚠️ Client test failed (attempt {client_attempt + 1}): {client_error}")
+                if client:
+                    try:
+                        await client.disconnect()
+                    except:
+                        pass
+                client = None
+            
+            if client_attempt < max_client_retries - 1:
+                await asyncio.sleep(3 * (client_attempt + 1))  # Progressive delay
+        
         if not client:
-            logger.error(f"❌ Failed to initialize {account_name} for campaign {campaign_id}")
+            logger.error(f"❌ Failed to initialize {account_name} for campaign {campaign_id} after {max_client_retries} attempts")
             logger.error(f"💡 Solution: Re-add {account_name} with API credentials instead of uploaded session")
             return False
         
@@ -1209,19 +1233,38 @@ class BumpService:
                                     # Get storage channel entity
                                     storage_channel_entity = await forward_client.get_entity(storage_chat_id)
                                     
-                                    # Forward the message from storage channel (preserves premium emojis and buttons)
-                                    forwarded_messages = await forward_client.forward_messages(
-                                        entity=chat_entity,
-                                        messages=storage_message_id,
-                                        from_peer=storage_channel_entity
-                                    )
+                                    # Forward the message from storage channel with retry mechanism
+                                    max_forward_retries = 3
+                                    forwarded_successfully = False
                                     
-                                    if forwarded_messages:
-                                        message = forwarded_messages[0] if isinstance(forwarded_messages, list) else forwarded_messages
-                                        logger.info(f"✅ UNIFIED TELETHON: Forwarded message with premium emojis and buttons to {chat_entity.title}")
+                                    for forward_attempt in range(max_forward_retries):
+                                        try:
+                                            # Verify client is still authorized before forwarding
+                                            if not await forward_client.is_user_authorized():
+                                                logger.error(f"❌ Forward client not authorized (attempt {forward_attempt + 1})")
+                                                break
+                                            
+                                            forwarded_messages = await forward_client.forward_messages(
+                                                entity=chat_entity,
+                                                messages=storage_message_id,
+                                                from_peer=storage_channel_entity
+                                            )
+                                            
+                                            if forwarded_messages:
+                                                message = forwarded_messages[0] if isinstance(forwarded_messages, list) else forwarded_messages
+                                                logger.info(f"✅ UNIFIED TELETHON: Forwarded message with premium emojis and buttons to {chat_entity.title}")
+                                                forwarded_successfully = True
+                                                break
+                                            else:
+                                                logger.warning(f"No messages forwarded from storage channel (attempt {forward_attempt + 1})")
+                                                
+                                        except Exception as forward_error:
+                                            logger.error(f"❌ Forward attempt {forward_attempt + 1} failed: {forward_error}")
+                                            if forward_attempt < max_forward_retries - 1:
+                                                await asyncio.sleep(2 ** forward_attempt)  # Exponential backoff
+                                    
+                                    if forwarded_successfully:
                                         continue
-                                    else:
-                                        logger.warning(f"No messages forwarded from storage channel")
                                 else:
                                     logger.warning(f"Missing storage message data: message_id={storage_message_id}, chat_id={storage_chat_id}")
                                     
@@ -1503,25 +1546,48 @@ class BumpService:
                                                         
                                                         # FORWARD the storage message to preserve InlineKeyboardMarkup buttons!
                                                         # This is how user accounts can send InlineKeyboardMarkup - by forwarding!
-                                                        try:
-                                                            # Forward the original storage message (preserves buttons and formatting)
-                                                            sent_msg = await client.forward_messages(
-                                                                chat_entity,           # Target group
-                                                                storage_message,       # Original message from storage
-                                                                from_peer=storage_channel  # Source chat
-                                                            )
-                                                            logger.info(f"✅ FORWARDED message with InlineKeyboardMarkup buttons to {chat_entity.title}")
-                                                            
-                                                            # DEBUG: Verify forwarded message has InlineKeyboardMarkup buttons
-                                                            if hasattr(sent_msg, 'reply_markup') and sent_msg.reply_markup:
-                                                                logger.info(f"✅ CONFIRMED: Forwarded message HAS InlineKeyboardMarkup buttons!")
-                                                                if hasattr(sent_msg.reply_markup, 'rows'):
-                                                                    logger.info(f"✅ CONFIRMED: InlineKeyboardMarkup has {len(sent_msg.reply_markup.rows)} button rows")
-                                                            else:
-                                                                logger.error(f"❌ PROBLEM: Forwarded message has NO InlineKeyboardMarkup buttons!")
-                                                            
-                                                            logger.info(f"✅ SUCCESS: Worker sent message with media + premium emojis + InlineKeyboardMarkup buttons to {chat_entity.title}!")
-                                                            buttons_sent_count += 1
+                                                        # Forward with retry mechanism for better reliability
+                                                        max_forward_retries = 3
+                                                        forwarded_successfully = False
+                                                        
+                                                        for forward_attempt in range(max_forward_retries):
+                                                            try:
+                                                                # Verify client is still authorized
+                                                                if not await client.is_user_authorized():
+                                                                    logger.error(f"❌ Client not authorized for forwarding (attempt {forward_attempt + 1})")
+                                                                    break
+                                                                
+                                                                # Forward the original storage message (preserves buttons and formatting)
+                                                                sent_msg = await client.forward_messages(
+                                                                    chat_entity,           # Target group
+                                                                    storage_message,       # Original message from storage
+                                                                    from_peer=storage_channel  # Source chat
+                                                                )
+                                                                
+                                                                if sent_msg:
+                                                                    logger.info(f"✅ FORWARDED message with InlineKeyboardMarkup buttons to {chat_entity.title}")
+                                                                    
+                                                                    # DEBUG: Verify forwarded message has InlineKeyboardMarkup buttons
+                                                                    if hasattr(sent_msg, 'reply_markup') and sent_msg.reply_markup:
+                                                                        logger.info(f"✅ CONFIRMED: Forwarded message HAS InlineKeyboardMarkup buttons!")
+                                                                        if hasattr(sent_msg.reply_markup, 'rows'):
+                                                                            logger.info(f"✅ CONFIRMED: InlineKeyboardMarkup has {len(sent_msg.reply_markup.rows)} button rows")
+                                                                    else:
+                                                                        logger.warning(f"⚠️ Forwarded message has no InlineKeyboardMarkup buttons (this may be normal)")
+                                                                    
+                                                                    logger.info(f"✅ SUCCESS: Worker sent message with media + premium emojis + InlineKeyboardMarkup buttons to {chat_entity.title}!")
+                                                                    buttons_sent_count += 1
+                                                                    forwarded_successfully = True
+                                                                    break
+                                                                else:
+                                                                    logger.warning(f"Forward returned None (attempt {forward_attempt + 1})")
+                                                                    
+                                                            except Exception as forward_error:
+                                                                logger.error(f"❌ Forward attempt {forward_attempt + 1} failed: {forward_error}")
+                                                                if forward_attempt < max_forward_retries - 1:
+                                                                    await asyncio.sleep(2 ** forward_attempt)  # Exponential backoff
+                                                        
+                                                        if forwarded_successfully:
                                                             continue
                                                         except Exception as forward_error:
                                                             logger.error(f"❌ Forward failed for {chat_entity.title}: {forward_error}")

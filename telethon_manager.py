@@ -23,11 +23,30 @@ class TelethonManager:
         os.makedirs(self.session_dir, exist_ok=True)
     
     async def get_client(self, account_data: Dict[str, Any]) -> Optional[TelegramClient]:
-        """Get or create a Telethon client for the given account"""
+        """Get or create a Telethon client for the given account with improved error handling"""
         account_id = str(account_data['id'])
         
+        # Check if existing client is still valid
         if account_id in self.clients:
-            return self.clients[account_id]
+            client = self.clients[account_id]
+            try:
+                # Test if client is still authorized and connected
+                if client.is_connected() and await client.is_user_authorized():
+                    # Test with a simple API call to ensure it's working
+                    await client.get_me()
+                    logger.info(f"✅ Existing client for account {account_id} is valid and authorized")
+                    return client
+                else:
+                    logger.warning(f"⚠️ Existing client for account {account_id} is not authorized, recreating...")
+                    await client.disconnect()
+                    del self.clients[account_id]
+            except Exception as e:
+                logger.warning(f"⚠️ Existing client for account {account_id} failed test: {e}, recreating...")
+                try:
+                    await client.disconnect()
+                except:
+                    pass
+                del self.clients[account_id]
         
         try:
             # Check if we have a stored session string
@@ -122,22 +141,33 @@ class TelethonManager:
                     logger.error(f"❌ No valid session data available for account {account_id}")
                     return None
             
-            # Connect without prompting for input
-            await client.connect()
+            # Connect with retry mechanism
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    await client.connect()
+                    logger.info(f"✅ Client connected successfully (attempt {attempt + 1}/{max_retries})")
+                    break
+                except Exception as connect_error:
+                    logger.warning(f"⚠️ Connection attempt {attempt + 1}/{max_retries} failed: {connect_error}")
+                    if attempt == max_retries - 1:
+                        logger.error(f"❌ Failed to connect after {max_retries} attempts")
+                        return None
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
             
             # Ensure client is properly initialized for cross-context usage
             try:
+                # Check if already authorized first
+                if not await client.is_user_authorized():
+                    logger.error(f"❌ Account {account_id} is not authorized - cannot authenticate in headless environment")
+                    await client.disconnect()
+                    return None
+                
                 # Test the client by getting self info to ensure it's working
                 me = await client.get_me()
                 logger.info(f"✅ Client connected and authorized for {me.first_name} (ID: {me.id})")
             except Exception as test_error:
                 logger.error(f"❌ Client connection test failed for account {account_id}: {test_error}")
-                await client.disconnect()
-                return None
-            
-            # Check if already authorized
-            if not await client.is_user_authorized():
-                logger.error(f"❌ Account {account_id} is not authorized - cannot authenticate in headless environment")
                 await client.disconnect()
                 return None
             
@@ -208,28 +238,75 @@ class TelethonManager:
     
     async def forward_storage_message(self, client: TelegramClient, target_chat_id: int, 
                                     storage_message_id: int, storage_channel_id: int) -> bool:
-        """Forward a storage message to target chat using the same client"""
-        try:
-            # Get storage channel entity
-            storage_channel = await client.get_entity(storage_channel_id)
-            
-            # Forward the message
-            forwarded_messages = await client.forward_messages(
-                entity=target_chat_id,
-                messages=storage_message_id,
-                from_peer=storage_channel
-            )
-            
-            if forwarded_messages:
-                logger.info(f"✅ Forwarded storage message {storage_message_id} to {target_chat_id}")
-                return True
-            else:
-                logger.warning(f"❌ No messages forwarded from storage")
-                return False
+        """Forward a storage message to target chat using the same client with enhanced error handling"""
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            try:
+                # Verify client is still connected and authorized
+                if not client.is_connected():
+                    logger.warning(f"Client not connected, attempting to reconnect (attempt {attempt + 1})")
+                    await client.connect()
                 
-        except Exception as e:
-            logger.error(f"❌ Failed to forward storage message: {e}")
-            return False
+                if not await client.is_user_authorized():
+                    logger.error(f"❌ Client not authorized for forwarding (attempt {attempt + 1})")
+                    return False
+                
+                # Get storage channel entity with retry
+                try:
+                    storage_channel = await client.get_entity(storage_channel_id)
+                except Exception as entity_error:
+                    logger.warning(f"Failed to get storage channel entity: {entity_error}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                    else:
+                        return False
+                
+                # Get target chat entity with retry
+                try:
+                    target_entity = await client.get_entity(target_chat_id)
+                except Exception as target_error:
+                    logger.warning(f"Failed to get target entity {target_chat_id}: {target_error}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                    else:
+                        return False
+                
+                # Forward the message with retry
+                forwarded_messages = await client.forward_messages(
+                    entity=target_entity,
+                    messages=storage_message_id,
+                    from_peer=storage_channel
+                )
+                
+                if forwarded_messages:
+                    logger.info(f"✅ Forwarded storage message {storage_message_id} to {target_chat_id}")
+                    return True
+                else:
+                    logger.warning(f"❌ No messages forwarded from storage (attempt {attempt + 1})")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                    else:
+                        return False
+                    
+            except FloodWaitError as flood_error:
+                wait_time = flood_error.seconds
+                logger.warning(f"⏳ FloodWaitError: waiting {wait_time} seconds before retry")
+                await asyncio.sleep(wait_time)
+                continue
+                
+            except Exception as e:
+                logger.error(f"❌ Failed to forward storage message (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    continue
+                else:
+                    return False
+        
+        return False
     
     def _convert_entities_to_telethon(self, bot_entities: List[Dict[str, Any]]) -> List:
         """Convert Bot API entities to Telethon entities"""
@@ -285,6 +362,49 @@ class TelethonManager:
         except Exception as e:
             logger.error(f"Failed to get media file: {e}")
             return None
+    
+    async def validate_and_reconnect_client(self, account_id: str, client: TelegramClient) -> bool:
+        """Validate client and reconnect if necessary"""
+        try:
+            # Check if client is connected
+            if not client.is_connected():
+                logger.info(f"🔄 Client {account_id} not connected, attempting to reconnect...")
+                await client.connect()
+            
+            # Check if client is authorized
+            if not await client.is_user_authorized():
+                logger.error(f"❌ Client {account_id} not authorized")
+                return False
+            
+            # Test with a simple API call
+            await client.get_me()
+            logger.info(f"✅ Client {account_id} validation successful")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Client {account_id} validation failed: {e}")
+            return False
+    
+    async def get_validated_client(self, account_data: Dict[str, Any]) -> Optional[TelegramClient]:
+        """Get a validated client, recreating if necessary"""
+        account_id = str(account_data['id'])
+        
+        # Try to get existing client and validate it
+        if account_id in self.clients:
+            client = self.clients[account_id]
+            if await self.validate_and_reconnect_client(account_id, client):
+                return client
+            else:
+                # Remove invalid client
+                logger.warning(f"⚠️ Removing invalid client for account {account_id}")
+                try:
+                    await client.disconnect()
+                except:
+                    pass
+                del self.clients[account_id]
+        
+        # Create new client if needed
+        return await self.get_client(account_data)
     
     async def cleanup(self):
         """Cleanup all clients"""

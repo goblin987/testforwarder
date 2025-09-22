@@ -50,6 +50,16 @@ class Config:
     MAX_MESSAGES_PER_BATCH = 100
     DELAY_BETWEEN_MESSAGES = 0.1
     
+    # Error Handling Configuration
+    MAX_RETRY_ATTEMPTS = 3
+    RETRY_DELAY_BASE = 2  # Base delay for exponential backoff
+    CLIENT_VALIDATION_TIMEOUT = 30
+    CONNECTION_TIMEOUT = 60
+    
+    # Session Management
+    SESSION_VALIDATION_INTERVAL = 300  # 5 minutes
+    AUTO_RECONNECT_ENABLED = True
+    
     @classmethod
     def validate(cls):
         """Validate required configuration"""
