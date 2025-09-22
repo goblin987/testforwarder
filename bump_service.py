@@ -1208,18 +1208,29 @@ class BumpService:
                                 final_caption = final_caption[:4000] + "..."
                                 logger.warning(f"Message truncated to fit Telegram limits (was {len(final_caption)} chars)")
                             
-                            # WORKING SOLUTION: Simple approach that actually works
-                            logger.info(f"Sending media with guaranteed buttons (simplified approach)")
+                            # PROVEN SOLUTION: Add buttons as clickable text links (user accounts cannot send inline buttons)
+                            logger.info(f"Sending media with text-based buttons (user account compatible)")
                             
                             # Get the original text/caption
                             original_text = media_message.get('caption', '')
                             
-                            # Use original text WITHOUT adding button text - buttons will be inline
-                            final_text = original_text
+                            # Add button URLs as clickable text links (this works for user accounts)
+                            button_text = ""
+                            if campaign_buttons and len(campaign_buttons) > 0:
+                                button_text = "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                for button_info in campaign_buttons:
+                                    if button_info.get('url') and button_info.get('text'):
+                                        # Create clickable link format
+                                        button_text += f"🔗 [{button_info['text']}]({button_info['url']})\n"
+                                button_text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                                logger.info(f"✅ Added {len(campaign_buttons)} clickable text buttons to message")
+                            
+                            # Combine original text with button text
+                            final_text = (original_text or "") + button_text
                             
                             # Truncate if too long
                             if len(final_text) > 4000:
-                                final_text = final_text[:4000] + "..."
+                                final_text = final_text[:3900] + "...\n" + button_text[-100:]  # Keep buttons visible
                             
                             # UNIFIED TELETHON: Use stored client for perfect forwarding
                             try:
@@ -1248,11 +1259,41 @@ class BumpService:
                                                 logger.error(f"❌ Forward client not authorized (attempt {forward_attempt + 1})")
                                                 break
                                             
-                                            forwarded_messages = await forward_client.forward_messages(
-                                                entity=chat_entity,
-                                                messages=storage_message_id,
-                                                from_peer=storage_channel_entity
-                                            )
+                                            # SOLUTION: Create new message with text-based buttons instead of forwarding
+                                            # Get original message content
+                                            original_message = await forward_client.get_messages(storage_channel_entity, ids=storage_message_id)
+                                            if not original_message:
+                                                logger.error("Could not get original message from storage")
+                                                continue
+                                            
+                                            # Extract content and add text-based buttons
+                                            message_text = original_message.message or ""
+                                            
+                                            # Add clickable button links
+                                            button_text = ""
+                                            if campaign_buttons and len(campaign_buttons) > 0:
+                                                button_text = "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                                for button_info in campaign_buttons:
+                                                    if button_info.get('url') and button_info.get('text'):
+                                                        button_text += f"🔗 [{button_info['text']}]({button_info['url']})\n"
+                                                button_text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                                            
+                                            final_message_text = message_text + button_text
+                                            
+                                            # Send new message with text-based buttons and media
+                                            if original_message.media:
+                                                forwarded_messages = await forward_client.send_file(
+                                                    chat_entity,
+                                                    file=original_message.media,
+                                                    caption=final_message_text,
+                                                    parse_mode='md'  # Enable markdown parsing for clickable links
+                                                )
+                                            else:
+                                                forwarded_messages = await forward_client.send_message(
+                                                    chat_entity,
+                                                    message=final_message_text,
+                                                    parse_mode='md'  # Enable markdown parsing for clickable links
+                                                )
                                             
                                             if forwarded_messages:
                                                 message = forwarded_messages[0] if isinstance(forwarded_messages, list) else forwarded_messages
@@ -1561,41 +1602,60 @@ class BumpService:
                                                                     logger.error(f"❌ Client not authorized for forwarding (attempt {forward_attempt + 1})")
                                                                     break
                                                                 
-                                                                # Forward the original storage message (preserves buttons and formatting)
-                                                                sent_msg = await client.forward_messages(
-                                                                    chat_entity,           # Target group
-                                                                    storage_message,       # Original message from storage
-                                                                    from_peer=storage_channel  # Source chat
-                                                                )
-                                                                
-                                                                if sent_msg:
-                                                                    logger.info(f"✅ FORWARDED message with InlineKeyboardMarkup buttons to {chat_entity.title}")
-                                                                    
-                                                                    # DEBUG: Verify forwarded message has InlineKeyboardMarkup buttons
-                                                                    if hasattr(sent_msg, 'reply_markup') and sent_msg.reply_markup:
-                                                                        logger.info(f"✅ CONFIRMED: Forwarded message HAS InlineKeyboardMarkup buttons!")
-                                                                        if hasattr(sent_msg.reply_markup, 'rows'):
-                                                                            logger.info(f"✅ CONFIRMED: InlineKeyboardMarkup has {len(sent_msg.reply_markup.rows)} button rows")
-                                                                    else:
-                                                                        logger.warning(f"⚠️ Forwarded message has no InlineKeyboardMarkup buttons (this may be normal)")
-                                                                    
-                                                                    logger.info(f"✅ SUCCESS: Worker sent message with media + premium emojis + InlineKeyboardMarkup buttons to {chat_entity.title}!")
-                                                                    buttons_sent_count += 1
-                                                                    forwarded_successfully = True
-                                                                    break
-                                                                else:
-                                                                    logger.warning(f"Forward returned None (attempt {forward_attempt + 1})")
-                                                                    
-                                                            except Exception as forward_error:
-                                                                logger.error(f"❌ Forward attempt {forward_attempt + 1} failed: {forward_error}")
-                                                                if forward_attempt < max_forward_retries - 1:
-                                                                    await asyncio.sleep(2 ** forward_attempt)  # Exponential backoff
-                                                        
-                                                        if forwarded_successfully:
-                                                            continue
-                                                        else:
-                                                            logger.error(f"❌ Failed to forward after {max_forward_retries} attempts")
-                                                            # Continue to fallback logic below
+                                                # SOLUTION: Create new message with text-based buttons (user accounts cannot forward inline buttons)
+                                                # Get original message content
+                                                original_message = await client.get_messages(storage_channel, ids=storage_message.id)
+                                                if not original_message:
+                                                    logger.error("Could not get original message from storage")
+                                                    continue
+                                                
+                                                # Extract content and add text-based buttons
+                                                message_text = original_message.message or ""
+                                                
+                                                # Add clickable button links
+                                                button_text = ""
+                                                if campaign_buttons and len(campaign_buttons) > 0:
+                                                    button_text = "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                                    for button_info in campaign_buttons:
+                                                        if button_info.get('url') and button_info.get('text'):
+                                                            button_text += f"🔗 [{button_info['text']}]({button_info['url']})\n"
+                                                    button_text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                                                
+                                                final_message_text = message_text + button_text
+                                                
+                                                # Send new message with text-based buttons and media
+                                                if original_message.media:
+                                                    sent_msg = await client.send_file(
+                                                        chat_entity,
+                                                        file=original_message.media,
+                                                        caption=final_message_text,
+                                                        parse_mode='md'  # Enable markdown parsing for clickable links
+                                                    )
+                                                else:
+                                                    sent_msg = await client.send_message(
+                                                        chat_entity,
+                                                        message=final_message_text,
+                                                        parse_mode='md'  # Enable markdown parsing for clickable links
+                                                    )
+                                                
+                                                if sent_msg:
+                                                    logger.info(f"✅ SUCCESS: Worker sent message with text-based clickable buttons to {chat_entity.title}!")
+                                                    buttons_sent_count += 1
+                                                    forwarded_successfully = True
+                                                    break
+                                                else:
+                                                    logger.warning(f"Send returned None (attempt {forward_attempt + 1})")
+                                                    
+                                            except Exception as forward_error:
+                                                logger.error(f"❌ Send attempt {forward_attempt + 1} failed: {forward_error}")
+                                                if forward_attempt < max_forward_retries - 1:
+                                                    await asyncio.sleep(2 ** forward_attempt)  # Exponential backoff
+                                        
+                                        if forwarded_successfully:
+                                            continue
+                                        else:
+                                            logger.error(f"❌ Failed to send message with buttons after {max_forward_retries} attempts")
+                                            # Continue to fallback logic below
                                                             # Fallback: Send new message without buttons
                                                             sent_msg = await client.send_file(
                                                                 chat_entity,           # Target group
