@@ -1637,25 +1637,25 @@ class BumpService:
                                                                         message=final_message_text,
                                                                         parse_mode='md'  # Enable markdown parsing for clickable links
                                                                     )
-                                                
-                                                if sent_msg:
-                                                    logger.info(f"✅ SUCCESS: Worker sent message with text-based clickable buttons to {chat_entity.title}!")
-                                                    buttons_sent_count += 1
-                                                    forwarded_successfully = True
-                                                    break
-                                                else:
-                                                    logger.warning(f"Send returned None (attempt {forward_attempt + 1})")
-                                                    
-                                            except Exception as forward_error:
-                                                logger.error(f"❌ Send attempt {forward_attempt + 1} failed: {forward_error}")
-                                                if forward_attempt < max_forward_retries - 1:
-                                                    await asyncio.sleep(2 ** forward_attempt)  # Exponential backoff
-                                        
-                                        if forwarded_successfully:
-                                            continue
-                                        else:
-                                            logger.error(f"❌ Failed to send message with buttons after {max_forward_retries} attempts")
-                                            # Continue to fallback logic below
+                                                                
+                                                                if sent_msg:
+                                                                    logger.info(f"✅ SUCCESS: Worker sent message with text-based clickable buttons to {chat_entity.title}!")
+                                                                    buttons_sent_count += 1
+                                                                    forwarded_successfully = True
+                                                                    break
+                                                                else:
+                                                                    logger.warning(f"Send returned None (attempt {forward_attempt + 1})")
+                                                                    
+                                                            except Exception as forward_error:
+                                                                logger.error(f"❌ Send attempt {forward_attempt + 1} failed: {forward_error}")
+                                                                if forward_attempt < max_forward_retries - 1:
+                                                                    await asyncio.sleep(2 ** forward_attempt)  # Exponential backoff
+                                                        
+                                                        if forwarded_successfully:
+                                                            continue
+                                                        else:
+                                                            logger.error(f"❌ Failed to send message with buttons after {max_forward_retries} attempts")
+                                                            # Continue to fallback logic below
                                                             # Fallback: Send new message without buttons
                                                             sent_msg = await client.send_file(
                                                                 chat_entity,           # Target group
