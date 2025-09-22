@@ -1179,118 +1179,22 @@ class BumpService:
                             logger.info(f"🚀 YOLO MODE: Forwarding linked message {storage_message_id} from {storage_chat_id}")
                             
                             try:
-                                # Get the original message from storage WITH ENTITIES (preserves premium emojis)
-                                original_message = await client.get_messages(storage_channel, ids=storage_message_id)
-                                if not original_message:
-                                    logger.error(f"❌ Could not get message {storage_message_id} from storage")
+                                # PERFECT SOLUTION: Forward the message directly from storage (already has buttons!)
+                                # The storage message already has the buttons added when campaign was created
+                                logger.info(f"🚀 YOLO PERFECT: Forwarding message {storage_message_id} directly from storage (buttons included!)")
+                                
+                                # Forward the message directly - this preserves EVERYTHING!
+                                sent_msg = await client.forward_messages(
+                                    entity=chat_entity,
+                                    messages=storage_message_id,
+                                    from_peer=storage_channel
+                                )
+                                
+                                if sent_msg:
+                                    logger.info(f"🔥 YOLO SUCCESS: Forwarded message with PREMIUM EMOJIS + REAL BUTTONS to {chat_entity.title}!")
+                                else:
+                                    logger.error(f"❌ YOLO: Failed to forward message {storage_message_id}")
                                     continue
-                                
-                                logger.info(f"🔍 YOLO DEBUG: Original message entities: {len(original_message.entities or [])}")
-                                logger.info(f"🔍 YOLO DEBUG: Original message text preview: {(original_message.message or '')[:100]}...")
-                                
-                                # HYBRID SOLUTION: Use BOT to send message with REAL INLINE BUTTONS
-                                # User account gets content, Bot account sends with proper buttons
-                                message_text = original_message.message or ""
-                                
-                                # Create REAL inline keyboard markup for bot
-                                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                                
-                                inline_keyboard = None
-                                if campaign_buttons and len(campaign_buttons) > 0:
-                                    button_rows = []
-                                    for button_info in campaign_buttons:
-                                        if button_info.get('url') and button_info.get('text'):
-                                            button = InlineKeyboardButton(
-                                                text=button_info['text'],
-                                                url=button_info['url']
-                                            )
-                                            button_rows.append([button])
-                                    
-                                    if button_rows:
-                                        inline_keyboard = InlineKeyboardMarkup(button_rows)
-                                        logger.info(f"✅ YOLO MODE: Created REAL InlineKeyboardMarkup with {len(button_rows)} buttons")
-                                
-                                # HYBRID APPROACH: Use Bot API to send with real buttons
-                                try:
-                                    # Import bot instance
-                                    from bot import TgcfBot
-                                    
-                                    # Get bot instance (we need the telegram bot, not telethon client)
-                                    # For now, let's use telethon but create proper inline buttons
-                                    from telethon.tl.types import KeyboardButtonUrl
-                                    from telethon.tl.types import ReplyInlineMarkup
-                                    
-                                    # Create Telethon inline buttons (this should work!)
-                                    telethon_buttons = []
-                                    if campaign_buttons and len(campaign_buttons) > 0:
-                                        button_row = []
-                                        for button_info in campaign_buttons:
-                                            if button_info.get('url') and button_info.get('text'):
-                                                telethon_button = KeyboardButtonUrl(
-                                                    text=button_info['text'],
-                                                    url=button_info['url']
-                                                )
-                                                button_row.append(telethon_button)
-                                        
-                                        if button_row:
-                                            telethon_buttons = [button_row]
-                                            logger.info(f"✅ YOLO MODE: Created Telethon inline buttons with {len(button_row)} buttons")
-                                    
-                                    # Create ReplyInlineMarkup
-                                    reply_markup = None
-                                    if telethon_buttons:
-                                        reply_markup = ReplyInlineMarkup(rows=telethon_buttons)
-                                        logger.info(f"🔥 YOLO: Created ReplyInlineMarkup for REAL INLINE BUTTONS!")
-                                    
-                                    # Send with REAL INLINE BUTTONS using Telethon
-                                    if original_message.media:
-                                        sent_msg = await client.send_file(
-                                            chat_entity,
-                                            file=original_message.media,
-                                            caption=message_text,
-                                            formatting_entities=original_message.entities,  # PRESERVE PREMIUM EMOJIS
-                                            buttons=reply_markup  # REAL INLINE BUTTONS!
-                                        )
-                                        logger.info(f"🔥 YOLO SUCCESS: Sent media message with PREMIUM EMOJIS + REAL INLINE BUTTONS to {chat_entity.title}!")
-                                    else:
-                                        sent_msg = await client.send_message(
-                                            chat_entity,
-                                            message=message_text,
-                                            formatting_entities=original_message.entities,  # PRESERVE PREMIUM EMOJIS
-                                            buttons=reply_markup  # REAL INLINE BUTTONS!
-                                        )
-                                        logger.info(f"🔥 YOLO SUCCESS: Sent text message with PREMIUM EMOJIS + REAL INLINE BUTTONS to {chat_entity.title}!")
-                                        
-                                except Exception as button_error:
-                                    logger.error(f"❌ YOLO: Failed to send with inline buttons: {button_error}")
-                                    # Fallback to text links if inline buttons fail
-                                    button_text = ""
-                                    if campaign_buttons and len(campaign_buttons) > 0:
-                                        button_text = "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                                        for button_info in campaign_buttons:
-                                            if button_info.get('url') and button_info.get('text'):
-                                                button_text += f"🔗 [{button_info['text']}]({button_info['url']})\n"
-                                        button_text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                                    
-                                    final_message_text = message_text + button_text
-                                    
-                                    # Fallback send
-                                    if original_message.media:
-                                        sent_msg = await client.send_file(
-                                            chat_entity,
-                                            file=original_message.media,
-                                            caption=final_message_text,
-                                            formatting_entities=original_message.entities,
-                                            parse_mode='md'
-                                        )
-                                    else:
-                                        sent_msg = await client.send_message(
-                                            chat_entity,
-                                            message=final_message_text,
-                                            formatting_entities=original_message.entities,
-                                            parse_mode='md'
-                                        )
-                                    logger.info(f"⚠️ YOLO FALLBACK: Sent with text links instead of inline buttons")
                                 
                                 if sent_msg:
                                     buttons_sent_count += 1
