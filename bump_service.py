@@ -1188,44 +1188,66 @@ class BumpService:
                                 logger.info(f"🔍 YOLO DEBUG: Original message entities: {len(original_message.entities or [])}")
                                 logger.info(f"🔍 YOLO DEBUG: Original message text preview: {(original_message.message or '')[:100]}...")
                                 
-                                # PREMIUM EMOJI SOLUTION: Send original message first, then buttons separately
-                                # This preserves ALL formatting and emojis perfectly
+                                # SINGLE MESSAGE SOLUTION: Combine premium emojis + clickable buttons in ONE message
                                 message_text = original_message.message or ""
                                 
-                                # First: Send the original message with ALL premium emojis intact
-                                if original_message.media:
-                                    # Send media with original caption and entities (preserves premium emojis)
-                                    sent_msg = await client.send_file(
-                                        chat_entity,
-                                        file=original_message.media,
-                                        caption=message_text,
-                                        formatting_entities=original_message.entities  # PRESERVE ALL PREMIUM EMOJIS
-                                    )
-                                    logger.info(f"🔥 YOLO SUCCESS: Sent media message with PREMIUM EMOJIS to {chat_entity.title}!")
-                                else:
-                                    # Send text with original entities (preserves premium emojis)
-                                    sent_msg = await client.send_message(
-                                        chat_entity,
-                                        message=message_text,
-                                        formatting_entities=original_message.entities  # PRESERVE ALL PREMIUM EMOJIS
-                                    )
-                                    logger.info(f"🔥 YOLO SUCCESS: Sent text message with PREMIUM EMOJIS to {chat_entity.title}!")
-                                
-                                # Second: Send clickable buttons as a separate message
+                                # Add clickable button links to the original message text
+                                button_text = ""
                                 if campaign_buttons and len(campaign_buttons) > 0:
-                                    button_text = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                    button_text = "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                                     for button_info in campaign_buttons:
                                         if button_info.get('url') and button_info.get('text'):
                                             button_text += f"🔗 [{button_info['text']}]({button_info['url']})\n"
                                     button_text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                                    logger.info(f"✅ YOLO MODE: Added {len(campaign_buttons)} clickable buttons to message")
+                                
+                                # Combine original text with button text
+                                final_message_text = message_text + button_text
+                                
+                                # ADVANCED SOLUTION: Create combined entities for premium emojis + markdown buttons
+                                from telethon.tl.types import MessageEntityTextUrl
+                                
+                                # Start with original entities (preserves premium emojis)
+                                combined_entities = list(original_message.entities or [])
+                                
+                                # Add text URL entities for buttons (clickable links)
+                                if campaign_buttons and len(campaign_buttons) > 0:
+                                    button_start_offset = len(message_text) + 2  # Account for \n\n
+                                    button_start_offset += len("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
                                     
-                                    # Send buttons as a separate message with markdown parsing for clickable links
-                                    await client.send_message(
+                                    for button_info in campaign_buttons:
+                                        if button_info.get('url') and button_info.get('text'):
+                                            # Find the position of this button text
+                                            button_text_start = final_message_text.find(f"🔗 [{button_info['text']}]", button_start_offset)
+                                            if button_text_start != -1:
+                                                # Create TextUrl entity for clickable link
+                                                link_start = button_text_start + 3  # Skip "🔗 "
+                                                link_length = len(f"[{button_info['text']}]")
+                                                
+                                                text_url_entity = MessageEntityTextUrl(
+                                                    offset=link_start,
+                                                    length=link_length,
+                                                    url=button_info['url']
+                                                )
+                                                combined_entities.append(text_url_entity)
+                                                logger.info(f"🔗 YOLO: Added TextUrl entity for {button_info['text']} at offset {link_start}")
+                                
+                                # Send SINGLE message with premium emojis + clickable buttons
+                                if original_message.media:
+                                    sent_msg = await client.send_file(
                                         chat_entity,
-                                        message=button_text,
-                                        parse_mode='md'  # Enable markdown for clickable buttons only
+                                        file=original_message.media,
+                                        caption=final_message_text,
+                                        formatting_entities=combined_entities  # PREMIUM EMOJIS + CLICKABLE BUTTONS
                                     )
-                                    logger.info(f"✅ YOLO MODE: Added {len(campaign_buttons)} clickable buttons as separate message")
+                                    logger.info(f"🔥 YOLO SUCCESS: Sent SINGLE media message with PREMIUM EMOJIS + CLICKABLE BUTTONS to {chat_entity.title}!")
+                                else:
+                                    sent_msg = await client.send_message(
+                                        chat_entity,
+                                        message=final_message_text,
+                                        formatting_entities=combined_entities  # PREMIUM EMOJIS + CLICKABLE BUTTONS
+                                    )
+                                    logger.info(f"🔥 YOLO SUCCESS: Sent SINGLE text message with PREMIUM EMOJIS + CLICKABLE BUTTONS to {chat_entity.title}!")
                                 
                                 if sent_msg:
                                     buttons_sent_count += 1
