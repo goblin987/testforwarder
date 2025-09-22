@@ -1589,11 +1589,9 @@ class BumpService:
                                                         
                                                         if forwarded_successfully:
                                                             continue
-                                                        except Exception as forward_error:
-                                                            logger.error(f"❌ Forward failed for {chat_entity.title}: {forward_error}")
-                                                            logger.error(f"❌ Forward error type: {type(forward_error)}")
-                                                            logger.error(f"❌ Storage message ID: {storage_message.id if storage_message else 'None'}")
-                                                            logger.error(f"❌ Storage channel: {storage_channel.title if storage_channel else 'None'}")
+                                                        else:
+                                                            logger.error(f"❌ Failed to forward after {max_forward_retries} attempts")
+                                                            # Continue to fallback logic below
                                                             # Fallback: Send new message without buttons
                                                             sent_msg = await client.send_file(
                                                                 chat_entity,           # Target group
