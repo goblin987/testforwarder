@@ -399,7 +399,7 @@ class BumpService:
                 )
             ''')
             
-            # Add buttons column to existing tables if it doesn't exist
+            # Add missing columns to existing tables if they don't exist
             cursor.execute("PRAGMA table_info(ad_campaigns)")
             columns = [column[1] for column in cursor.fetchall()]
             if 'buttons' not in columns:
@@ -408,10 +408,14 @@ class BumpService:
             if 'target_mode' not in columns:
                 cursor.execute('ALTER TABLE ad_campaigns ADD COLUMN target_mode TEXT')
                 logger.info("Added target_mode column to ad_campaigns table")
+            if 'immediate_start' not in columns:
+                cursor.execute('ALTER TABLE ad_campaigns ADD COLUMN immediate_start BOOLEAN DEFAULT 0')
+                logger.info("Added immediate_start column to ad_campaigns table")
             
-            # Update existing campaigns with default button data and ensure they're active
+            # Update existing campaigns with default values and ensure they're active
             cursor.execute("UPDATE ad_campaigns SET buttons = ? WHERE buttons IS NULL", (json.dumps([{"text": "Shop Now", "url": "https://t.me/testukassdfdds"}]),))
             cursor.execute("UPDATE ad_campaigns SET target_mode = 'all_groups' WHERE target_mode IS NULL")
+            cursor.execute("UPDATE ad_campaigns SET immediate_start = 0 WHERE immediate_start IS NULL")
             cursor.execute("UPDATE ad_campaigns SET is_active = 1 WHERE is_active IS NULL OR is_active = 0")
             
             updated_count = cursor.rowcount
