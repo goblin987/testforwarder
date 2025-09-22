@@ -1602,41 +1602,41 @@ class BumpService:
                                                                     logger.error(f"❌ Client not authorized for forwarding (attempt {forward_attempt + 1})")
                                                                     break
                                                                 
-                                                # SOLUTION: Create new message with text-based buttons (user accounts cannot forward inline buttons)
-                                                # Get original message content
-                                                original_message = await client.get_messages(storage_channel, ids=storage_message.id)
-                                                if not original_message:
-                                                    logger.error("Could not get original message from storage")
-                                                    continue
-                                                
-                                                # Extract content and add text-based buttons
-                                                message_text = original_message.message or ""
-                                                
-                                                # Add clickable button links
-                                                button_text = ""
-                                                if campaign_buttons and len(campaign_buttons) > 0:
-                                                    button_text = "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                                                    for button_info in campaign_buttons:
-                                                        if button_info.get('url') and button_info.get('text'):
-                                                            button_text += f"🔗 [{button_info['text']}]({button_info['url']})\n"
-                                                    button_text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                                                
-                                                final_message_text = message_text + button_text
-                                                
-                                                # Send new message with text-based buttons and media
-                                                if original_message.media:
-                                                    sent_msg = await client.send_file(
-                                                        chat_entity,
-                                                        file=original_message.media,
-                                                        caption=final_message_text,
-                                                        parse_mode='md'  # Enable markdown parsing for clickable links
-                                                    )
-                                                else:
-                                                    sent_msg = await client.send_message(
-                                                        chat_entity,
-                                                        message=final_message_text,
-                                                        parse_mode='md'  # Enable markdown parsing for clickable links
-                                                    )
+                                                                # SOLUTION: Create new message with text-based buttons (user accounts cannot forward inline buttons)
+                                                                # Get original message content
+                                                                original_message = await client.get_messages(storage_channel, ids=storage_message.id)
+                                                                if not original_message:
+                                                                    logger.error("Could not get original message from storage")
+                                                                    continue
+                                                                
+                                                                # Extract content and add text-based buttons
+                                                                message_text = original_message.message or ""
+                                                                
+                                                                # Add clickable button links
+                                                                button_text = ""
+                                                                if campaign_buttons and len(campaign_buttons) > 0:
+                                                                    button_text = "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                                                    for button_info in campaign_buttons:
+                                                                        if button_info.get('url') and button_info.get('text'):
+                                                                            button_text += f"🔗 [{button_info['text']}]({button_info['url']})\n"
+                                                                    button_text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                                                                
+                                                                final_message_text = message_text + button_text
+                                                                
+                                                                # Send new message with text-based buttons and media
+                                                                if original_message.media:
+                                                                    sent_msg = await client.send_file(
+                                                                        chat_entity,
+                                                                        file=original_message.media,
+                                                                        caption=final_message_text,
+                                                                        parse_mode='md'  # Enable markdown parsing for clickable links
+                                                                    )
+                                                                else:
+                                                                    sent_msg = await client.send_message(
+                                                                        chat_entity,
+                                                                        message=final_message_text,
+                                                                        parse_mode='md'  # Enable markdown parsing for clickable links
+                                                                    )
                                                 
                                                 if sent_msg:
                                                     logger.info(f"✅ SUCCESS: Worker sent message with text-based clickable buttons to {chat_entity.title}!")
