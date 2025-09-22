@@ -50,15 +50,16 @@ class Config:
     MAX_MESSAGES_PER_BATCH = 100
     DELAY_BETWEEN_MESSAGES = 0.1
     
-    # Error Handling Configuration
-    MAX_RETRY_ATTEMPTS = 3
-    RETRY_DELAY_BASE = 2  # Base delay for exponential backoff
-    CLIENT_VALIDATION_TIMEOUT = 30
-    CONNECTION_TIMEOUT = 60
+    # Error Handling Configuration - YOLO MODE OPTIMIZED
+    MAX_RETRY_ATTEMPTS = 5  # More aggressive retries
+    RETRY_DELAY_BASE = 1.5  # Faster retry intervals
+    CLIENT_VALIDATION_TIMEOUT = 15  # Faster validation
+    CONNECTION_TIMEOUT = 30  # Faster timeouts
     
-    # Session Management
-    SESSION_VALIDATION_INTERVAL = 300  # 5 minutes
+    # Session Management - YOLO MODE
+    SESSION_VALIDATION_INTERVAL = 120  # 2 minutes - more frequent validation
     AUTO_RECONNECT_ENABLED = True
+    AGGRESSIVE_MODE = True  # YOLO MODE FLAG
     
     @classmethod
     def validate(cls):

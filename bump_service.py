@@ -1029,11 +1029,13 @@ class BumpService:
         account = self.db.get_account(campaign['account_id'])
         account_name = account['account_name'] if account else f"Account_{campaign['account_id']}"
         
-        logger.info(f"🚀 Starting campaign {campaign['campaign_name']} using {account_name}")
+        logger.info(f"🚀 YOLO MODE: Starting campaign {campaign['campaign_name']} using {account_name}")
+        logger.info(f"⚡ AGGRESSIVE MODE ENABLED: Maximum performance configuration active")
         
-        # Use fresh client for scheduled execution to avoid asyncio loop issues
-        # Note: We need to call the async version here since we're in async context
-        max_client_retries = 3
+        # YOLO MODE: Use fresh client for scheduled execution with aggressive retries
+        # Maximum performance configuration with no compromises
+        from config import Config
+        max_client_retries = getattr(Config, 'MAX_RETRY_ATTEMPTS', 5)  # YOLO MODE: 5 retries
         client = None
         
         for client_attempt in range(max_client_retries):
