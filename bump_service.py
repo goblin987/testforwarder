@@ -1163,11 +1163,70 @@ class BumpService:
         for chat_entity in target_entities:
             message = None
             try:
-                # Handle different content types
+                # YOLO MODE FIX: Handle different content types including linked messages
                 if isinstance(ad_content, list) and ad_content:
-                    # Process all messages with inline buttons
+                    logger.info(f"🔥 YOLO MODE: Processing {len(ad_content)} ad content items for {chat_entity.title}")
                     
-                    # Find the main media message and combine all text content
+                    # Process linked messages (the actual format we're getting)
+                    for message_data in ad_content:
+                        logger.info(f"🔍 YOLO DEBUG: Processing message_data: {message_data}")
+                        
+                        if message_data.get('type') == 'linked_message':
+                            # This is a linked message - get it from storage and send with buttons
+                            storage_chat_id = int(message_data.get('storage_chat_id'))
+                            storage_message_id = int(message_data.get('storage_message_id'))
+                            
+                            logger.info(f"🚀 YOLO MODE: Forwarding linked message {storage_message_id} from {storage_chat_id}")
+                            
+                            try:
+                                # Get the original message from storage
+                                original_message = await client.get_messages(storage_channel, ids=storage_message_id)
+                                if not original_message:
+                                    logger.error(f"❌ Could not get message {storage_message_id} from storage")
+                                    continue
+                                
+                                # Extract content and add text-based buttons
+                                message_text = original_message.message or ""
+                                
+                                # Add clickable button links
+                                button_text = ""
+                                if campaign_buttons and len(campaign_buttons) > 0:
+                                    button_text = "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                    for button_info in campaign_buttons:
+                                        if button_info.get('url') and button_info.get('text'):
+                                            button_text += f"🔗 [{button_info['text']}]({button_info['url']})\n"
+                                    button_text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                                    logger.info(f"✅ YOLO MODE: Added {len(campaign_buttons)} clickable buttons")
+                                
+                                final_message_text = message_text + button_text
+                                
+                                # Send message with text-based buttons and media
+                                if original_message.media:
+                                    sent_msg = await client.send_file(
+                                        chat_entity,
+                                        file=original_message.media,
+                                        caption=final_message_text,
+                                        parse_mode='md'  # Enable markdown parsing for clickable links
+                                    )
+                                    logger.info(f"🔥 YOLO SUCCESS: Sent media message with buttons to {chat_entity.title}!")
+                                else:
+                                    sent_msg = await client.send_message(
+                                        chat_entity,
+                                        message=final_message_text,
+                                        parse_mode='md'  # Enable markdown parsing for clickable links
+                                    )
+                                    logger.info(f"🔥 YOLO SUCCESS: Sent text message with buttons to {chat_entity.title}!")
+                                
+                                if sent_msg:
+                                    buttons_sent_count += 1
+                                    logger.info(f"✅ YOLO MODE: Successfully sent message to {chat_entity.title}")
+                                    continue  # Move to next group
+                                
+                            except Exception as linked_error:
+                                logger.error(f"❌ YOLO MODE: Failed to send linked message: {linked_error}")
+                                continue  # Try next group
+                    
+                    # OLD LOGIC: Find the main media message and combine all text content (keeping as fallback)
                     media_message = None
                     combined_text = ""
                     
