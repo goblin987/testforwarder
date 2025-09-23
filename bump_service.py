@@ -376,7 +376,7 @@ class BumpService:
         with self._get_db_connection() as conn:
             cursor = conn.cursor()
             
-            # Ad campaigns table
+            # Ad campaigns table - Enhanced for multi-userbot support
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS ad_campaigns (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -394,7 +394,27 @@ class BumpService:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_run TIMESTAMP,
                     total_sends INTEGER DEFAULT 0,
+                    additional_accounts TEXT,  -- JSON array of {account_id, delay_minutes, content_variation}
+                    spam_avoidance_enabled BOOLEAN DEFAULT 1,
+                    timing_variation_minutes INTEGER DEFAULT 5,
+                    content_variations TEXT,  -- JSON array of message variations
                     FOREIGN KEY (user_id) REFERENCES users (user_id),
+                    FOREIGN KEY (account_id) REFERENCES telegram_accounts (id)
+                )
+            ''')
+            
+            # Campaign execution logs for spam avoidance
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS campaign_execution_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    campaign_id INTEGER,
+                    account_id INTEGER,
+                    execution_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    content_variation_used INTEGER DEFAULT 0,
+                    groups_count INTEGER DEFAULT 0,
+                    success_count INTEGER DEFAULT 0,
+                    delay_applied_minutes INTEGER DEFAULT 0,
+                    FOREIGN KEY (campaign_id) REFERENCES ad_campaigns (id),
                     FOREIGN KEY (account_id) REFERENCES telegram_accounts (id)
                 )
             ''')
@@ -411,12 +431,26 @@ class BumpService:
             if 'immediate_start' not in columns:
                 cursor.execute('ALTER TABLE ad_campaigns ADD COLUMN immediate_start BOOLEAN DEFAULT 0')
                 logger.info("Added immediate_start column to ad_campaigns table")
+            if 'additional_accounts' not in columns:
+                cursor.execute('ALTER TABLE ad_campaigns ADD COLUMN additional_accounts TEXT')
+                logger.info("Added additional_accounts column to ad_campaigns table")
+            if 'spam_avoidance_enabled' not in columns:
+                cursor.execute('ALTER TABLE ad_campaigns ADD COLUMN spam_avoidance_enabled BOOLEAN DEFAULT 1')
+                logger.info("Added spam_avoidance_enabled column to ad_campaigns table")
+            if 'timing_variation_minutes' not in columns:
+                cursor.execute('ALTER TABLE ad_campaigns ADD COLUMN timing_variation_minutes INTEGER DEFAULT 5')
+                logger.info("Added timing_variation_minutes column to ad_campaigns table")
+            if 'content_variations' not in columns:
+                cursor.execute('ALTER TABLE ad_campaigns ADD COLUMN content_variations TEXT')
+                logger.info("Added content_variations column to ad_campaigns table")
             
             # Update existing campaigns with default values and ensure they're active
             cursor.execute("UPDATE ad_campaigns SET buttons = ? WHERE buttons IS NULL", (json.dumps([{"text": "Shop Now", "url": "https://t.me/testukassdfdds"}]),))
             cursor.execute("UPDATE ad_campaigns SET target_mode = 'all_groups' WHERE target_mode IS NULL")
             cursor.execute("UPDATE ad_campaigns SET immediate_start = 0 WHERE immediate_start IS NULL")
             cursor.execute("UPDATE ad_campaigns SET is_active = 1 WHERE is_active IS NULL OR is_active = 0")
+            cursor.execute("UPDATE ad_campaigns SET spam_avoidance_enabled = 1 WHERE spam_avoidance_enabled IS NULL")
+            cursor.execute("UPDATE ad_campaigns SET timing_variation_minutes = 5 WHERE timing_variation_minutes IS NULL")
             
             updated_count = cursor.rowcount
             if updated_count > 0:
@@ -1878,6 +1912,285 @@ class BumpService:
             logger.info(f"Disconnected client for scheduled campaign {campaign_id}")
         except Exception as e:
             logger.warning(f"Failed to disconnect client for campaign {campaign_id}: {e}")
+        
+        # MULTI-USERBOT: Execute for additional accounts with delays
+        await self._execute_additional_accounts(campaign_id, campaign)
+    
+    async def _execute_additional_accounts(self, campaign_id: int, campaign: dict):
+        """Execute campaign for additional accounts with spam avoidance"""
+        try:
+            additional_accounts = campaign.get('additional_accounts')
+            if not additional_accounts:
+                return
+                
+            try:
+                additional_accounts_data = json.loads(additional_accounts) if isinstance(additional_accounts, str) else additional_accounts
+                if not additional_accounts_data:
+                    return
+                    
+                logger.info(f"🚀 MULTI-USERBOT: Found {len(additional_accounts_data)} additional accounts for campaign {campaign_id}")
+                
+                for account_config in additional_accounts_data:
+                    account_id = account_config.get('account_id')
+                    delay_minutes = account_config.get('delay_minutes', 0)
+                    content_variation_index = account_config.get('content_variation', 0)
+                    
+                    if not account_id:
+                        continue
+                        
+                    if delay_minutes > 0:
+                        logger.info(f"🕐 MULTI-USERBOT: Scheduling account {account_id} with {delay_minutes} minute delay")
+                        # Schedule the additional account execution
+                        asyncio.create_task(self._execute_delayed_account(campaign_id, account_id, delay_minutes, content_variation_index))
+                    else:
+                        # Execute immediately for this additional account
+                        await self._execute_single_additional_account(campaign_id, account_id, content_variation_index)
+                        
+            except (json.JSONDecodeError, Exception) as e:
+                logger.error(f"❌ Error processing additional accounts: {e}")
+                
+        except Exception as e:
+            logger.error(f"❌ Error in _execute_additional_accounts: {e}")
+    
+    async def _execute_delayed_account(self, campaign_id: int, account_id: int, delay_minutes: int, content_variation_index: int = 0):
+        """Execute campaign for an additional account after delay"""
+        try:
+            # Apply spam avoidance timing variation
+            import random
+            base_delay = delay_minutes * 60
+            spam_variation = random.randint(0, 300)  # 0-5 minutes additional variation
+            total_delay = base_delay + spam_variation
+            
+            logger.info(f"🕐 MULTI-USERBOT: Waiting {total_delay/60:.1f} minutes for account {account_id} (base: {delay_minutes}m + spam avoidance: {spam_variation/60:.1f}m)")
+            await asyncio.sleep(total_delay)
+            
+            logger.info(f"🚀 MULTI-USERBOT: Executing delayed campaign for account {account_id}")
+            await self._execute_single_additional_account(campaign_id, account_id, content_variation_index)
+            
+        except Exception as e:
+            logger.error(f"❌ Error in delayed execution for account {account_id}: {e}")
+    
+    async def _execute_single_additional_account(self, campaign_id: int, account_id: int, content_variation_index: int = 0):
+        """Execute campaign for a single additional account with spam avoidance"""
+        start_time = time.time()
+        execution_log = {
+            'campaign_id': campaign_id,
+            'account_id': account_id,
+            'content_variation_used': content_variation_index,
+            'groups_count': 0,
+            'success_count': 0,
+            'delay_applied_minutes': 0
+        }
+        
+        try:
+            # Get campaign data
+            campaign = self.get_campaign(campaign_id)
+            if not campaign or not campaign['is_active']:
+                logger.error(f"❌ Campaign {campaign_id} not found or inactive for additional account {account_id}")
+                return
+                
+            # Get account info
+            account = self.db.get_account(account_id)
+            if not account:
+                logger.error(f"❌ Additional account {account_id} not found")
+                return
+                
+            account_name = account['account_name']
+            logger.info(f"🚀 MULTI-USERBOT: Executing campaign '{campaign['campaign_name']}' for additional account '{account_name}'")
+            
+            # Apply spam avoidance
+            spam_delay = await self._apply_spam_avoidance_timing(campaign)
+            execution_log['delay_applied_minutes'] = spam_delay
+            
+            # Get content variation
+            content_variation = self._get_content_variation(campaign, content_variation_index)
+            
+            # Initialize client for this account
+            client = await self._async_initialize_client(account_id)
+            if not client:
+                logger.error(f"❌ Failed to initialize client for additional account {account_id}")
+                return
+                
+            try:
+                # Get target groups for this account
+                target_entities = await self._get_account_groups(client, campaign)
+                execution_log['groups_count'] = len(target_entities)
+                
+                if not target_entities:
+                    logger.warning(f"⚠️ No target groups found for additional account {account_name}")
+                    return
+                    
+                logger.info(f"🎯 MULTI-USERBOT: Found {len(target_entities)} groups for account {account_name}")
+                
+                # Execute forwarding for each group
+                success_count = 0
+                for chat_entity in target_entities:
+                    try:
+                        # Apply per-message spam avoidance delay
+                        await self._apply_per_message_delay()
+                        
+                        # Forward the message (same logic as main account)
+                        await self._forward_campaign_message(client, chat_entity, campaign, content_variation)
+                        success_count += 1
+                        logger.info(f"✅ MULTI-USERBOT: Sent to {chat_entity.title} via {account_name}")
+                        
+                    except Exception as msg_error:
+                        logger.error(f"❌ MULTI-USERBOT: Failed to send to {chat_entity.title} via {account_name}: {msg_error}")
+                        
+                execution_log['success_count'] = success_count
+                logger.info(f"🎯 MULTI-USERBOT: Account {account_name} completed: {success_count}/{len(target_entities)} messages sent")
+                
+            finally:
+                # Disconnect client
+                try:
+                    await client.disconnect()
+                    logger.info(f"🔌 MULTI-USERBOT: Disconnected client for {account_name}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to disconnect client for {account_name}: {e}")
+                    
+        except Exception as e:
+            logger.error(f"❌ Error executing additional account {account_id}: {e}")
+        finally:
+            # Log execution
+            self._log_campaign_execution(execution_log)
+            duration = time.time() - start_time
+            logger.info(f"⏱️ MULTI-USERBOT: Account {account_id} execution completed in {duration:.2f}s")
+    
+    async def _apply_spam_avoidance_timing(self, campaign: dict) -> float:
+        """Apply spam avoidance timing delays"""
+        import random
+        
+        spam_avoidance_enabled = campaign.get('spam_avoidance_enabled', True)
+        timing_variation = campaign.get('timing_variation_minutes', 5)
+        
+        if not spam_avoidance_enabled:
+            logger.info("📵 SPAM AVOIDANCE: Disabled for this campaign")
+            return 0
+            
+        if timing_variation <= 0:
+            return 0
+            
+        # Apply random delay (0 to timing_variation minutes)
+        delay_seconds = random.randint(0, timing_variation * 60)
+        delay_minutes = delay_seconds / 60
+        
+        logger.info(f"⏱️ SPAM AVOIDANCE: Applying random delay of {delay_minutes:.1f} minutes")
+        await asyncio.sleep(delay_seconds)
+        
+        return delay_minutes
+    
+    async def _apply_per_message_delay(self):
+        """Apply small delay between messages to avoid spam detection"""
+        import random
+        delay = random.uniform(1, 3)  # 1-3 seconds between messages
+        await asyncio.sleep(delay)
+    
+    def _get_content_variation(self, campaign: dict, variation_index: int = 0):
+        """Get content variation for spam avoidance"""
+        content_variations = campaign.get('content_variations')
+        if not content_variations:
+            return None
+            
+        try:
+            variations = json.loads(content_variations) if isinstance(content_variations, str) else content_variations
+            if variations and len(variations) > variation_index:
+                selected_variation = variations[variation_index]
+                logger.info(f"📝 SPAM AVOIDANCE: Using content variation {variation_index + 1}/{len(variations)}")
+                return selected_variation
+        except (json.JSONDecodeError, Exception) as e:
+            logger.error(f"❌ Error processing content variations: {e}")
+            
+        return None
+    
+    async def _get_account_groups(self, client, campaign: dict):
+        """Get target groups for a specific account"""
+        target_entities = []
+        target_chats = campaign.get('target_chats', [])
+        target_mode = campaign.get('target_mode', 'specific')
+        
+        if target_mode == 'all_groups' or 'ALL_WORKER_GROUPS' in target_chats:
+            # Get all groups this account is member of
+            try:
+                async for dialog in client.iter_dialogs():
+                    if dialog.is_group or dialog.is_channel:
+                        if hasattr(dialog.entity, 'broadcast') and not dialog.entity.broadcast:
+                            target_entities.append(dialog.entity)
+                        elif not hasattr(dialog.entity, 'broadcast'):
+                            target_entities.append(dialog.entity)
+            except Exception as e:
+                logger.error(f"❌ Error getting groups for account: {e}")
+        else:
+            # Get specific groups
+            for chat in target_chats:
+                try:
+                    if chat == 'ALL_WORKER_GROUPS':
+                        continue
+                    entity = await client.get_entity(chat)
+                    target_entities.append(entity)
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not get entity {chat}: {e}")
+                    
+        return target_entities
+    
+    async def _forward_campaign_message(self, client, chat_entity, campaign: dict, content_variation=None):
+        """Forward campaign message to a specific chat"""
+        try:
+            ad_content = campaign.get('ad_content', [])
+            if not ad_content:
+                return
+                
+            # Get storage channel
+            from config import Config
+            storage_channel_id = Config.STORAGE_CHANNEL_ID
+            storage_channel = await client.get_entity(int(storage_channel_id))
+            
+            # Process each message in ad_content
+            for message_data in ad_content:
+                if message_data.get('type') == 'linked_message':
+                    storage_message_id = int(message_data.get('storage_message_id'))
+                    
+                    # Use content variation if available
+                    if content_variation and content_variation.get('storage_message_id'):
+                        storage_message_id = int(content_variation['storage_message_id'])
+                        logger.info(f"📝 Using variation message {storage_message_id}")
+                    
+                    # Forward the message directly
+                    sent_msg = await client.forward_messages(
+                        entity=chat_entity,
+                        messages=storage_message_id,
+                        from_peer=storage_channel
+                    )
+                    
+                    if sent_msg:
+                        logger.debug(f"✅ Forwarded message to {chat_entity.title}")
+                    else:
+                        logger.error(f"❌ Failed to forward message to {chat_entity.title}")
+                        
+        except Exception as e:
+            logger.error(f"❌ Error forwarding message: {e}")
+            raise
+    
+    def _log_campaign_execution(self, execution_log: dict):
+        """Log campaign execution for analytics"""
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO campaign_execution_logs 
+                    (campaign_id, account_id, content_variation_used, groups_count, 
+                     success_count, delay_applied_minutes)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    execution_log['campaign_id'],
+                    execution_log['account_id'], 
+                    execution_log['content_variation_used'],
+                    execution_log['groups_count'],
+                    execution_log['success_count'],
+                    execution_log['delay_applied_minutes']
+                ))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"❌ Error logging campaign execution: {e}")
     
     def log_ad_performance(self, campaign_id: int, user_id: int, target_chat: str, 
                           message_id: Optional[int], status: str = 'sent'):
@@ -2218,6 +2531,95 @@ class BumpService:
                 'failed_sends': row[2] or 0,
                 'success_rate': (row[1] / row[0] * 100) if row[0] > 0 else 0
             }
+    
+    def add_additional_account_to_campaign(self, campaign_id: int, account_id: int, delay_minutes: int = 0, content_variation_index: int = 0):
+        """Add additional userbot to existing campaign"""
+        try:
+            campaign = self.get_campaign(campaign_id)
+            if not campaign:
+                logger.error(f"❌ Campaign {campaign_id} not found")
+                return False
+                
+            # Get existing additional accounts
+            additional_accounts = campaign.get('additional_accounts', '[]')
+            try:
+                additional_accounts_data = json.loads(additional_accounts) if isinstance(additional_accounts, str) else (additional_accounts or [])
+            except (json.JSONDecodeError, TypeError):
+                additional_accounts_data = []
+            
+            # Check if account already exists
+            for account in additional_accounts_data:
+                if account.get('account_id') == account_id:
+                    logger.warning(f"⚠️ Account {account_id} already exists in campaign {campaign_id}")
+                    return False
+            
+            # Add new account
+            new_account_config = {
+                'account_id': account_id,
+                'delay_minutes': delay_minutes,
+                'content_variation': content_variation_index
+            }
+            additional_accounts_data.append(new_account_config)
+            
+            # Update campaign
+            self.update_campaign(campaign_id, additional_accounts=json.dumps(additional_accounts_data))
+            
+            logger.info(f"✅ Added account {account_id} to campaign {campaign_id} with {delay_minutes}m delay")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error adding additional account: {e}")
+            return False
+    
+    def add_content_variation_to_campaign(self, campaign_id: int, storage_message_id: int, variation_name: str = ""):
+        """Add content variation for spam avoidance"""
+        try:
+            campaign = self.get_campaign(campaign_id)
+            if not campaign:
+                logger.error(f"❌ Campaign {campaign_id} not found")
+                return False
+                
+            # Get existing variations
+            content_variations = campaign.get('content_variations', '[]')
+            try:
+                variations_data = json.loads(content_variations) if isinstance(content_variations, str) else (content_variations or [])
+            except (json.JSONDecodeError, TypeError):
+                variations_data = []
+            
+            # Add new variation
+            new_variation = {
+                'storage_message_id': storage_message_id,
+                'name': variation_name or f"Variation {len(variations_data) + 1}",
+                'created_at': time.strftime("%Y-%m-%d %H:%M:%S")
+            }
+            variations_data.append(new_variation)
+            
+            # Update campaign
+            self.update_campaign(campaign_id, content_variations=json.dumps(variations_data))
+            
+            logger.info(f"✅ Added content variation '{new_variation['name']}' to campaign {campaign_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error adding content variation: {e}")
+            return False
+    
+    def update_spam_avoidance_settings(self, campaign_id: int, enabled: bool = True, timing_variation_minutes: int = 5):
+        """Update spam avoidance settings for campaign"""
+        try:
+            self.update_campaign(
+                campaign_id, 
+                spam_avoidance_enabled=enabled,
+                timing_variation_minutes=timing_variation_minutes
+            )
+            
+            status = "enabled" if enabled else "disabled"
+            logger.info(f"✅ Spam avoidance {status} for campaign {campaign_id} (variation: {timing_variation_minutes}m)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error updating spam avoidance settings: {e}")
+            return False
     
     async def close(self):
         """Close all connections"""
