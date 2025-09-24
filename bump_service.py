@@ -1217,11 +1217,27 @@ class BumpService:
                                 # The storage message already has the buttons added when campaign was created
                                 logger.info(f"🚀 YOLO PERFECT: Forwarding message {storage_message_id} directly from storage (buttons included!)")
                                 
+                                # Get the storage channel entity for this specific message
+                                storage_channel_entity = None
+                                if storage_chat_id:
+                                    try:
+                                        storage_channel_entity = await client.get_entity(storage_chat_id)
+                                        logger.debug(f"🔧 Got storage channel entity: {storage_channel_entity.title if hasattr(storage_channel_entity, 'title') else 'Unknown'}")
+                                    except Exception as entity_error:
+                                        logger.error(f"❌ Failed to get storage channel entity: {entity_error}")
+                                        storage_channel_entity = storage_channel  # Fallback to global storage_channel
+                                else:
+                                    storage_channel_entity = storage_channel  # Use global storage_channel
+                                
+                                if not storage_channel_entity:
+                                    logger.error(f"❌ No storage channel entity available for forwarding")
+                                    continue
+                                
                                 # Forward the message directly - this preserves EVERYTHING!
                                 sent_msg = await client.forward_messages(
                                     entity=chat_entity,
                                     messages=storage_message_id,
-                                    from_peer=storage_channel
+                                    from_peer=storage_channel_entity
                                 )
                                 
                                 if sent_msg:
@@ -2138,27 +2154,48 @@ class BumpService:
             ad_content = campaign.get('ad_content', [])
             if not ad_content:
                 return
-                
-            # Get storage channel
-            from config import Config
-            storage_channel_id = Config.STORAGE_CHANNEL_ID
-            storage_channel = await client.get_entity(int(storage_channel_id))
             
             # Process each message in ad_content
             for message_data in ad_content:
                 if message_data.get('type') == 'linked_message':
                     storage_message_id = int(message_data.get('storage_message_id'))
+                    storage_chat_id = message_data.get('storage_chat_id')
                     
                     # Use content variation if available
                     if content_variation and content_variation.get('storage_message_id'):
                         storage_message_id = int(content_variation['storage_message_id'])
+                        # Also update storage_chat_id if provided in variation
+                        if content_variation.get('storage_chat_id'):
+                            storage_chat_id = content_variation['storage_chat_id']
                         logger.info(f"📝 Using variation message {storage_message_id}")
+                    
+                    # Get storage channel entity
+                    storage_channel_entity = None
+                    if storage_chat_id:
+                        try:
+                            storage_channel_entity = await client.get_entity(int(storage_chat_id))
+                            logger.debug(f"🔧 MULTI-USERBOT: Got storage channel entity for forwarding")
+                        except Exception as entity_error:
+                            logger.error(f"❌ MULTI-USERBOT: Failed to get storage channel entity: {entity_error}")
+                            # Try fallback with Config
+                            try:
+                                from config import Config
+                                storage_channel_id = Config.STORAGE_CHANNEL_ID
+                                if storage_channel_id:
+                                    storage_channel_entity = await client.get_entity(int(storage_channel_id))
+                            except Exception as fallback_error:
+                                logger.error(f"❌ MULTI-USERBOT: Fallback storage channel failed: {fallback_error}")
+                                continue
+                    
+                    if not storage_channel_entity:
+                        logger.error(f"❌ MULTI-USERBOT: No storage channel entity available")
+                        continue
                     
                     # Forward the message directly
                     sent_msg = await client.forward_messages(
                         entity=chat_entity,
                         messages=storage_message_id,
-                        from_peer=storage_channel
+                        from_peer=storage_channel_entity
                     )
                     
                     if sent_msg:
