@@ -142,6 +142,39 @@ class Config:
     # Safety Mode (enforces all limits strictly)
     SAFETY_MODE = os.getenv('SAFETY_MODE', 'burst').lower()  # 'strict', 'moderate', 'burst' (for mature accounts)
     
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 🎭 ADVANCED ANTI-BAN FEATURES
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    # Typing Action Simulation (show "typing..." before sending)
+    ENABLE_TYPING_SIMULATION = os.getenv('ENABLE_TYPING_SIMULATION', 'true').lower() == 'true'
+    MIN_TYPING_DURATION_SECONDS = int(os.getenv('MIN_TYPING_DURATION_SECONDS', 2))
+    MAX_TYPING_DURATION_SECONDS = int(os.getenv('MAX_TYPING_DURATION_SECONDS', 5))
+    
+    # Message Content Variation (randomize message to avoid spam detection)
+    ENABLE_MESSAGE_VARIATION = os.getenv('ENABLE_MESSAGE_VARIATION', 'true').lower() == 'true'
+    MIN_BLANK_LINES = int(os.getenv('MIN_BLANK_LINES', 1))  # 1-3 random blank lines
+    MAX_BLANK_LINES = int(os.getenv('MAX_BLANK_LINES', 3))
+    # Random ending phrases to add variety
+    MESSAGE_ENDING_PHRASES = [
+        "",  # 50% chance of no ending (keep original)
+        "\n\n✨",
+        "\n\n🌟",
+        "\n\n💫",
+        "\n\n⭐",
+        "\n\n🔥",
+    ]
+    
+    # Read Receipts & Online Status (simulate human browsing)
+    ENABLE_READ_RECEIPTS = os.getenv('ENABLE_READ_RECEIPTS', 'true').lower() == 'true'
+    READ_RECEIPTS_PROBABILITY = float(os.getenv('READ_RECEIPTS_PROBABILITY', 0.3))  # 30% chance per group
+    RANDOM_GROUPS_TO_READ = int(os.getenv('RANDOM_GROUPS_TO_READ', 2))  # Read 2 random groups during campaign
+    
+    # Peer Flood Detection (catch pre-ban warnings)
+    ENABLE_PEER_FLOOD_DETECTION = os.getenv('ENABLE_PEER_FLOOD_DETECTION', 'true').lower() == 'true'
+    PEER_FLOOD_COOLDOWN_HOURS = int(os.getenv('PEER_FLOOD_COOLDOWN_HOURS', 24))  # Auto-pause account 24h
+    AUTO_ENABLE_WARMUP_ON_PEER_FLOOD = os.getenv('AUTO_ENABLE_WARMUP_ON_PEER_FLOOD', 'true').lower() == 'true'
+    
     @classmethod
     def validate(cls):
         """Validate required configuration"""

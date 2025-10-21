@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from telethon import TelegramClient
 from telethon.tl.custom import Button
 from telethon.tl.types import ReplyKeyboardMarkup, KeyboardButton, KeyboardButtonUrl, KeyboardButtonRow
+from telethon import errors
 from telethon.errors import FloodWaitError
 from database import Database
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
@@ -458,6 +459,228 @@ class BumpService:
         return random.uniform(min_delay_seconds, max_delay_seconds)
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 🎭 ADVANCED ANTI-BAN FEATURES
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    def _vary_message_content(self, original_text: str) -> str:
+        """
+        Add random variations to message text to avoid spam detection.
+        Adds random blank lines and/or random ending phrases.
+        """
+        from config import Config
+        import random
+        
+        if not Config.ENABLE_MESSAGE_VARIATION or not original_text:
+            return original_text
+        
+        varied_text = original_text
+        
+        # Add 1-3 random blank lines within the message
+        lines = varied_text.split('\n')
+        if len(lines) > 2:
+            # Insert blank lines at random positions (not at start/end)
+            num_blanks = random.randint(Config.MIN_BLANK_LINES, Config.MAX_BLANK_LINES)
+            for _ in range(num_blanks):
+                insert_pos = random.randint(1, len(lines) - 1)
+                lines.insert(insert_pos, '')
+            varied_text = '\n'.join(lines)
+        
+        # Add random ending phrase (50% chance of adding something)
+        ending = random.choice(Config.MESSAGE_ENDING_PHRASES)
+        varied_text += ending
+        
+        return varied_text
+    
+    async def _simulate_typing(self, client, chat_entity, text_length: int):
+        """
+        Simulate typing action before sending message.
+        Duration based on message length (more realistic).
+        """
+        from config import Config
+        import random
+        import asyncio
+        
+        if not Config.ENABLE_TYPING_SIMULATION:
+            return
+        
+        try:
+            # Send typing action
+            await client.send_typing_action(chat_entity)
+            
+            # Calculate typing duration (longer for longer messages)
+            base_duration = random.uniform(
+                Config.MIN_TYPING_DURATION_SECONDS,
+                Config.MAX_TYPING_DURATION_SECONDS
+            )
+            
+            # Add time based on text length (realistic typing speed)
+            length_factor = min(text_length / 200, 3)  # Max 3x multiplier
+            typing_duration = base_duration * (1 + length_factor * 0.5)
+            
+            logger.info(f"⌨️ TYPING: Simulating {typing_duration:.1f}s typing action")
+            await asyncio.sleep(typing_duration)
+            
+        except Exception as e:
+            logger.debug(f"Typing simulation error (non-critical): {e}")
+    
+    async def _simulate_read_receipts(self, client, account_id: int, target_chat=None):
+        """
+        Simulate reading messages in groups to appear human-like.
+        Reads from both target groups and random public groups.
+        """
+        from config import Config
+        import random
+        import asyncio
+        
+        if not Config.ENABLE_READ_RECEIPTS:
+            return
+        
+        try:
+            chats_to_read = []
+            
+            # Read target group if provided (30% chance)
+            if target_chat and random.random() < Config.READ_RECEIPTS_PROBABILITY:
+                chats_to_read.append(target_chat)
+            
+            # Also read random groups (simulate browsing)
+            try:
+                dialogs = await client.get_dialogs(limit=50)
+                public_groups = [d for d in dialogs if d.is_group or d.is_channel]
+                
+                if public_groups:
+                    random_groups = random.sample(
+                        public_groups,
+                        min(Config.RANDOM_GROUPS_TO_READ, len(public_groups))
+                    )
+                    chats_to_read.extend([g.entity for g in random_groups])
+            except Exception as e:
+                logger.debug(f"Could not fetch dialogs for reading: {e}")
+            
+            # Read messages from selected chats
+            for chat in chats_to_read:
+                try:
+                    # Mark messages as read
+                    await client.send_read_acknowledge(chat)
+                    
+                    chat_name = getattr(chat, 'title', getattr(chat, 'username', 'Unknown'))
+                    logger.info(f"👀 READ RECEIPTS: Marked messages as read in '{chat_name}'")
+                    
+                    # Small delay between reads
+                    await asyncio.sleep(random.uniform(1, 3))
+                    
+                except Exception as e:
+                    logger.debug(f"Read receipt error for {chat}: {e}")
+            
+            # Update last online simulation time
+            conn = self.get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE account_usage_tracking 
+                SET last_online_simulation = CURRENT_TIMESTAMP
+                WHERE account_id = ?
+            """, (account_id,))
+            conn.commit()
+            conn.close()
+            
+        except Exception as e:
+            logger.debug(f"Read receipt simulation error (non-critical): {e}")
+    
+    def _handle_peer_flood(self, account_id: int, account_name: str):
+        """
+        Handle PeerFlood error - this is a pre-ban warning from Telegram.
+        Auto-pause account and enable warm-up mode.
+        """
+        from config import Config
+        
+        logger.error(f"🚨 PEER FLOOD DETECTED for account '{account_name}' (ID: {account_id})")
+        logger.error(f"⚠️ This is a PRE-BAN WARNING from Telegram!")
+        
+        try:
+            conn = self.get_db_connection()
+            cursor = conn.cursor()
+            
+            # Mark peer flood detected
+            cursor.execute("""
+                UPDATE account_usage_tracking 
+                SET peer_flood_detected = 1,
+                    peer_flood_time = CURRENT_TIMESTAMP,
+                    is_restricted = 1,
+                    restriction_reason = 'PeerFlood - Too many messages'
+                WHERE account_id = ?
+            """, (account_id,))
+            
+            conn.commit()
+            conn.close()
+            
+            # Auto-enable warm-up mode if configured
+            if Config.AUTO_ENABLE_WARMUP_ON_PEER_FLOOD:
+                self.enable_warmup_mode(account_id, duration_days=7)
+                logger.warning(f"🆕 AUTO-RECOVERY: Enabled 7-day warm-up mode for account {account_id}")
+                logger.warning(f"⏸️ Account will be paused for {Config.PEER_FLOOD_COOLDOWN_HOURS} hours")
+            else:
+                logger.warning(f"⏸️ Account paused for {Config.PEER_FLOOD_COOLDOWN_HOURS} hours")
+                logger.warning(f"💡 Consider enabling warm-up mode: python check_account_safety.py")
+            
+        except Exception as e:
+            logger.error(f"Error handling peer flood: {e}")
+    
+    def _check_peer_flood_status(self, account_id: int) -> tuple[bool, str]:
+        """
+        Check if account is in peer flood cooldown.
+        Returns (is_blocked, reason).
+        """
+        from config import Config
+        from datetime import datetime, timedelta
+        
+        try:
+            conn = self.get_db_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT peer_flood_detected, peer_flood_time
+                FROM account_usage_tracking
+                WHERE account_id = ?
+            """, (account_id,))
+            
+            row = cursor.fetchone()
+            conn.close()
+            
+            if not row or not row[0]:
+                return False, ""
+            
+            peer_flood_detected, peer_flood_time_str = row
+            
+            if peer_flood_detected and peer_flood_time_str:
+                peer_flood_time = datetime.fromisoformat(peer_flood_time_str)
+                cooldown_end = peer_flood_time + timedelta(hours=Config.PEER_FLOOD_COOLDOWN_HOURS)
+                
+                if datetime.now() < cooldown_end:
+                    remaining = (cooldown_end - datetime.now()).total_seconds() / 3600
+                    return True, f"PeerFlood cooldown active (wait {remaining:.1f} more hours)"
+                else:
+                    # Cooldown expired, clear flag
+                    conn = self.get_db_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE account_usage_tracking 
+                        SET peer_flood_detected = 0,
+                            is_restricted = 0,
+                            restriction_reason = NULL
+                        WHERE account_id = ?
+                    """, (account_id,))
+                    conn.commit()
+                    conn.close()
+                    
+                    logger.info(f"✅ PeerFlood cooldown expired for account {account_id}")
+                    return False, ""
+            
+            return False, ""
+            
+        except Exception as e:
+            logger.error(f"Error checking peer flood status: {e}")
+            return False, ""
+    
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
     def _execution_worker(self):
         """Worker thread that processes campaign executions from the queue"""
@@ -826,6 +1049,9 @@ class BumpService:
                     warmup_mode_enabled BOOLEAN DEFAULT 0,
                     warmup_start_date TIMESTAMP,
                     warmup_end_date TIMESTAMP,
+                    peer_flood_detected BOOLEAN DEFAULT 0,
+                    peer_flood_time TIMESTAMP,
+                    last_online_simulation TIMESTAMP,
                     FOREIGN KEY (account_id) REFERENCES telegram_accounts (id)
                 )
             ''')
@@ -838,6 +1064,13 @@ class BumpService:
                 cursor.execute('ALTER TABLE account_usage_tracking ADD COLUMN warmup_start_date TIMESTAMP')
                 cursor.execute('ALTER TABLE account_usage_tracking ADD COLUMN warmup_end_date TIMESTAMP')
                 logger.info("Added warmup mode columns to account_usage_tracking table")
+            
+            # Add peer flood detection columns to existing table if they don't exist
+            if 'peer_flood_detected' not in columns:
+                cursor.execute('ALTER TABLE account_usage_tracking ADD COLUMN peer_flood_detected BOOLEAN DEFAULT 0')
+                cursor.execute('ALTER TABLE account_usage_tracking ADD COLUMN peer_flood_time TIMESTAMP')
+                cursor.execute('ALTER TABLE account_usage_tracking ADD COLUMN last_online_simulation TIMESTAMP')
+                logger.info("Added peer flood detection columns to account_usage_tracking table")
             
             # Ad campaigns table - Enhanced for multi-userbot support
             cursor.execute('''
@@ -1573,6 +1806,13 @@ class BumpService:
         self._record_campaign_start(account_id)
         logger.info(f"🛡️ ANTI-BAN: Campaign {campaign_id} passed pre-flight checks")
         
+        # 🚨 Check peer flood status (pre-ban warning)
+        is_blocked, flood_reason = self._check_peer_flood_status(account_id)
+        if is_blocked:
+            logger.error(f"⛔ PEER FLOOD BLOCK: {flood_reason}")
+            logger.error(f"❌ Campaign {campaign_id} aborted - account in cooldown after peer flood")
+            return False
+        
         # YOLO MODE: Use fresh client for scheduled execution with aggressive retries
         # Maximum performance configuration with no compromises
         from config import Config
@@ -1764,6 +2004,13 @@ class BumpService:
                                     logger.error(f"❌ No storage channel entity available for forwarding")
                                     continue
                                 
+                                # 🎭 ADVANCED ANTI-BAN: Simulate human behavior before sending
+                                # 1. Simulate read receipts (30% chance, simulates browsing)
+                                await self._simulate_read_receipts(client, account_id, chat_entity)
+                                
+                                # 2. Simulate typing before sending
+                                await self._simulate_typing(client, chat_entity, 100)  # Assume ~100 char message
+                                
                                 # Forward the message directly - this preserves EVERYTHING!
                                 sent_msg = await client.forward_messages(
                                     entity=chat_entity,
@@ -1833,6 +2080,15 @@ class BumpService:
                                 
                                 logger.info(f"🚀 RESUMING: Continuing with remaining {len(target_entities) - idx} groups (current group added to retry queue)")
                                 continue
+                            except errors.PeerFloodError:
+                                logger.error(f"🚨 PEER FLOOD ERROR at '{chat_entity.title}'")
+                                self._handle_peer_flood(account_id, account.get('account_name', 'Unknown'))
+                                failed_count += 1
+                                break  # Stop campaign immediately - this is a serious warning
+                            except errors.UserBannedInChannelError:
+                                logger.warning(f"⚠️ Account banned in channel '{chat_entity.title}' - Skipping")
+                                failed_count += 1
+                                continue  # Skip this group, continue with others
                             except Exception as linked_error:
                                 logger.error(f"❌ YOLO MODE: Failed to send to {chat_entity.title}: {linked_error}")
                                 failed_count += 1
@@ -2537,6 +2793,10 @@ class BumpService:
                                 except Exception:
                                     storage_channel_entity = storage_channel
                                 
+                                # 🎭 ADVANCED ANTI-BAN: Simulate human behavior before retry
+                                await self._simulate_read_receipts(client, account_id, retry_entity)
+                                await self._simulate_typing(client, retry_entity, 100)
+                                
                                 # Forward the message
                                 sent_msg = await client.forward_messages(
                                     entity=retry_entity,
@@ -2855,6 +3115,10 @@ class BumpService:
                     if not storage_channel_entity:
                         logger.error(f"❌ MULTI-USERBOT: No storage channel entity available")
                         continue
+                    
+                    # 🎭 ADVANCED ANTI-BAN: Simulate human behavior for multi-userbot sends
+                    await self._simulate_read_receipts(client, additional_account['account_id'], chat_entity)
+                    await self._simulate_typing(client, chat_entity, 100)
                     
                     # Forward the message directly
                     sent_msg = await client.forward_messages(
