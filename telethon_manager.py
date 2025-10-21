@@ -19,7 +19,11 @@ class TelethonManager:
     
     def __init__(self):
         self.clients: Dict[str, TelegramClient] = {}
-        self.session_dir = "sessions"
+        # Use persistent disk if available, otherwise local directory
+        if os.path.exists('/data'):
+            self.session_dir = "/data/sessions"
+        else:
+            self.session_dir = "sessions"
         os.makedirs(self.session_dir, exist_ok=True)
     
     async def get_client(self, account_data: Dict[str, Any]) -> Optional[TelegramClient]:

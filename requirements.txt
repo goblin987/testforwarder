@@ -10,3 +10,9 @@ schedule==1.2.0
 
 # Web Framework (Essential only)
 aiohttp==3.9.1
+
+# Resource Monitoring for 50+ accounts
+psutil==5.9.6
+
+# Timezone handling for night break detection
+pytz==2024.1

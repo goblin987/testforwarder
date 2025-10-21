@@ -43,12 +43,17 @@ class Database:
     
     def _get_connection(self):
         """Get database connection with proper configuration"""
-        return sqlite3.connect(
+        conn = sqlite3.connect(
             self.db_path,
             timeout=30.0,
             check_same_thread=False,
             isolation_level=None
         )
+        # Enable WAL mode for better concurrent access
+        conn.execute('PRAGMA journal_mode=WAL')
+        # Set busy timeout to handle locks better
+        conn.execute('PRAGMA busy_timeout=30000')
+        return conn
     
     def init_database(self):
         """Initialize database tables with WAL mode for better concurrency"""

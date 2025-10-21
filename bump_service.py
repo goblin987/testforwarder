@@ -24,12 +24,16 @@ import logging
 import schedule
 import time
 import os
+import random
+import queue
+import psutil  # For resource monitoring
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from telethon import TelegramClient
 from telethon.tl.custom import Button
 from telethon.tl.types import ReplyKeyboardMarkup, KeyboardButton, KeyboardButtonUrl, KeyboardButtonRow
+from telethon.errors import FloodWaitError
 from database import Database
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telethon_manager import telethon_manager
@@ -116,18 +120,445 @@ class AdCampaign:
     total_sends: int = 0
 
 class BumpService:
-    """Service for managing automated ad bumping/posting"""
+    """Service for managing automated ad bumping/posting - Optimized for 50+ accounts"""
     
     def __init__(self, bot_instance=None):
         self.db = Database()
         self.active_campaigns = {}
         self.scheduler_thread = None
-        self.is_running = False
+        self.is_running = True  # Set to True so workers can run immediately
         self.telegram_clients = {}
         self.client_init_semaphore = threading.Semaphore(1)  # Thread-safe semaphore
         self.temp_files = set()  # Track temporary files for cleanup
         self.bot_instance = bot_instance  # Store bot instance for ReplyKeyboardMarkup
+        
+        # SCALING OPTIMIZATIONS for 50+ accounts (configurable via Config)
+        from config import Config
+        self.execution_queue = queue.Queue(maxsize=Config.EXECUTION_QUEUE_SIZE)  # Queue for campaign executions
+        self.execution_semaphore = threading.Semaphore(Config.MAX_CONCURRENT_CAMPAIGNS)  # Max concurrent
+        self.client_last_used = {}  # Track when each client was last used
+        self.client_cleanup_interval = Config.CLIENT_IDLE_TIMEOUT  # Close clients idle for X seconds
+        self.max_execution_workers = Config.EXECUTION_WORKER_THREADS  # Worker threads
+        
+        # Start execution worker threads
+        self.execution_workers = []
+        for i in range(self.max_execution_workers):
+            worker = threading.Thread(target=self._execution_worker, daemon=True, name=f"CampaignWorker-{i+1}")
+            worker.start()
+            self.execution_workers.append(worker)
+            logger.info(f"✅ Started execution worker thread {i+1}/{self.max_execution_workers}")
+        
+        # Start client cleanup thread (if enabled)
+        if Config.ENABLE_CLIENT_CLEANUP:
+            self.cleanup_thread = threading.Thread(target=self._client_cleanup_worker, daemon=True, name="ClientCleanup")
+            self.cleanup_thread.start()
+            logger.info("✅ Started client cleanup thread")
+        
+        logger.info(f"🚀 SCALING MODE: {Config.MAX_CONCURRENT_CAMPAIGNS} concurrent campaigns, {Config.EXECUTION_WORKER_THREADS} workers")
+        
         self.init_bump_database()
+    
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 🛡️ ANTI-BAN SYSTEM Functions
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    def _init_account_tracking(self, account_id: int, account_created_date=None):
+        """Initialize tracking for an account"""
+        from config import Config
+        from datetime import datetime, timedelta
+        
+        with self._get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Check if tracking already exists
+            cursor.execute('SELECT id FROM account_usage_tracking WHERE account_id = ?', (account_id,))
+            if cursor.fetchone():
+                return  # Already exists
+            
+            # Determine account age and daily limit
+            if account_created_date:
+                created_date = datetime.fromisoformat(account_created_date) if isinstance(account_created_date, str) else account_created_date
+            else:
+                created_date = datetime.now()
+            
+            account_age_days = (datetime.now() - created_date).days
+            
+            if account_age_days < Config.ACCOUNT_WARM_UP_DAYS:
+                daily_limit = Config.MAX_MESSAGES_PER_DAY_NEW_ACCOUNT
+            elif account_age_days < Config.ACCOUNT_MATURE_DAYS:
+                daily_limit = Config.MAX_MESSAGES_PER_DAY_WARMED_ACCOUNT
+            else:
+                daily_limit = Config.MAX_MESSAGES_PER_DAY_MATURE_ACCOUNT
+            
+            cursor.execute('''
+                INSERT INTO account_usage_tracking 
+                (account_id, account_created_date, daily_limit)
+                VALUES (?, ?, ?)
+            ''', (account_id, created_date, daily_limit))
+            conn.commit()
+            
+            logger.info(f"🛡️ ANTI-BAN: Initialized tracking for account {account_id} (age: {account_age_days} days, limit: {daily_limit}/day)")
+    
+    def _check_account_can_send(self, account_id: int, messages_to_send: int) -> tuple[bool, str]:
+        """Check if account can send messages without hitting limits"""
+        from config import Config
+        from datetime import datetime, timedelta
+        
+        self._init_account_tracking(account_id)
+        
+        with self._get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT messages_sent_today, daily_limit, last_message_time, 
+                       last_campaign_time, is_restricted, restriction_reason,
+                       last_reset_date
+                FROM account_usage_tracking 
+                WHERE account_id = ?
+            ''', (account_id,))
+            
+            row = cursor.fetchone()
+            if not row:
+                return False, "Account tracking not initialized"
+            
+            messages_today, daily_limit, last_message_time, last_campaign_time, is_restricted, restriction_reason, last_reset_date = row
+            
+            # Check if restricted
+            if is_restricted:
+                return False, f"Account restricted: {restriction_reason}"
+            
+            # Reset daily counter if new day
+            today = datetime.now().date()
+            last_reset = datetime.fromisoformat(last_reset_date).date() if last_reset_date else today
+            if last_reset < today:
+                messages_today = 0
+                cursor.execute('''
+                    UPDATE account_usage_tracking 
+                    SET messages_sent_today = 0, last_reset_date = ? 
+                    WHERE account_id = ?
+                ''', (today, account_id))
+                conn.commit()
+                logger.info(f"🛡️ ANTI-BAN: Reset daily counter for account {account_id}")
+            
+            # Check daily limit (SKIP for mature accounts if disabled)
+            account_age_days = (datetime.now() - datetime.fromisoformat(str(last_reset_date))).days if last_reset_date else 0
+            is_mature = account_age_days >= Config.ACCOUNT_MATURE_DAYS
+            
+            if Config.DISABLE_DAILY_LIMITS_FOR_MATURE and is_mature:
+                # No daily limits for mature accounts (2023+)
+                logger.debug(f"🛡️ ANTI-BAN: Mature account - daily limits disabled")
+            else:
+                # Enforce daily limits for new/warmed accounts
+                if messages_today + messages_to_send > daily_limit:
+                    remaining = max(0, daily_limit - messages_today)
+                    return False, f"Daily limit reached ({messages_today}/{daily_limit}). {remaining} messages remaining today."
+            
+            # Check cooldown between campaigns (randomized 1.0-1.4 hours)
+            if last_campaign_time:
+                last_campaign = datetime.fromisoformat(last_campaign_time)
+                # Use random cooldown between MIN and MAX for unpredictable timing
+                import random
+                cooldown_minutes = random.uniform(
+                    Config.MIN_COOLDOWN_BETWEEN_CAMPAIGNS_MINUTES,
+                    Config.MAX_COOLDOWN_BETWEEN_CAMPAIGNS_MINUTES
+                )
+                time_since_last = (datetime.now() - last_campaign).total_seconds() / 60
+                
+                if time_since_last < cooldown_minutes:
+                    remaining_minutes = cooldown_minutes - time_since_last
+                    return False, f"Cooldown period active. Wait {remaining_minutes:.1f} more minutes."
+            
+            # Check minimum delay between messages
+            if last_message_time:
+                last_message = datetime.fromisoformat(last_message_time)
+                min_delay_seconds = Config.MIN_DELAY_BETWEEN_MESSAGES
+                time_since_last = (datetime.now() - last_message).total_seconds()
+                
+                if time_since_last < min_delay_seconds:
+                    remaining_seconds = min_delay_seconds - time_since_last
+                    return False, f"Message delay active. Wait {remaining_seconds:.0f} more seconds."
+            
+            return True, "OK"
+    
+    def _record_message_sent(self, account_id: int):
+        """Record that a message was sent"""
+        from datetime import datetime
+        
+        with self._get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE account_usage_tracking 
+                SET messages_sent_today = messages_sent_today + 1,
+                    total_messages_sent = total_messages_sent + 1,
+                    last_message_time = ?
+                WHERE account_id = ?
+            ''', (datetime.now(), account_id))
+            conn.commit()
+    
+    def _record_campaign_start(self, account_id: int):
+        """Record that a campaign started"""
+        from datetime import datetime
+        
+        with self._get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE account_usage_tracking 
+                SET last_campaign_time = ?
+                WHERE account_id = ?
+            ''', (datetime.now(), account_id))
+            conn.commit()
+    
+    def _get_safe_delay(self) -> float:
+        """Get a safe random delay between messages"""
+        from config import Config
+        import random
+        
+        min_delay = Config.MIN_DELAY_BETWEEN_MESSAGES
+        max_delay = Config.MAX_DELAY_BETWEEN_MESSAGES
+        
+        # Use exponential distribution for more human-like delays
+        base_delay = random.uniform(min_delay, max_delay)
+        
+        # Add occasional longer pauses (10% chance of 2x delay)
+        if random.random() < 0.1:
+            base_delay *= 2
+            logger.info(f"🛡️ ANTI-BAN: Extended delay for natural behavior")
+        
+        return base_delay
+    
+    def _should_take_break(self) -> tuple[bool, float]:
+        """Determine if account should take a break (ONLY during night hours 3-6 AM Lithuanian time)"""
+        from config import Config
+        import random
+        from datetime import datetime
+        import pytz
+        
+        if not Config.ENABLE_RANDOM_BREAKS:
+            return False, 0
+        
+        # Check if it's currently night time in Lithuanian timezone
+        try:
+            lithuania_tz = pytz.timezone(Config.NIGHT_BREAK_TIMEZONE)
+            current_time_lithuania = datetime.now(lithuania_tz)
+            current_hour = current_time_lithuania.hour
+            
+            # Check if within night hours (3:00 AM - 6:00 AM)
+            is_night_time = Config.NIGHT_BREAK_START_HOUR <= current_hour < Config.NIGHT_BREAK_END_HOUR
+            
+            if not is_night_time:
+                # Not night time - no breaks during day
+                return False, 0
+            
+            # It's night time - take sleep break
+            break_minutes = random.uniform(
+                Config.MIN_BREAK_DURATION_MINUTES,
+                Config.MAX_BREAK_DURATION_MINUTES
+            )
+            logger.info(f"😴 NIGHT TIME ({current_hour}:00 Lithuanian time): Taking sleep break")
+            return True, break_minutes * 60  # Convert to seconds
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Timezone check failed: {e}. Skipping break.")
+            return False, 0
+    
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 🆕 WARM-UP MODE Functions (for account recovery/new accounts)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    def enable_warmup_mode(self, account_id: int, duration_days: int = None):
+        """Enable warm-up mode for an account (for recovery after ban or new accounts)"""
+        from config import Config
+        from datetime import datetime, timedelta
+        
+        if duration_days is None:
+            duration_days = Config.WARMUP_DURATION_DAYS
+        
+        self._init_account_tracking(account_id)
+        
+        with self._get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            start_date = datetime.now()
+            end_date = start_date + timedelta(days=duration_days)
+            
+            cursor.execute('''
+                UPDATE account_usage_tracking 
+                SET warmup_mode_enabled = 1,
+                    warmup_start_date = ?,
+                    warmup_end_date = ?,
+                    daily_limit = ?
+                WHERE account_id = ?
+            ''', (start_date, end_date, Config.WARMUP_MAX_MESSAGES_PER_DAY, account_id))
+            conn.commit()
+            
+            logger.info(f"🆕 WARM-UP MODE ENABLED for account {account_id}")
+            logger.info(f"   Duration: {duration_days} days (until {end_date.strftime('%Y-%m-%d')})")
+            logger.info(f"   Daily limit: {Config.WARMUP_MAX_MESSAGES_PER_DAY} messages")
+            logger.info(f"   Min delay: {Config.WARMUP_MIN_DELAY_MINUTES} minutes")
+    
+    def disable_warmup_mode(self, account_id: int):
+        """Disable warm-up mode for an account"""
+        with self._get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE account_usage_tracking 
+                SET warmup_mode_enabled = 0,
+                    warmup_start_date = NULL,
+                    warmup_end_date = NULL
+                WHERE account_id = ?
+            ''', (account_id,))
+            conn.commit()
+            
+            logger.info(f"✅ WARM-UP MODE DISABLED for account {account_id}")
+    
+    def _is_account_in_warmup(self, account_id: int) -> tuple[bool, dict]:
+        """Check if account is in warm-up mode and return settings"""
+        from datetime import datetime
+        
+        with self._get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT warmup_mode_enabled, warmup_start_date, warmup_end_date
+                FROM account_usage_tracking
+                WHERE account_id = ?
+            ''', (account_id,))
+            
+            row = cursor.fetchone()
+            if not row or not row[0]:
+                return False, {}
+            
+            warmup_enabled, start_date, end_date = row
+            
+            # Check if warm-up period has ended
+            if end_date:
+                end_datetime = datetime.fromisoformat(end_date) if isinstance(end_date, str) else end_date
+                if datetime.now() > end_datetime:
+                    # Warm-up period over - auto-disable
+                    self.disable_warmup_mode(account_id)
+                    logger.info(f"🎉 WARM-UP COMPLETE for account {account_id}")
+                    return False, {}
+            
+            # Still in warm-up period
+            days_remaining = (end_datetime - datetime.now()).days if end_date else 0
+            
+            return True, {
+                'start_date': start_date,
+                'end_date': end_date,
+                'days_remaining': days_remaining
+            }
+    
+    def _get_warmup_delay(self) -> float:
+        """Get delay for warm-up mode (much longer, safer delays)"""
+        from config import Config
+        import random
+        
+        # Warm-up mode: 30+ minute delays between messages
+        min_delay_seconds = Config.WARMUP_MIN_DELAY_MINUTES * 60
+        max_delay_seconds = min_delay_seconds * 1.5  # 30-45 min range
+        
+        return random.uniform(min_delay_seconds, max_delay_seconds)
+    
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    def _execution_worker(self):
+        """Worker thread that processes campaign executions from the queue"""
+        worker_name = threading.current_thread().name
+        logger.info(f"🔧 {worker_name} started and ready")
+        
+        while self.is_running:
+            try:
+                # Get campaign from queue (wait max 1 second)
+                try:
+                    campaign_id = self.execution_queue.get(timeout=1)
+                except queue.Empty:
+                    continue
+                
+                # 🛡️ ANTI-BAN: Check if we should take a random break
+                should_break, break_duration = self._should_take_break()
+                if should_break:
+                    logger.info(f"☕ ANTI-BAN: {worker_name} taking a {break_duration/60:.1f} minute break to appear more human")
+                    time.sleep(break_duration)
+                
+                # Acquire semaphore to limit concurrent executions
+                with self.execution_semaphore:
+                    logger.info(f"🚀 {worker_name} executing campaign {campaign_id}")
+                    start_time = time.time()
+                    
+                    try:
+                        # Execute the campaign
+                        self.send_ad(campaign_id)
+                        duration = time.time() - start_time
+                        logger.info(f"✅ {worker_name} completed campaign {campaign_id} in {duration:.2f}s")
+                    except Exception as e:
+                        logger.error(f"❌ {worker_name} failed campaign {campaign_id}: {e}")
+                        logger.error(f"Stack trace: {traceback.format_exc()}")
+                    finally:
+                        self.execution_queue.task_done()
+                
+            except Exception as e:
+                logger.error(f"❌ Error in {worker_name}: {e}")
+                time.sleep(5)
+        
+        logger.info(f"🔧 {worker_name} stopped")
+    
+    def _client_cleanup_worker(self):
+        """Worker thread that closes idle Telegram clients to save memory"""
+        logger.info("🧹 Client cleanup worker started")
+        
+        while self.is_running:
+            try:
+                current_time = time.time()
+                clients_to_close = []
+                
+                # Find idle clients
+                with self.client_init_semaphore:
+                    for account_id, last_used in list(self.client_last_used.items()):
+                        if current_time - last_used > self.client_cleanup_interval:
+                            if account_id in self.telegram_clients:
+                                clients_to_close.append(account_id)
+                
+                # Close idle clients
+                for account_id in clients_to_close:
+                    try:
+                        client = self.telegram_clients.get(account_id)
+                        if client and client.is_connected():
+                            # Run disconnect in async
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            try:
+                                loop.run_until_complete(client.disconnect())
+                            finally:
+                                loop.close()
+                            
+                            # Remove from cache
+                            with self.client_init_semaphore:
+                                if account_id in self.telegram_clients:
+                                    del self.telegram_clients[account_id]
+                                if account_id in self.client_last_used:
+                                    del self.client_last_used[account_id]
+                            
+                            logger.info(f"🧹 Closed idle client for account {account_id} (idle for {self.client_cleanup_interval}s)")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Error closing idle client {account_id}: {e}")
+                
+                # Log memory usage every cleanup cycle
+                try:
+                    process = psutil.Process()
+                    memory_mb = process.memory_info().rss / 1024 / 1024
+                    cpu_percent = process.cpu_percent(interval=1)
+                    logger.info(f"📊 Resource usage: {memory_mb:.1f} MB RAM, {cpu_percent:.1f}% CPU, {len(self.telegram_clients)} active clients")
+                except ImportError:
+                    logger.debug("psutil not available - resource monitoring disabled")
+                except Exception as e:
+                    logger.debug(f"Resource monitoring error: {e}")
+                
+                # Sleep for cleanup interval
+                time.sleep(60)  # Check every minute
+                
+            except Exception as e:
+                logger.error(f"❌ Error in client cleanup worker: {e}")
+                time.sleep(60)
+        
+        logger.info("🧹 Client cleanup worker stopped")
     
     def _get_db_connection(self):
         """Get database connection with proper configuration"""
@@ -375,6 +806,38 @@ class BumpService:
         
         with self._get_db_connection() as conn:
             cursor = conn.cursor()
+            
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 🛡️ ANTI-BAN SYSTEM: Account Usage Tracking Table
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS account_usage_tracking (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_id INTEGER UNIQUE,
+                    account_created_date TIMESTAMP,
+                    messages_sent_today INTEGER DEFAULT 0,
+                    last_message_time TIMESTAMP,
+                    last_campaign_time TIMESTAMP,
+                    daily_limit INTEGER,
+                    is_restricted BOOLEAN DEFAULT 0,
+                    restriction_reason TEXT,
+                    total_messages_sent INTEGER DEFAULT 0,
+                    last_reset_date DATE DEFAULT CURRENT_DATE,
+                    warmup_mode_enabled BOOLEAN DEFAULT 0,
+                    warmup_start_date TIMESTAMP,
+                    warmup_end_date TIMESTAMP,
+                    FOREIGN KEY (account_id) REFERENCES telegram_accounts (id)
+                )
+            ''')
+            
+            # Add warmup columns to existing table if they don't exist
+            cursor.execute("PRAGMA table_info(account_usage_tracking)")
+            columns = [column[1] for column in cursor.fetchall()]
+            if 'warmup_mode_enabled' not in columns:
+                cursor.execute('ALTER TABLE account_usage_tracking ADD COLUMN warmup_mode_enabled BOOLEAN DEFAULT 0')
+                cursor.execute('ALTER TABLE account_usage_tracking ADD COLUMN warmup_start_date TIMESTAMP')
+                cursor.execute('ALTER TABLE account_usage_tracking ADD COLUMN warmup_end_date TIMESTAMP')
+                logger.info("Added warmup mode columns to account_usage_tracking table")
             
             # Ad campaigns table - Enhanced for multi-userbot support
             cursor.execute('''
@@ -883,6 +1346,8 @@ class BumpService:
         """Async helper for client initialization using telethon_manager (no interactive auth)"""
         # For scheduled executions, always create fresh client to avoid asyncio loop issues
         if cache_client and account_id in self.telegram_clients:
+            # Update last used time for client memory management
+            self.client_last_used[account_id] = time.time()
             return self.telegram_clients[account_id]
         
         account = self.db.get_account(account_id)
@@ -904,6 +1369,8 @@ class BumpService:
             # Only cache client if requested (not for scheduled executions)
             if cache_client:
                 self.telegram_clients[account_id] = client
+                # Track client usage for memory management
+                self.client_last_used[account_id] = time.time()
                 
             logger.info(f"✅ Telegram client initialized via telethon_manager (Account: {account_id})")
             
@@ -1062,9 +1529,49 @@ class BumpService:
         # Get account info for logging
         account = self.db.get_account(campaign['account_id'])
         account_name = account['account_name'] if account else f"Account_{campaign['account_id']}"
+        account_id = campaign['account_id']
         
-        logger.info(f"🚀 YOLO MODE: Starting campaign {campaign['campaign_name']} using {account_name}")
-        logger.info(f"⚡ AGGRESSIVE MODE ENABLED: Maximum performance configuration active")
+        logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(f"🚀 CAMPAIGN START: {campaign['campaign_name']}")
+        logger.info(f"👤 Using Account: {account_name} (ID: {account_id})")
+        logger.info(f"🎯 Target Mode: {campaign.get('target_mode', 'unknown')}")
+        logger.info(f"🔘 Buttons: {len(campaign.get('buttons', []))}")
+        logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 🛡️ ANTI-BAN SYSTEM: Pre-flight Checks
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        # Initialize tracking for this account
+        self._init_account_tracking(account_id, account.get('created_at'))
+        
+        # 🆕 Check if account is in warm-up mode
+        is_warmup, warmup_info = self._is_account_in_warmup(account_id)
+        if is_warmup:
+            days_remaining = warmup_info.get('days_remaining', 0)
+            logger.warning(f"🆕 WARM-UP MODE ACTIVE for account {account_id}")
+            logger.warning(f"   {days_remaining} days remaining")
+            logger.warning(f"   Using conservative settings (slower delays, lower limits)")
+        
+        # Estimate number of messages to send
+        target_chats = campaign['target_chats']
+        if campaign.get('target_mode') == 'all_groups' or target_chats == ['ALL_WORKER_GROUPS']:
+            # We'll check this after getting group list
+            estimated_messages = 0
+        else:
+            estimated_messages = len(target_chats)
+        
+        # Check if account can send (if we have estimate)
+        if estimated_messages > 0:
+            can_send, reason = self._check_account_can_send(account_id, estimated_messages)
+            if not can_send:
+                logger.error(f"🛡️ ANTI-BAN BLOCK: {reason}")
+                logger.error(f"❌ Campaign {campaign_id} aborted to protect account from ban")
+                return False
+        
+        # Record campaign start
+        self._record_campaign_start(account_id)
+        logger.info(f"🛡️ ANTI-BAN: Campaign {campaign_id} passed pre-flight checks")
         
         # YOLO MODE: Use fresh client for scheduled execution with aggressive retries
         # Maximum performance configuration with no compromises
@@ -1168,13 +1675,20 @@ class BumpService:
         
         # Get all groups if target_mode is all_groups
         if campaign.get('target_mode') == 'all_groups' or target_chats == ['ALL_WORKER_GROUPS']:
-            logger.info(f"Getting all groups for scheduled campaign {campaign_id}")
+            logger.info(f"🔍 DISCOVERY: Getting all groups for scheduled campaign {campaign_id}")
+            logger.info(f"🔍 DISCOVERY: Account {campaign['account_id']} - fetching dialogs...")
             dialogs = await client.get_dialogs()
+            logger.info(f"🔍 DISCOVERY: Retrieved {len(dialogs)} total dialogs from account")
+            
             target_entities = []
+            group_count = 0
             for dialog in dialogs:
                 if dialog.is_group:
                     target_entities.append(dialog.entity)
-                    logger.info(f"Found group for scheduled send: {dialog.name}")
+                    group_count += 1
+                    logger.info(f"✅ FOUND GROUP #{group_count}: {dialog.name} (ID: {dialog.id})")
+            
+            logger.info(f"🎯 DISCOVERY COMPLETE: Found {len(target_entities)} groups total for campaign {campaign_id}")
         else:
             # Convert chat IDs to entities
             target_entities = []
@@ -1185,6 +1699,18 @@ class BumpService:
                 except Exception as e:
                     logger.error(f"Failed to get entity for {chat_id}: {e}")
         
+        # HUMAN-LIKE BEHAVIOR: Slightly randomize group order to avoid patterns
+        # Shuffle in small chunks to maintain some order but add variance
+        if len(target_entities) > 10:
+            logger.info(f"🎲 ANTI-DETECTION: Randomizing send order to appear more natural")
+            # Shuffle groups in chunks of 5-10 to add randomness while keeping some locality
+            chunk_size = random.randint(5, 10)
+            for i in range(0, len(target_entities), chunk_size):
+                chunk_end = min(i + chunk_size, len(target_entities))
+                chunk = target_entities[i:chunk_end]
+                random.shuffle(chunk)
+                target_entities[i:chunk_end] = chunk
+        
         # Create template message ONCE before processing all chats
         template_message_id = None
         
@@ -1193,8 +1719,13 @@ class BumpService:
         
         # Initialize button tracking
         buttons_sent_count = 0
+        failed_count = 0
+        flood_retry_queue = []  # Groups that need retry after flood wait
         
-        for chat_entity in target_entities:
+        logger.info(f"📤 SENDING: About to send campaign {campaign_id} to {len(target_entities)} target groups")
+        logger.info(f"🤖 ANTI-DETECTION: Using human-like random delays (2-6 seconds)")
+        
+        for idx, chat_entity in enumerate(target_entities, 1):
             message = None
             try:
                 # YOLO MODE FIX: Handle different content types including linked messages
@@ -1242,17 +1773,71 @@ class BumpService:
                                 
                                 if sent_msg:
                                     logger.info(f"🔥 YOLO SUCCESS: Forwarded message with PREMIUM EMOJIS + REAL BUTTONS to {chat_entity.title}!")
+                                    # Increment counters
+                                    sent_count += 1
+                                    buttons_sent_count += 1
+                                    # Log performance
+                                    self.log_ad_performance(campaign_id, campaign['user_id'], str(chat_entity.id), sent_msg[0].id if isinstance(sent_msg, list) else sent_msg.id)
+                                    logger.info(f"✅ SUCCESS: Sent to {chat_entity.title} | Progress: {sent_count}/{len(target_entities)} ({(sent_count/len(target_entities)*100):.1f}%)")
+                                    
+                                    # 🛡️ ANTI-BAN: Record message sent and use safe delays
+                                    self._record_message_sent(account_id)
+                                    
+                                    # Check if in warm-up mode and use appropriate delay
+                                    is_warmup, _ = self._is_account_in_warmup(account_id)
+                                    if is_warmup:
+                                        safe_delay = self._get_warmup_delay()  # 30-45 minute delays
+                                        logger.info(f"🆕 WARM-UP MODE: Waiting {safe_delay/60:.1f} minutes (recovery mode)")
+                                    else:
+                                        safe_delay = self._get_safe_delay()  # Normal delays (30-90 sec)
+                                        logger.info(f"🛡️ ANTI-BAN: Waiting {safe_delay/60:.1f} minutes before next message")
+                                    
+                                    await asyncio.sleep(safe_delay)
+                                    
+                                    continue  # Move to next group
                                 else:
                                     logger.error(f"❌ YOLO: Failed to forward message {storage_message_id}")
+                                    failed_count += 1
                                     continue
                                 
-                                if sent_msg:
-                                    buttons_sent_count += 1
-                                    logger.info(f"✅ YOLO MODE: Successfully sent message to {chat_entity.title}")
-                                    continue  # Move to next group
+                            except FloodWaitError as flood_error:
+                                # Handle Telegram rate limiting - WAIT and retry this group + all remaining
+                                wait_seconds = flood_error.seconds
+                                wait_minutes = wait_seconds // 60
+                                logger.warning(f"⏳ FLOOD WAIT: Telegram rate limit hit at group '{chat_entity.title}'")
+                                logger.warning(f"⏰ Required wait: {wait_minutes} minutes {wait_seconds % 60} seconds")
+                                logger.info(f"📊 Current progress: {sent_count}/{len(target_entities)} sent successfully")
+                                logger.info(f"📝 This group will be retried after waiting")
                                 
+                                # Add current group to retry queue
+                                flood_retry_queue.append(chat_entity)
+                                
+                                logger.info(f"💤 WAITING {wait_minutes} minutes before continuing...")
+                                
+                                # Wait the required time with progress updates every minute
+                                if wait_minutes > 0:
+                                    for minute in range(wait_minutes):
+                                        remaining_mins = wait_minutes - minute
+                                        logger.info(f"⏳ Waiting... {remaining_mins} minutes remaining")
+                                        await asyncio.sleep(60)  # Wait 1 minute
+                                
+                                # Wait remaining seconds
+                                remaining_seconds = wait_seconds % 60
+                                if remaining_seconds > 0:
+                                    await asyncio.sleep(remaining_seconds)
+                                
+                                # Add extra safety buffer
+                                extra_wait = random.uniform(15, 45)
+                                logger.info(f"✅ Wait complete! Adding {extra_wait:.0f}s safety buffer...")
+                                await asyncio.sleep(extra_wait)
+                                
+                                logger.info(f"🚀 RESUMING: Continuing with remaining {len(target_entities) - idx} groups (current group added to retry queue)")
+                                continue
                             except Exception as linked_error:
-                                logger.error(f"❌ YOLO MODE: Failed to send linked message: {linked_error}")
+                                logger.error(f"❌ YOLO MODE: Failed to send to {chat_entity.title}: {linked_error}")
+                                failed_count += 1
+                                # Brief pause before trying next group
+                                await asyncio.sleep(random.uniform(1, 3))
                                 continue  # Try next group
                     
                     # OLD LOGIC: Find the main media message and combine all text content (keeping as fallback)
@@ -1910,17 +2495,97 @@ class BumpService:
                     self.log_ad_performance(campaign_id, campaign['user_id'], str(chat_entity.id), message.id)
                     sent_count += 1
                     logger.info(f"Scheduled ad sent to {chat_entity.title} ({chat_entity.id}) for campaign {campaign['campaign_name']}")
-                
-                # Add delay between sends
-                await asyncio.sleep(2)
+                    
+                    # 🛡️ ANTI-BAN: Record message sent and use safe delay
+                    self._record_message_sent(account_id)
+                    
+                    # Check if in warm-up mode
+                    is_warmup, _ = self._is_account_in_warmup(account_id)
+                    if is_warmup:
+                        safe_delay = self._get_warmup_delay()
+                        logger.info(f"🆕 WARM-UP MODE: Waiting {safe_delay/60:.1f} minutes (recovery mode)")
+                    else:
+                        safe_delay = self._get_safe_delay()
+                        logger.info(f"🛡️ ANTI-BAN: Waiting {safe_delay/60:.1f} minutes before next message")
+                    
+                    await asyncio.sleep(safe_delay)
                 
             except Exception as e:
                 logger.error(f"Failed to send scheduled ad to {chat_entity.title if hasattr(chat_entity, 'title') else 'Unknown'}: {e}")
                 self.log_ad_performance(campaign_id, campaign['user_id'], str(chat_entity.id) if hasattr(chat_entity, 'id') else 'unknown', None, 'failed')
         
+        # RETRY FLOOD-LIMITED GROUPS - Process groups that hit rate limits
+        if len(flood_retry_queue) > 0:
+            logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            logger.info(f"🔄 RETRY PHASE: Processing {len(flood_retry_queue)} groups that hit rate limits")
+            logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            
+            for retry_idx, retry_entity in enumerate(flood_retry_queue, 1):
+                try:
+                    logger.info(f"🔁 RETRY {retry_idx}/{len(flood_retry_queue)}: Attempting {retry_entity.title}")
+                    
+                    # Get the storage info from ad_content
+                    if isinstance(ad_content, list) and ad_content:
+                        for message_data in ad_content:
+                            if message_data.get('type') == 'linked_message':
+                                storage_chat_id = int(message_data.get('storage_chat_id'))
+                                storage_message_id = int(message_data.get('storage_message_id'))
+                                
+                                # Get storage channel entity
+                                try:
+                                    storage_channel_entity = await client.get_entity(storage_chat_id)
+                                except Exception:
+                                    storage_channel_entity = storage_channel
+                                
+                                # Forward the message
+                                sent_msg = await client.forward_messages(
+                                    entity=retry_entity,
+                                    messages=storage_message_id,
+                                    from_peer=storage_channel_entity
+                                )
+                                
+                                if sent_msg:
+                                    sent_count += 1
+                                    buttons_sent_count += 1
+                                    self.log_ad_performance(campaign_id, campaign['user_id'], str(retry_entity.id), sent_msg[0].id if isinstance(sent_msg, list) else sent_msg.id)
+                                    logger.info(f"✅ RETRY SUCCESS: Sent to {retry_entity.title} | Total sent: {sent_count}/{len(target_entities)}")
+                                    
+                                    # 🛡️ ANTI-BAN: Record message and use safe delay
+                                    self._record_message_sent(account_id)
+                                    
+                                    # Check if in warm-up mode
+                                    is_warmup, _ = self._is_account_in_warmup(account_id)
+                                    if is_warmup:
+                                        safe_delay = self._get_warmup_delay()
+                                        logger.info(f"🆕 WARM-UP MODE: Retry waiting {safe_delay/60:.1f} minutes (recovery mode)")
+                                    else:
+                                        safe_delay = self._get_safe_delay()
+                                        logger.info(f"🛡️ ANTI-BAN: Retry waiting {safe_delay/60:.1f} minutes before next message")
+                                    
+                                    await asyncio.sleep(safe_delay)
+                                else:
+                                    logger.error(f"❌ RETRY FAILED: Could not send to {retry_entity.title}")
+                                    failed_count += 1
+                                break
+                
+                except FloodWaitError as retry_flood:
+                    logger.warning(f"⚠️ RETRY: Still rate limited on {retry_entity.title} - will try next campaign run")
+                    failed_count += 1
+                except Exception as retry_error:
+                    logger.error(f"❌ RETRY ERROR for {retry_entity.title}: {retry_error}")
+                    failed_count += 1
+            
+            logger.info(f"🏁 RETRY PHASE COMPLETE")
+        
         # Update campaign statistics
         self.update_campaign_stats(campaign_id, sent_count)
-        logger.info(f"Scheduled campaign {campaign['campaign_name']} completed: {buttons_sent_count}/{len(target_entities)} ads sent with buttons")
+        logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(f"✅ CAMPAIGN COMPLETE: {campaign['campaign_name']}")
+        logger.info(f"📊 Results: {sent_count} sent successfully, {failed_count} failed out of {len(target_entities)} total groups")
+        logger.info(f"📈 Success rate: {(sent_count/len(target_entities)*100) if len(target_entities) > 0 else 0:.1f}%")
+        if len(flood_retry_queue) > 0:
+            logger.info(f"♻️ All rate-limited groups were retried after waiting")
+        logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         
         # Disconnect client after scheduled execution to prevent asyncio loop issues
         try:
@@ -2319,9 +2984,9 @@ class BumpService:
                     # Schedule the job to run every X minutes
                     job = schedule.every(minutes).minutes.do(self.run_campaign_job, campaign_id)
                     
-                    # IMPORTANT: Run the job immediately for the first time if campaign is active
+                    # IMPORTANT: Run the job immediately for the first time if campaign is active AND immediate_start is True
                     campaign = self.get_campaign(campaign_id)
-                    if campaign and campaign.get('is_active', False):
+                    if campaign and campaign.get('is_active', False) and campaign.get('immediate_start', False):
                         logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
                         # Add staggered delay to prevent database conflicts
                         import random
@@ -2329,6 +2994,8 @@ class BumpService:
                         # Run in a separate thread to avoid blocking
                         import threading
                         threading.Thread(target=lambda: (time.sleep(delay), self.run_campaign_job(campaign_id)), daemon=True).start()
+                    else:
+                        logger.info(f"📅 Campaign {campaign_id} scheduled for first run (no immediate start)")
                     
                     logger.info(f"📅 Campaign {campaign_id} scheduled every {minutes} minutes")
                 elif schedule_time.isdigit():
@@ -2336,9 +3003,9 @@ class BumpService:
                     minutes = int(schedule_time)
                     job = schedule.every(minutes).minutes.do(self.run_campaign_job, campaign_id)
                     
-                    # IMPORTANT: Run the job immediately for the first time if campaign is active
+                    # IMPORTANT: Run the job immediately for the first time if campaign is active AND immediate_start is True
                     campaign = self.get_campaign(campaign_id)
-                    if campaign and campaign.get('is_active', False):
+                    if campaign and campaign.get('is_active', False) and campaign.get('immediate_start', False):
                         logger.info(f"🚀 Running campaign {campaign_id} immediately on schedule activation")
                         # Add staggered delay to prevent database conflicts
                         import random
@@ -2346,6 +3013,8 @@ class BumpService:
                         # Run in a separate thread to avoid blocking
                         import threading
                         threading.Thread(target=lambda: (time.sleep(delay), self.run_campaign_job(campaign_id)), daemon=True).start()
+                    else:
+                        logger.info(f"📅 Campaign {campaign_id} scheduled for first run (no immediate start)")
                     
                     logger.info(f"📅 Campaign {campaign_id} scheduled every {minutes} minutes")
                 else:
@@ -2360,11 +3029,11 @@ class BumpService:
         logger.info(f"Scheduled campaign {campaign_id} ({schedule_type} at {schedule_time})")
     
     def run_campaign_job(self, campaign_id: int):
-        """Execute scheduled campaign automatically"""
+        """Execute scheduled campaign automatically - Queue-based for 50+ accounts"""
         try:
             import datetime
             current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            logger.info(f"🔄 Scheduler executing campaign {campaign_id} at {current_time}")
+            logger.info(f"🔄 Scheduler triggered campaign {campaign_id} at {current_time}")
             
             # Get campaign from database
             campaign = self.get_campaign(campaign_id)
@@ -2399,55 +3068,14 @@ class BumpService:
             
             logger.info(f"✅ Account {account.get('account_name', 'Unknown')} is ready")
             
-            # Log next scheduled run
-            logger.info(f"📅 Next run for campaign {campaign_id} will be in {campaign['schedule_time']}")
-            
-            # Execute campaign in new thread to avoid blocking scheduler
-            def execute_async():
-                try:
-                    import asyncio
-                    logger.info(f"🚀 Starting async execution for campaign {campaign_id}")
-                    # Run the campaign asynchronously
-                    asyncio.run(self.execute_scheduled_campaign(campaign_id, campaign))
-                    logger.info(f"✅ Async execution completed for campaign {campaign_id}")
-                except Exception as e:
-                    logger.error(f"❌ Error executing scheduled campaign {campaign_id}: {e}")
-                    import traceback
-                    logger.error(f"Stack trace: {traceback.format_exc()}")
-            
-            # Start execution in separate thread
-            execution_thread = threading.Thread(target=execute_async, daemon=True)
-            execution_thread.start()
-            logger.info(f"✅ Campaign {campaign_id} scheduled execution started")
+            # Add to execution queue (worker threads will process it)
+            queue_size = self.execution_queue.qsize()
+            logger.info(f"📥 Adding campaign {campaign_id} to execution queue (current queue size: {queue_size})")
+            self.execution_queue.put(campaign_id)
+            logger.info(f"✅ Campaign {campaign_id} added to queue successfully")
             
         except Exception as e:
             logger.error(f"Error in campaign scheduler for {campaign_id}: {e}")
-    
-    async def execute_scheduled_campaign(self, campaign_id: int, campaign: dict):
-        """Execute a scheduled campaign automatically"""
-        try:
-            logger.info(f"🚀 Executing scheduled campaign {campaign_id}: {campaign['campaign_name']}")
-            
-            # Check account status first
-            account = self.db.get_account(campaign['account_id'])
-            if not account:
-                logger.error(f"Account {campaign['account_id']} not found for campaign {campaign_id}")
-                return False
-            
-            if not account.get('session_string'):
-                logger.error(f"Account {campaign['account_id']} ({account.get('account_name', 'Unknown')}) has no session string")
-                logger.error(f"Please re-add account '{account.get('account_name', 'Unknown')}' with phone verification")
-                return False
-            
-            # Send the ad using the async version directly
-            await self._async_send_ad(campaign_id)
-            logger.info(f"✅ Scheduled campaign {campaign_id} executed successfully")
-                
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error executing scheduled campaign {campaign_id}: {e}")
-            return False
     
     def cleanup_corrupted_sessions(self):
         """Clean up any corrupted session files"""
@@ -2477,10 +3105,6 @@ class BumpService:
 
     def start_scheduler(self):
         """Start the campaign scheduler with proper background thread"""
-        if self.is_running:
-            return
-        
-        self.is_running = True
         logger.info("🚀 Bump service scheduler started (automatic execution mode)")
         
         # Clean up any corrupted session files
@@ -2529,22 +3153,36 @@ class BumpService:
         logger.info("Bump service scheduler stopped")
     
     def load_existing_campaigns(self):
-        """Load and schedule existing active campaigns"""
+        """Load and schedule existing active campaigns with automatic staggering for 50+ accounts"""
         import sqlite3
+        from config import Config
         
         with self._get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT id, campaign_name, schedule_time FROM ad_campaigns WHERE is_active = 1')
             rows = cursor.fetchall()
             
-            for row in rows:
+            # Load campaigns with optional staggering
+            for index, row in enumerate(rows):
                 campaign_id = row[0]
                 campaign_name = row[1]
                 schedule_time = row[2]
                 logger.info(f"Loading campaign {campaign_id}: {campaign_name} (schedule: {schedule_time})")
+                
+                # Schedule the campaign
                 self.schedule_campaign(campaign_id)
+                
+                # Add stagger delay between loading campaigns if enabled (for 50+ accounts)
+                if Config.ENABLE_AUTO_STAGGER and index < len(rows) - 1:
+                    # Small delay between scheduling each campaign to prevent thundering herd
+                    stagger_delay = Config.STAGGER_SECONDS_PER_CAMPAIGN  # Already in seconds
+                    time.sleep(stagger_delay)
+                    logger.debug(f"⏳ Staggered delay: {stagger_delay:.1f}s before next campaign")
         
-        logger.info(f"Loaded {len(rows)} existing campaigns")
+        logger.info(f"✅ Loaded {len(rows)} existing campaigns")
+        if Config.ENABLE_AUTO_STAGGER and len(rows) > 1:
+            total_stagger = len(rows) * Config.STAGGER_SECONDS_PER_CAMPAIGN
+            logger.info(f"🎯 Auto-stagger enabled: {total_stagger}s total spread across {len(rows)} campaigns")
     
     def get_campaign_performance(self, campaign_id: int) -> Dict[str, Any]:
         """Get performance statistics for a campaign"""

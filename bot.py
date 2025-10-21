@@ -1897,34 +1897,53 @@ Buttons will appear as an inline keyboard below your ad message."""
                 await query.answer("Account not found!", show_alert=True)
                 return
             
-            # Prepare campaign data for execution
-            enhanced_campaign_data = {
-                'campaign_name': campaign['campaign_name'],
-                'ad_content': campaign['ad_content'],
-                'target_chats': campaign['target_chats'],
-                'schedule_type': campaign['schedule_type'],
-                'schedule_time': campaign['schedule_time'],
-                'buttons': campaign.get('buttons', []),  # Get buttons from database
-                'target_mode': campaign.get('target_mode', 'all_groups' if campaign['target_chats'] == ['ALL_WORKER_GROUPS'] else 'specific'),
-                'immediate_start': False  # Disabled - user must click Start Campaign
-            }
-            
-            logger.info(f"Executing campaign with {len(enhanced_campaign_data['buttons'])} buttons")
-            
-            # The bump service scheduler already handles campaign execution with inline buttons
-            # No need for duplicate execution here - just confirm the campaign is active
-            success_text = f"""🎉 Campaign Already Running!
+            # Show immediate execution status
+            status_text = f"""🚀 Executing Campaign Now!
 
 Campaign: {campaign['campaign_name']}
 Account: {account['account_name']}
-Status: ✅ Active and scheduled!
-Schedule: Next message in {campaign['schedule_time']}
+Status: ⏳ Sending messages...
 
-✅ Messages are being sent with INLINE BUTTONS automatically!
-📊 Check the logs to see execution status."""
+Please wait while we send to all groups..."""
             
-            await query.edit_message_text(success_text, reply_markup=self.get_main_menu_keyboard())
-            await query.answer("✅ Campaign is active!", show_alert=False)
+            await query.edit_message_text(status_text)
+            
+            # ✅ FIX: Actually execute the campaign immediately!
+            logger.info(f"🚀 IMMEDIATE EXECUTION: Triggering campaign {campaign_id} manually")
+            try:
+                # Use bump service to send the ad immediately
+                self.bump_service.send_ad(campaign_id)
+                
+                # Get updated campaign stats
+                updated_campaign = self.bump_service.get_campaign(campaign_id)
+                total_sends = updated_campaign.get('total_sends', 0) if updated_campaign else 0
+                
+                success_text = f"""✅ Campaign Executed Successfully!
+
+Campaign: {campaign['campaign_name']}
+Account: {account['account_name']}
+Status: ✅ Messages sent!
+Total sends: {total_sends}
+
+🔄 Campaign will continue running on schedule: {campaign['schedule_time']}
+📊 Check your target groups to verify delivery."""
+                
+                await query.edit_message_text(success_text, reply_markup=self.get_main_menu_keyboard())
+                await query.answer("✅ Campaign executed!", show_alert=False)
+                
+            except Exception as exec_error:
+                logger.error(f"Campaign execution error: {exec_error}")
+                error_text = f"""⚠️ Campaign Execution Issue
+
+Campaign: {campaign['campaign_name']}
+Status: ⚠️ May have partial success
+
+Error: {str(exec_error)[:100]}
+
+✅ Campaign is still scheduled to run automatically at: {campaign['schedule_time']}"""
+                
+                await query.edit_message_text(error_text, reply_markup=self.get_main_menu_keyboard())
+                await query.answer("⚠️ Check the status message", show_alert=True)
             
         except Exception as e:
             logger.error(f"Manual campaign start failed: {e}")
