@@ -1706,8 +1706,8 @@ class BumpService:
             logger.error(f"❌ Failed to initialize client via telethon_manager for account {account_id}: {e}")
             return None
     
-    def send_ad(self, campaign_id: int):
-        """Send ad for a specific campaign with button support - Thread-safe version"""
+    def send_ad(self, campaign_id: int, wait_for_completion=False):
+        """Send ad for a specific campaign with button support - Non-blocking by default"""
         try:
             import threading
             
@@ -1718,9 +1718,16 @@ class BumpService:
             if is_main_thread:
                 # We're in the main thread - use ThreadPoolExecutor to avoid blocking
                 import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(self._sync_send_ad, campaign_id)
-                    return future.result(timeout=60)  # 60 second timeout for sending ads
+                executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                future = executor.submit(self._sync_send_ad, campaign_id)
+                
+                if wait_for_completion:
+                    # Only wait if explicitly requested (old behavior)
+                    return future.result(timeout=60)
+                else:
+                    # Non-blocking: return immediately, campaign runs in background
+                    logger.info(f"🚀 Campaign {campaign_id} started in background (non-blocking)")
+                    return True
             else:
                 # We're already in a background thread - run directly
                 return self._sync_send_ad(campaign_id)

@@ -1897,39 +1897,29 @@ Buttons will appear as an inline keyboard below your ad message."""
                 await query.answer("Account not found!", show_alert=True)
                 return
             
-            # Show immediate execution status
-            status_text = f"""🚀 Executing Campaign Now!
-
-Campaign: {campaign['campaign_name']}
-Account: {account['account_name']}
-Status: ⏳ Sending messages...
-
-Please wait while we send to all groups..."""
-            
-            await query.edit_message_text(status_text)
-            
-            # ✅ FIX: Actually execute the campaign immediately!
+            # ✅ FIX: Execute the campaign in background (non-blocking)
             logger.info(f"🚀 IMMEDIATE EXECUTION: Triggering campaign {campaign_id} manually")
             try:
-                # Use bump service to send the ad immediately
-                self.bump_service.send_ad(campaign_id)
+                # Start campaign in background - returns immediately!
+                self.bump_service.send_ad(campaign_id, wait_for_completion=False)
                 
-                # Get updated campaign stats
-                updated_campaign = self.bump_service.get_campaign(campaign_id)
-                total_sends = updated_campaign.get('total_sends', 0) if updated_campaign else 0
-                
-                success_text = f"""✅ Campaign Executed Successfully!
+                # Show success status immediately
+                success_text = f"""🚀 Campaign Started in Background!
 
 Campaign: {campaign['campaign_name']}
 Account: {account['account_name']}
-Status: ✅ Messages sent!
-Total sends: {total_sends}
+Status: ⏳ Running now...
 
-🔄 Campaign will continue running on schedule: {campaign['schedule_time']}
+✅ You can now:
+• Add more accounts
+• Create new campaigns
+• Start other campaigns
+
+The campaign will complete in ~30-60 minutes.
 📊 Check your target groups to verify delivery."""
                 
                 await query.edit_message_text(success_text, reply_markup=self.get_main_menu_keyboard())
-                await query.answer("✅ Campaign executed!", show_alert=False)
+                await query.answer("✅ Campaign started!", show_alert=False)
                 
             except Exception as exec_error:
                 logger.error(f"Campaign execution error: {exec_error}")
