@@ -1745,7 +1745,7 @@ class BumpService:
                 # We're in the main thread - use ThreadPoolExecutor to avoid blocking
                 import concurrent.futures
                 executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-                    future = executor.submit(self._sync_send_ad, campaign_id)
+                future = executor.submit(self._sync_send_ad, campaign_id)
                 
                 if wait_for_completion:
                     # Only wait if explicitly requested (old behavior)
@@ -3551,8 +3551,8 @@ class BumpService:
                         logger.info(f"🚀 Campaign {campaign_id} ({campaign_name}): First account, starts immediately")
                     
                     # Schedule the campaign
-                self.schedule_campaign(campaign_id)
-        
+                    self.schedule_campaign(campaign_id)
+                    
                     # Apply stagger delay if this is not the first campaign in the group
                     if stagger_delay_seconds > 0 and Config.ENABLE_AUTO_STAGGER:
                         # Store the stagger delay in memory for runtime execution
