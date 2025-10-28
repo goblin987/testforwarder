@@ -3333,11 +3333,24 @@ class BumpService:
         logger.info(f"Scheduled campaign {campaign_id} ({schedule_type} at {schedule_time})")
     
     def run_campaign_job(self, campaign_id: int):
-        """Execute scheduled campaign automatically - Queue-based for 50+ accounts"""
+        """Execute scheduled campaign automatically - Queue-based for 50+ accounts with smart staggering"""
         try:
             import datetime
             current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             logger.info(f"🔄 Scheduler triggered campaign {campaign_id} at {current_time}")
+            
+            # 🎯 SMART STAGGER: Apply delay if this campaign is part of a staggered group
+            if hasattr(self, 'campaign_stagger_delays') and campaign_id in self.campaign_stagger_delays:
+                stagger_delay = self.campaign_stagger_delays[campaign_id]
+                stagger_minutes = stagger_delay / 60
+                
+                logger.info(f"⏰ SMART STAGGER: Campaign {campaign_id} has {stagger_minutes:.0f}-minute delay")
+                logger.info(f"⏳ Waiting {stagger_minutes:.0f} minutes before starting (accounts sharing same message)")
+                
+                # Wait the stagger delay
+                time.sleep(stagger_delay)
+                
+                logger.info(f"✅ Stagger delay complete! Starting campaign {campaign_id} now")
             
             # Get campaign from database
             campaign = self.get_campaign(campaign_id)
@@ -3456,37 +3469,100 @@ class BumpService:
         schedule.clear()
         logger.info("Bump service scheduler stopped")
     
+    def _calculate_smart_stagger_delay(self, account_count: int) -> int:
+        """
+        Calculate stagger delay in minutes based on number of accounts sharing same message.
+        
+        2 accounts: 30-minute gaps
+        3 accounts: 25-minute gaps
+        4 accounts: 15-minute gaps
+        5+ accounts: 10-minute gaps
+        """
+        if account_count <= 1:
+            return 0  # No stagger needed for single account
+        elif account_count == 2:
+            return 30  # 30 minutes between accounts
+        elif account_count == 3:
+            return 25  # 25 minutes between accounts
+        elif account_count == 4:
+            return 15  # 15 minutes between accounts
+        else:  # 5 or more
+            return 10  # 10 minutes between accounts
+    
     def load_existing_campaigns(self):
-        """Load and schedule existing active campaigns with automatic staggering for 50+ accounts"""
+        """Load and schedule existing active campaigns with smart staggering based on shared messages"""
         import sqlite3
         from config import Config
+        from collections import defaultdict
         
         with self._get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT id, campaign_name, schedule_time FROM ad_campaigns WHERE is_active = 1')
+            
+            # Get all active campaigns with their message sources
+            cursor.execute('''
+                SELECT id, campaign_name, schedule_time, account_id, storage_channel, storage_message_id
+                FROM ad_campaigns 
+                WHERE is_active = 1
+                ORDER BY id
+            ''')
             rows = cursor.fetchall()
             
-            # Load campaigns with optional staggering
-            for index, row in enumerate(rows):
-                campaign_id = row[0]
-                campaign_name = row[1]
-                schedule_time = row[2]
-                logger.info(f"Loading campaign {campaign_id}: {campaign_name} (schedule: {schedule_time})")
+            # Group campaigns by their message source (storage_channel + storage_message_id)
+            message_groups = defaultdict(list)
+            for row in rows:
+                campaign_id, campaign_name, schedule_time, account_id, storage_channel, storage_message_id = row
                 
-                # Schedule the campaign
-                self.schedule_campaign(campaign_id)
+                # Create unique key for message source
+                message_key = f"{storage_channel}_{storage_message_id}"
+                message_groups[message_key].append({
+                    'id': campaign_id,
+                    'name': campaign_name,
+                    'schedule': schedule_time,
+                    'account_id': account_id
+                })
+            
+            logger.info(f"📊 Found {len(rows)} active campaigns grouped into {len(message_groups)} message sources")
+            
+            # Schedule campaigns with smart staggering
+            total_campaigns_loaded = 0
+            for message_key, campaigns in message_groups.items():
+                account_count = len(campaigns)
+                stagger_minutes = self._calculate_smart_stagger_delay(account_count)
                 
-                # Add stagger delay between loading campaigns if enabled (for 50+ accounts)
-                if Config.ENABLE_AUTO_STAGGER and index < len(rows) - 1:
-                    # Small delay between scheduling each campaign to prevent thundering herd
-                    stagger_delay = Config.STAGGER_SECONDS_PER_CAMPAIGN  # Already in seconds
-                    time.sleep(stagger_delay)
-                    logger.debug(f"⏳ Staggered delay: {stagger_delay:.1f}s before next campaign")
-        
-        logger.info(f"✅ Loaded {len(rows)} existing campaigns")
-        if Config.ENABLE_AUTO_STAGGER and len(rows) > 1:
-            total_stagger = len(rows) * Config.STAGGER_SECONDS_PER_CAMPAIGN
-            logger.info(f"🎯 Auto-stagger enabled: {total_stagger}s total spread across {len(rows)} campaigns")
+                logger.info(f"📬 Message source '{message_key}': {account_count} accounts, {stagger_minutes}-min stagger")
+                
+                for index, campaign in enumerate(campaigns):
+                    campaign_id = campaign['id']
+                    campaign_name = campaign['name']
+                    schedule_time = campaign['schedule']
+                    
+                    # Calculate stagger delay for this campaign
+                    stagger_delay_seconds = index * stagger_minutes * 60  # Convert minutes to seconds
+                    
+                    if stagger_delay_seconds > 0:
+                        logger.info(f"⏰ Campaign {campaign_id} ({campaign_name}): Will start {index * stagger_minutes} min after first account")
+                    else:
+                        logger.info(f"🚀 Campaign {campaign_id} ({campaign_name}): First account, starts immediately")
+                    
+                    # Schedule the campaign with stagger delay
+                    self.schedule_campaign(campaign_id)
+                    
+                    # Apply stagger delay if this is not the first campaign in the group
+                    if stagger_delay_seconds > 0 and Config.ENABLE_AUTO_STAGGER:
+                        # Store the stagger delay in memory for runtime execution
+                        if not hasattr(self, 'campaign_stagger_delays'):
+                            self.campaign_stagger_delays = {}
+                        self.campaign_stagger_delays[campaign_id] = stagger_delay_seconds
+                        logger.debug(f"📝 Stored {stagger_delay_seconds}s stagger delay for campaign {campaign_id}")
+                    
+                    total_campaigns_loaded += 1
+            
+            logger.info(f"✅ Loaded {total_campaigns_loaded} campaigns with smart staggering")
+            
+            # Log stagger summary
+            if hasattr(self, 'campaign_stagger_delays') and self.campaign_stagger_delays:
+                total_stagger = sum(self.campaign_stagger_delays.values())
+                logger.info(f"🎯 Smart stagger enabled: Total spread of {total_stagger/60:.1f} minutes across all campaigns")
     
     def get_campaign_performance(self, campaign_id: int) -> Dict[str, Any]:
         """Get performance statistics for a campaign"""
