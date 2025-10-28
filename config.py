@@ -94,9 +94,10 @@ class Config:
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
     # Message Sending Delays (CRITICAL FOR AVOIDING BANS)
-    # OPTIMIZED FOR MATURE ACCOUNTS (2023): Fast burst sending with LONG breaks
-    MIN_DELAY_BETWEEN_MESSAGES = int(os.getenv('MIN_DELAY_BETWEEN_MESSAGES', 30))  # 30 seconds (burst mode)
-    MAX_DELAY_BETWEEN_MESSAGES = int(os.getenv('MAX_DELAY_BETWEEN_MESSAGES', 90))  # 90 seconds (1.5 min)
+    # OPTIMIZED FOR MATURE ACCOUNTS (2023): Moderate speed to avoid FloodWait
+    # These delays prevent Telegram from triggering 50+ minute FloodWait errors
+    MIN_DELAY_BETWEEN_MESSAGES = int(os.getenv('MIN_DELAY_BETWEEN_MESSAGES', 120))  # 2 minutes minimum
+    MAX_DELAY_BETWEEN_MESSAGES = int(os.getenv('MAX_DELAY_BETWEEN_MESSAGES', 300))  # 5 minutes maximum
     
     # Account Daily Limits (DISABLED for mature accounts from 2023)
     MAX_MESSAGES_PER_DAY_NEW_ACCOUNT = int(os.getenv('MAX_MESSAGES_PER_DAY_NEW_ACCOUNT', 20))  # First 2 weeks (conservative)

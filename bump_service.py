@@ -624,6 +624,32 @@ class BumpService:
         except Exception as e:
             logger.error(f"Error handling peer flood: {e}")
     
+    def _record_flood_wait(self, account_id: int, wait_seconds: int):
+        """
+        Record FloodWait error for an account.
+        This helps track which accounts are being rate-limited.
+        """
+        try:
+            conn = self.get_db_connection()
+            cursor = conn.cursor()
+            
+            # Update account tracking with flood wait info
+            cursor.execute("""
+                UPDATE account_usage_tracking 
+                SET is_restricted = 1,
+                    restriction_reason = ?,
+                    last_campaign_time = CURRENT_TIMESTAMP
+                WHERE account_id = ?
+            """, (f"FloodWait {wait_seconds}s", account_id))
+            
+            conn.commit()
+            conn.close()
+            
+            logger.warning(f"📝 Recorded FloodWait for account {account_id}: {wait_seconds}s cooldown")
+            
+        except Exception as e:
+            logger.error(f"Error recording flood wait: {e}")
+    
     def _check_peer_flood_status(self, account_id: int) -> tuple[bool, str]:
         """
         Check if account is in peer flood cooldown.
@@ -2055,38 +2081,29 @@ class BumpService:
                                     continue
                                 
                             except FloodWaitError as flood_error:
-                                # Handle Telegram rate limiting - WAIT and retry this group + all remaining
+                                # Handle Telegram rate limiting - DON'T wait, skip this account
                                 wait_seconds = flood_error.seconds
                                 wait_minutes = wait_seconds // 60
-                                logger.warning(f"⏳ FLOOD WAIT: Telegram rate limit hit at group '{chat_entity.title}'")
-                                logger.warning(f"⏰ Required wait: {wait_minutes} minutes {wait_seconds % 60} seconds")
-                                logger.info(f"📊 Current progress: {sent_count}/{len(target_entities)} sent successfully")
-                                logger.info(f"📝 This group will be retried after waiting")
+                                logger.error(f"🚨 FLOOD WAIT: Account hit rate limit at '{chat_entity.title}'")
+                                logger.error(f"⏰ Telegram wants us to wait: {wait_minutes} minutes {wait_seconds % 60} seconds")
+                                logger.warning(f"⚠️ This account sent messages TOO FAST!")
+                                logger.info(f"📊 Progress before FloodWait: {sent_count}/{len(target_entities)} sent")
                                 
-                                # Add current group to retry queue
-                                flood_retry_queue.append(chat_entity)
+                                # Mark account as temporarily restricted
+                                self._record_flood_wait(account_id, wait_seconds)
                                 
-                                logger.info(f"💤 WAITING {wait_minutes} minutes before continuing...")
+                                # Add remaining groups (including current) to retry queue for next run
+                                remaining_groups = target_entities[idx:]
+                                flood_retry_queue.extend(remaining_groups)
+                                logger.warning(f"📋 Added {len(remaining_groups)} groups to retry queue for next campaign run")
                                 
-                                # Wait the required time with progress updates every minute
-                                if wait_minutes > 0:
-                                    for minute in range(wait_minutes):
-                                        remaining_mins = wait_minutes - minute
-                                        logger.info(f"⏳ Waiting... {remaining_mins} minutes remaining")
-                                        await asyncio.sleep(60)  # Wait 1 minute
+                                # STOP this campaign immediately - don't wait!
+                                logger.error(f"❌ STOPPING CAMPAIGN: This account needs to rest")
+                                logger.error(f"💡 Other accounts will continue. This account will retry in {wait_minutes} minutes")
+                                logger.error(f"💡 Consider increasing MIN_DELAY_BETWEEN_MESSAGES to avoid FloodWait")
                                 
-                                # Wait remaining seconds
-                                remaining_seconds = wait_seconds % 60
-                                if remaining_seconds > 0:
-                                    await asyncio.sleep(remaining_seconds)
-                                
-                                # Add extra safety buffer
-                                extra_wait = random.uniform(15, 45)
-                                logger.info(f"✅ Wait complete! Adding {extra_wait:.0f}s safety buffer...")
-                                await asyncio.sleep(extra_wait)
-                                
-                                logger.info(f"🚀 RESUMING: Continuing with remaining {len(target_entities) - idx} groups (current group added to retry queue)")
-                                continue
+                                # Break out of sending loop - campaign stops here
+                                break
                             except errors.PeerFloodError:
                                 logger.error(f"🚨 PEER FLOOD ERROR at '{chat_entity.title}'")
                                 self._handle_peer_flood(account_id, account.get('account_name', 'Unknown'))
