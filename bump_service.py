@@ -1745,7 +1745,7 @@ class BumpService:
                 # We're in the main thread - use ThreadPoolExecutor to avoid blocking
                 import concurrent.futures
                 executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-                future = executor.submit(self._sync_send_ad, campaign_id)
+                    future = executor.submit(self._sync_send_ad, campaign_id)
                 
                 if wait_for_completion:
                     # Only wait if explicitly requested (old behavior)
@@ -2791,7 +2791,7 @@ class BumpService:
                     self.log_ad_performance(campaign_id, campaign['user_id'], str(chat_entity.id), message.id)
                     sent_count += 1
                     logger.info(f"Scheduled ad sent to {chat_entity.title} ({chat_entity.id}) for campaign {campaign['campaign_name']}")
-                    
+                
                     # 🛡️ ANTI-BAN: Record message sent and use safe delay
                     self._record_message_sent(account_id)
                     
@@ -3490,7 +3490,7 @@ class BumpService:
             return 10  # 10 minutes between accounts
     
     def load_existing_campaigns(self):
-        """Load and schedule existing active campaigns with smart staggering based on shared messages"""
+        """Load and schedule existing active campaigns with smart staggering"""
         import sqlite3
         from config import Config
         from collections import defaultdict
@@ -3498,38 +3498,44 @@ class BumpService:
         with self._get_db_connection() as conn:
             cursor = conn.cursor()
             
-            # Get all active campaigns with their message sources
+            # Get all active campaigns with their content (to group by same message)
             cursor.execute('''
-                SELECT id, campaign_name, schedule_time, account_id, storage_channel, storage_message_id
+                SELECT id, campaign_name, schedule_time, account_id, ad_content
                 FROM ad_campaigns 
                 WHERE is_active = 1
                 ORDER BY id
             ''')
             rows = cursor.fetchall()
             
-            # Group campaigns by their message source (storage_channel + storage_message_id)
+            if not rows:
+                logger.info("✅ No active campaigns to load")
+                return
+            
+            # Group campaigns by their message content (campaigns with same content = same message)
             message_groups = defaultdict(list)
             for row in rows:
-                campaign_id, campaign_name, schedule_time, account_id, storage_channel, storage_message_id = row
+                campaign_id, campaign_name, schedule_time, account_id, ad_content = row
                 
-                # Create unique key for message source
-                message_key = f"{storage_channel}_{storage_message_id}"
-                message_groups[message_key].append({
+                # Create unique key based on ad_content (first 100 chars to avoid huge keys)
+                # Campaigns with identical content are assumed to be sharing the same message
+                content_key = str(ad_content)[:100] if ad_content else f"campaign_{campaign_id}"
+                
+                message_groups[content_key].append({
                     'id': campaign_id,
                     'name': campaign_name,
                     'schedule': schedule_time,
                     'account_id': account_id
                 })
             
-            logger.info(f"📊 Found {len(rows)} active campaigns grouped into {len(message_groups)} message sources")
+            logger.info(f"📊 Found {len(rows)} active campaigns grouped into {len(message_groups)} message types")
             
             # Schedule campaigns with smart staggering
             total_campaigns_loaded = 0
-            for message_key, campaigns in message_groups.items():
+            for content_key, campaigns in message_groups.items():
                 account_count = len(campaigns)
                 stagger_minutes = self._calculate_smart_stagger_delay(account_count)
                 
-                logger.info(f"📬 Message source '{message_key}': {account_count} accounts, {stagger_minutes}-min stagger")
+                logger.info(f"📬 Message group: {account_count} accounts sending same content, {stagger_minutes}-min stagger")
                 
                 for index, campaign in enumerate(campaigns):
                     campaign_id = campaign['id']
@@ -3544,9 +3550,9 @@ class BumpService:
                     else:
                         logger.info(f"🚀 Campaign {campaign_id} ({campaign_name}): First account, starts immediately")
                     
-                    # Schedule the campaign with stagger delay
-                    self.schedule_campaign(campaign_id)
-                    
+                    # Schedule the campaign
+                self.schedule_campaign(campaign_id)
+        
                     # Apply stagger delay if this is not the first campaign in the group
                     if stagger_delay_seconds > 0 and Config.ENABLE_AUTO_STAGGER:
                         # Store the stagger delay in memory for runtime execution
