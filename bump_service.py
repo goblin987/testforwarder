@@ -2096,8 +2096,24 @@ class BumpService:
                                 logger.warning(f"⚠️ Account banned in channel '{chat_entity.title}' - Skipping")
                                 failed_count += 1
                                 continue  # Skip this group, continue with others
+                            except errors.ChatWriteForbiddenError:
+                                logger.error(f"🚫 WRITE FORBIDDEN in '{chat_entity.title}' - Account may be shadow banned!")
+                                logger.error(f"💡 Account: {account.get('account_name')} may need 48-72h rest")
+                                failed_count += 1
+                                # Don't break - try other groups, but this is a warning sign
+                                continue
+                            except errors.ChatRestrictedError as restrict_err:
+                                logger.error(f"🚫 CHAT RESTRICTED: '{chat_entity.title}' - {restrict_err}")
+                                failed_count += 1
+                                continue
+                            except errors.SlowModeWaitError as slow_err:
+                                logger.warning(f"🐌 SLOW MODE: '{chat_entity.title}' - wait {slow_err.seconds}s")
+                                # Wait and retry this group
+                                await asyncio.sleep(slow_err.seconds + 2)
+                                flood_retry_queue.append(chat_entity)
+                                continue
                             except Exception as linked_error:
-                                logger.error(f"❌ YOLO MODE: Failed to send to {chat_entity.title}: {linked_error}")
+                                logger.error(f"❌ YOLO MODE: Failed to send to {chat_entity.title}: {type(linked_error).__name__}: {linked_error}")
                                 failed_count += 1
                                 # Brief pause before trying next group
                                 await asyncio.sleep(random.uniform(1, 3))
